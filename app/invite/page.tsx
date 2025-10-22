@@ -206,30 +206,13 @@ Serenity Rehabilitation Center`,
       const data = await response.json()
       console.log('Analytics response:', data)
       if (data.success) {
-        setAnalytics(data)
-        console.log('Analytics loaded:', data.metrics)
+        const analyticsData = data.metrics || data
+        console.log('Setting analytics data:', analyticsData)
+        setAnalytics(analyticsData)
+        console.log('Analytics loaded successfully')
       } else {
         console.error('Failed to load analytics:', data.error)
         setAnalytics({
-          metrics: {
-            totalSent: 0,
-            opened: 0,
-            clicked: 0,
-            applied: 0,
-            openRate: 0,
-            clickRate: 0,
-            conversionRate: 0
-          },
-          templateMetrics: {},
-          dailyMetrics: [],
-          topPositions: [],
-          period: '30 days'
-        })
-      }
-    } catch (error) {
-      console.error('Failed to load analytics:', error)
-      setAnalytics({
-        metrics: {
           totalSent: 0,
           opened: 0,
           clicked: 0,
@@ -237,11 +220,18 @@ Serenity Rehabilitation Center`,
           openRate: 0,
           clickRate: 0,
           conversionRate: 0
-        },
-        templateMetrics: {},
-        dailyMetrics: [],
-        topPositions: [],
-        period: '30 days'
+        })
+      }
+    } catch (error) {
+      console.error('Failed to load analytics:', error)
+      setAnalytics({
+        totalSent: 0,
+        opened: 0,
+        clicked: 0,
+        applied: 0,
+        openRate: 0,
+        clickRate: 0,
+        conversionRate: 0
       })
     } finally {
       setIsLoadingAnalytics(false)
@@ -802,13 +792,23 @@ Serenity Rehabilitation Center`,
               </div>
             ) : (
               <>
+            {/* Debug Info - Remove in production */}
+            {process.env.NODE_ENV === 'development' && (
+              <div className="mb-4 p-4 bg-gray-100 rounded-lg">
+                <h4 className="font-semibold mb-2">Debug - Analytics Data:</h4>
+                <pre className="text-xs overflow-auto">
+                  {JSON.stringify(analytics, null, 2)}
+                </pre>
+              </div>
+            )}
+            
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center">
                     <Send className="h-8 w-8 text-blue-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">{analytics?.totalSent || 0}</p>
+                      <p className="text-2xl font-bold">{analytics?.totalSent ?? 0}</p>
                       <p className="text-gray-600 text-sm">Invitations Sent</p>
                     </div>
                   </div>
@@ -820,9 +820,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <Mail className="h-8 w-8 text-green-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">{analytics?.opened || 0}</p>
+                      <p className="text-2xl font-bold">{analytics?.opened ?? 0}</p>
                       <p className="text-gray-600 text-sm">Emails Opened</p>
-                      <p className="text-xs text-gray-500">{analytics?.openRate || 0}% open rate</p>
+                      <p className="text-xs text-gray-500">{analytics?.openRate ?? 0}% open rate</p>
                     </div>
                   </div>
                 </CardContent>
@@ -833,9 +833,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <Users className="h-8 w-8 text-purple-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">{analytics?.clicked || 0}</p>
+                      <p className="text-2xl font-bold">{analytics?.clicked ?? 0}</p>
                       <p className="text-gray-600 text-sm">Links Clicked</p>
-                      <p className="text-xs text-gray-500">{analytics?.clickRate || 0}% click rate</p>
+                      <p className="text-xs text-gray-500">{analytics?.clickRate ?? 0}% click rate</p>
                     </div>
                   </div>
                 </CardContent>
@@ -846,9 +846,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <CheckCircle className="h-8 w-8 text-orange-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">{analytics?.conversionRate || 0}%</p>
+                      <p className="text-2xl font-bold">{analytics?.conversionRate ?? 0}%</p>
                       <p className="text-gray-600 text-sm">Conversion Rate</p>
-                      <p className="text-xs text-gray-500">{analytics?.applied || 0} applications</p>
+                      <p className="text-xs text-gray-500">{analytics?.applied ?? 0} applications</p>
                     </div>
                   </div>
                 </CardContent>
