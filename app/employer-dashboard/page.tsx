@@ -95,12 +95,24 @@ export default function EmployerDashboard() {
     if (storedUser) {
       try {
         const user = JSON.parse(storedUser)
+        console.log('Stored user data:', user)
+        
         if (user.accountType === 'employer') {
           setEmployerInfo(user)
+          console.log('✅ Employer info loaded from localStorage:', user)
+          console.log('Employer ID:', user.id)
+        } else {
+          console.log('❌ User is not an employer, redirecting...')
+          window.location.href = user.accountType === 'applicant' ? '/applicant-dashboard' : '/staff-dashboard'
         }
       } catch (error) {
         console.error('Error parsing user data:', error)
+        localStorage.removeItem('currentUser')
+        window.location.href = '/login'
       }
+    } else {
+      console.log('❌ No stored user data found, redirecting to login...')
+      window.location.href = '/login'
     }
   }, [])
 
@@ -165,23 +177,34 @@ export default function EmployerDashboard() {
 
   const loadApplications = async () => {
     if (!employerId) {
-      console.log('No employer ID available, skipping applications load')
+      console.log('❌ No employer ID available, skipping applications load')
       return
     }
+    
+    console.log('🔄 Loading applications for employer ID:', employerId)
     
     try {
       setIsLoadingApplications(true)
       const response = await fetch(`/api/applications/employer?employer_id=${employerId}`)
+      console.log('Applications API response status:', response.status)
+      
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
+      
       const data = await response.json()
+      console.log('Applications API response data:', data)
+      
       if (data.success && data.applications) {
         setApplications(data.applications)
-        console.log(`Loaded ${data.applications.length} applications`)
+        console.log(`✅ Loaded ${data.applications.length} applications for employer ${employerId}`)
+      } else {
+        console.log('❌ No applications found or API error:', data.error)
+        setApplications([])
       }
     } catch (error) {
-      console.error('Error loading applications:', error)
+      console.error('❌ Error loading applications:', error)
+      setApplications([])
     } finally {
       setIsLoadingApplications(false)
     }
