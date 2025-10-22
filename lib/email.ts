@@ -73,6 +73,8 @@ export const sendEmail = async (options: EmailOptions) => {
 
     console.log('Attempting to send email to:', options.to)
     console.log('Using email service:', process.env.EMAIL_SERVICE || 'gmail')
+    console.log('From email:', process.env.EMAIL_USER || 'mase2025ai@gmail.com')
+    console.log('API Key present:', !!process.env.SENDGRID_API_KEY)
     
     const result = await transporter.sendMail(mailOptions)
     console.log('Email sent successfully:', result.messageId)
@@ -119,17 +121,19 @@ export const sendInvitationEmail = async (
     to: recipientEmail,
     subject: subject,
     html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; border-radius: 10px 10px 0 0; text-align: center;">
-          <h1 style="color: white; margin: 0; font-size: 24px;">Serenity Rehabilitation Center</h1>
-          <p style="color: #e2e8f0; margin: 5px 0 0 0; font-size: 16px;">Healthcare Excellence</p>
-        </div>
-        <div style="background: white; padding: 30px; border-radius: 0 0 10px 10px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);">
-          ${htmlBody}
-        </div>
-        <div style="text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px;">
-          <p>This email was sent from our automated invitation system.</p>
-          <p>If you did not expect this email, please ignore it.</p>
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f8f9fa;">
+        <div style="background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #2563eb; margin: 0; font-size: 24px;">Serenity Rehabilitation Center</h1>
+            <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 16px;">Healthcare Excellence</p>
+          </div>
+          <div style="line-height: 1.6; color: #374151;">
+            ${htmlBody}
+          </div>
+          <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb; text-align: center; color: #6b7280; font-size: 12px;">
+            <p>This message was sent to you by Serenity Rehabilitation Center.</p>
+            <p>If you did not expect this message, please disregard it.</p>
+          </div>
         </div>
       </div>
     `,
