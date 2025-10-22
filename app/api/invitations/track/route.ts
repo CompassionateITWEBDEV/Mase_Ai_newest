@@ -8,7 +8,15 @@ export async function GET(request: NextRequest) {
     const action = searchParams.get('action') // 'open' or 'click'
     const redirectUrl = searchParams.get('redirect')
 
+    console.log('🔍 Tracking request received:', { 
+      invitationId, 
+      action, 
+      redirectUrl,
+      url: request.url 
+    })
+
     if (!invitationId || !action) {
+      console.error('❌ Missing required parameters:', { invitationId, action })
       return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 })
     }
 
@@ -27,15 +35,20 @@ export async function GET(request: NextRequest) {
       console.log(`🔗 Link clicked for invitation ${invitationId}`)
     }
 
-    const { error } = await supabase
+    console.log('📝 Updating invitation with data:', { invitationId, updateData })
+
+    const { data: updatedInvitation, error } = await supabase
       .from('invitations')
       .update(updateData)
       .eq('id', invitationId)
+      .select()
 
     if (error) {
-      console.error('Error updating invitation:', error)
+      console.error('❌ Error updating invitation:', error)
       return NextResponse.json({ error: 'Failed to update invitation' }, { status: 500 })
     }
+
+    console.log('✅ Successfully updated invitation:', updatedInvitation)
 
     // If it's a click action and there's a redirect URL, redirect to it
     if (action === 'click' && redirectUrl) {
