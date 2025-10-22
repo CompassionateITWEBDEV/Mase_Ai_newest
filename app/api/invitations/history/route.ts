@@ -16,14 +16,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('invitations')
-      .select(`
-        *,
-        sent_by_staff:staff(
-          first_name,
-          last_name,
-          email
-        )
-      `)
+      .select('*')
       .order('sent_at', { ascending: false })
 
     // Apply filters

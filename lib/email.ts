@@ -89,6 +89,10 @@ export const sendEmail = async (options: EmailOptions) => {
         errorMessage = 'Authentication failed - check your email service credentials'
       } else if (error.message.includes('ECONNREFUSED')) {
         errorMessage = 'Connection refused - email service may be down'
+      } else if (error.message.includes('domain is not verified')) {
+        errorMessage = 'Domain not verified - please verify your domain in Resend dashboard or use a different email service'
+      } else if (error.message.includes('EMESSAGE')) {
+        errorMessage = 'Email service error - check your domain verification and API key'
       } else {
         errorMessage = error.message
       }
