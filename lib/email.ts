@@ -2,8 +2,8 @@ import nodemailer from 'nodemailer'
 
 // Create a transporter - supports multiple email services
 const createTransporter = () => {
-  // Try different email services based on environment
-  if (process.env.EMAIL_SERVICE === 'sendgrid') {
+  // Prioritize cloud-friendly services for production
+  if (process.env.EMAIL_SERVICE === 'sendgrid' || process.env.SENDGRID_API_KEY) {
     return nodemailer.createTransport({
       service: 'SendGrid',
       auth: {
@@ -59,7 +59,10 @@ export interface EmailOptions {
   text?: string
 }
 
-export const sendEmail = async (options: EmailOptions) => {
+export const sendEmail = async (options: EmailOptions, retryCount = 0) => {
+  const maxRetries = 3
+  const retryDelay = 2000 // 2 seconds
+
   try {
     const transporter = createTransporter()
     
@@ -71,7 +74,7 @@ export const sendEmail = async (options: EmailOptions) => {
       text: options.text || options.html.replace(/<[^>]*>/g, '') // Strip HTML for text version
     }
 
-    console.log('Attempting to send email to:', options.to)
+    console.log(`Attempting to send email to: ${options.to} (attempt ${retryCount + 1}/${maxRetries + 1})`)
     console.log('Using email service:', process.env.EMAIL_SERVICE || 'gmail')
     console.log('From email:', process.env.EMAIL_USER || 'mase2025ai@gmail.com')
     console.log('API Key present:', !!process.env.SENDGRID_API_KEY)
@@ -82,17 +85,31 @@ export const sendEmail = async (options: EmailOptions) => {
   } catch (error) {
     console.error('Error sending email:', error)
     
+    // Check if we should retry
+    if (retryCount < maxRetries && error instanceof Error) {
+      const isRetryableError = error.message.includes('ETIMEDOUT') || 
+                              error.message.includes('ECONNREFUSED') ||
+                              error.message.includes('ENOTFOUND') ||
+                              error.message.includes('ECONNRESET')
+      
+      if (isRetryableError) {
+        console.log(`Retrying email send in ${retryDelay}ms... (attempt ${retryCount + 1}/${maxRetries})`)
+        await new Promise(resolve => setTimeout(resolve, retryDelay))
+        return sendEmail(options, retryCount + 1)
+      }
+    }
+    
     // Provide more specific error messages
     let errorMessage = 'Unknown error'
     if (error instanceof Error) {
       if (error.message.includes('ETIMEDOUT')) {
-        errorMessage = 'Connection timeout - try using a different email service (Resend/SendGrid)'
+        errorMessage = 'Connection timeout - try using SendGrid or Resend for better cloud compatibility'
       } else if (error.message.includes('EAUTH')) {
         errorMessage = 'Authentication failed - check your email service credentials'
       } else if (error.message.includes('ECONNREFUSED')) {
         errorMessage = 'Connection refused - email service may be down'
       } else if (error.message.includes('domain is not verified')) {
-        errorMessage = 'Domain not verified - please verify your domain in Resend dashboard or use a different email service'
+        errorMessage = 'Domain not verified - please verify your domain in Resend dashboard or use SendGrid'
       } else if (error.message.includes('EMESSAGE')) {
         errorMessage = 'Email service error - check your domain verification and API key'
       } else {
