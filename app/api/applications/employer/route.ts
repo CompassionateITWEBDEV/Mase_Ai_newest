@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     }
 
     let query = supabase
-      .from('job_applications')
+      .from('applications')
       .select(`
         *,
         applicant:applicants(
@@ -50,13 +50,13 @@ export async function GET(request: NextRequest) {
           city,
           state,
           employer_id,
-          employer:employers(
+          employer:employees(
             company_name
           )
         )
       `)
       .eq('job_posting.employer_id', employerId)
-      .order('applied_date', { ascending: false })
+      .order('applied_at', { ascending: false })
       .limit(limit)
 
     // Filter by specific job if specified

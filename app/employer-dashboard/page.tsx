@@ -554,7 +554,10 @@ export default function EmployerDashboard() {
     active: jobs.filter(j => j.status === 'active').length,
     draft: jobs.filter(j => j.status === 'draft').length,
     totalViews: jobs.reduce((sum, j) => sum + (j.views_count || 0), 0),
-    totalApplications: jobs.reduce((sum, j) => sum + (j.applications_count || 0), 0),
+    totalApplications: applications.length,
+    hiredApplicants: applications.filter(app => app.status === 'accepted' || app.status === 'hired').length,
+    pendingApplications: applications.filter(app => app.status === 'pending').length,
+    rejectedApplications: applications.filter(app => app.status === 'rejected').length,
   }
 
   return (
@@ -1195,19 +1198,18 @@ export default function EmployerDashboard() {
                 </CardContent>
               </Card>
 
-              <Card className="border-l-4 border-l-orange-500">
+              <Card className="border-l-4 border-l-green-500">
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium text-gray-600">Avg. Applications</CardTitle>
-                  <div className="p-2 bg-orange-100 rounded-lg">
-                    <TrendingUp className="h-4 w-4 text-orange-600" />
+                  <CardTitle className="text-sm font-medium text-gray-600">Hired Applicants</CardTitle>
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <UserCheck className="h-4 w-4 text-green-600" />
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-3xl font-bold text-gray-900">
-                    {stats.active > 0 ? (stats.totalApplications / stats.active).toFixed(1) : '0'}
-                  </div>
+                  <div className="text-3xl font-bold text-gray-900">{stats.hiredApplicants}</div>
                   <p className="text-sm text-gray-500 mt-1">
-                    Per active job
+                    <span className="text-green-600 font-medium">{stats.hiredApplicants}</span> hired, 
+                    <span className="text-yellow-600"> {stats.pendingApplications}</span> pending
                   </p>
                 </CardContent>
               </Card>
@@ -1226,28 +1228,61 @@ export default function EmployerDashboard() {
                 </CardHeader>
                 <CardContent>
                   {applications.slice(0, 3).map((application, index) => (
-                    <div key={application.id} className="flex items-center justify-between p-3 border rounded-lg mb-2 hover:bg-gray-50">
+                    <div key={application.id} className="flex items-center justify-between p-3 border rounded-lg mb-2 hover:bg-gray-50 cursor-pointer"
+                         onClick={() => {
+                           setSelectedApplication(application)
+                           setIsApplicationModalOpen(true)
+                         }}>
                       <div className="flex items-center space-x-3">
                         <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                           <span className="text-sm font-medium text-blue-600">
                             {application.applicant?.full_name?.charAt(0) || 'A'}
                           </span>
                         </div>
-                        <div>
+                        <div className="flex-1">
                           <p className="font-medium text-sm">{application.applicant?.full_name || 'Unknown Applicant'}</p>
                           <p className="text-xs text-gray-500">{application.job_posting?.title || 'Unknown Position'}</p>
+                          <div className="flex items-center space-x-2 mt-1">
+                            <span className="text-xs text-gray-400">
+                              Applied: {new Date(application.applied_date).toLocaleDateString()}
+                            </span>
+                            {application.job_posting?.company_name && (
+                              <span className="text-xs text-blue-600">
+                                • {application.job_posting.company_name}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
-                      <Badge 
-                        variant="outline"
-                        className={
-                          application.status === 'pending' ? 'border-yellow-300 text-yellow-700' :
-                          application.status === 'accepted' ? 'border-green-300 text-green-700' :
-                          'border-red-300 text-red-700'
-                        }
-                      >
-                        {application.status}
-                      </Badge>
+                      <div className="flex flex-col items-end space-y-1">
+                        <Badge 
+                          variant="outline"
+                          className={
+                            application.status === 'pending' ? 'border-yellow-300 text-yellow-700 bg-yellow-50' :
+                            application.status === 'accepted' || application.status === 'hired' ? 'border-green-300 text-green-700 bg-green-50' :
+                            application.status === 'rejected' ? 'border-red-300 text-red-700 bg-red-50' :
+                            application.status === 'interview_scheduled' ? 'border-purple-300 text-purple-700 bg-purple-50' :
+                            'border-gray-300 text-gray-700 bg-gray-50'
+                          }
+                        >
+                          {application.status === 'accepted' ? 'Hired' : 
+                           application.status === 'interview_scheduled' ? 'Interview' :
+                           application.status}
+                        </Badge>
+                        {application.status === 'accepted' || application.status === 'hired' ? (
+                          <span className="text-xs text-green-600 font-medium">
+                            ✓ Hired by {employerInfo?.company_name || 'Your Company'}
+                          </span>
+                        ) : application.status === 'rejected' ? (
+                          <span className="text-xs text-red-600">
+                            ✗ Not selected
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-500">
+                            Pending review
+                          </span>
+                        )}
+                      </div>
                     </div>
                   ))}
                   {applications.length === 0 && (
@@ -1313,6 +1348,68 @@ export default function EmployerDashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Hired/Accepted Applicants Section */}
+            {applications.filter(app => app.status === 'accepted' || app.status === 'hired').length > 0 && (
+              <Card className="border-green-200 bg-green-50">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-green-800">
+                    <UserCheck className="h-5 w-5" />
+                    Recently Hired Applicants
+                  </CardTitle>
+                  <CardDescription className="text-green-700">
+                    Congratulations! These applicants have been accepted for positions at {employerInfo?.company_name || 'your company'}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {applications
+                      .filter(app => app.status === 'accepted' || app.status === 'hired')
+                      .slice(0, 5)
+                      .map((application) => (
+                        <div key={application.id} className="flex items-center justify-between p-3 bg-white border border-green-200 rounded-lg">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                              <CheckCircle className="h-5 w-5 text-green-600" />
+                            </div>
+                            <div>
+                              <p className="font-medium text-sm text-gray-900">{application.applicant?.full_name || 'Unknown Applicant'}</p>
+                              <p className="text-xs text-gray-600">{application.job_posting?.title || 'Unknown Position'}</p>
+                              <div className="flex items-center space-x-2 mt-1">
+                                <span className="text-xs text-green-600 font-medium">
+                                  ✓ Hired on {new Date(application.updated_at).toLocaleDateString()}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  • Applied {new Date(application.applied_date).toLocaleDateString()}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge className="bg-green-100 text-green-800 border-green-300">
+                              {application.status === 'accepted' ? 'Hired' : 'Accepted'}
+                            </Badge>
+                            {application.job_posting?.company_name && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {application.job_posting.company_name}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                  {applications.filter(app => app.status === 'accepted' || app.status === 'hired').length > 5 && (
+                    <Button 
+                      variant="outline" 
+                      className="w-full mt-3 border-green-300 text-green-700 hover:bg-green-100"
+                      onClick={() => setActiveTab('applications')}
+                    >
+                      View All Hired Applicants
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>
@@ -1711,7 +1808,7 @@ export default function EmployerDashboard() {
                     <div>
                       <p className="text-sm font-medium text-gray-600">Hired</p>
                       <p className="text-2xl font-bold text-green-600">
-                        {applications.filter(app => app.status === 'accepted').length}
+                        {applications.filter(app => app.status === 'accepted' || app.status === 'hired').length}
                       </p>
                     </div>
                     <UserCheck className="h-8 w-8 text-green-500" />
@@ -1772,7 +1869,9 @@ export default function EmployerDashboard() {
                                       'bg-gray-100 text-gray-800 border-gray-300'
                                     }
                                   >
-                                    {application.status.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                                    {application.status === 'accepted' ? 'Hired' : 
+                                     application.status === 'hired' ? 'Hired' :
+                                     application.status.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
                                   </Badge>
                                 </div>
                               </div>
@@ -1834,6 +1933,12 @@ export default function EmployerDashboard() {
                                   <span className="text-sm text-gray-600 font-medium block">Location</span>
                                   <span className="text-gray-900">{application.applicant?.city}, {application.applicant?.state}</span>
                                 </div>
+                                {(application.status === 'accepted' || application.status === 'hired') && (
+                                  <div>
+                                    <span className="text-sm text-gray-600 font-medium block">Hired By</span>
+                                    <span className="text-green-600 font-medium">{application.job_posting?.company_name || employerInfo?.company_name || 'Your Company'}</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>

@@ -12,12 +12,10 @@ INSERT INTO employers (
   state,
   zip_code,
   address,
-  description,
-  is_verified,
   created_at,
   updated_at
 ) VALUES (
-  'emp_test_001',
+  '550e8400-e29b-41d4-a716-446655440001',
   'John',
   'Smith',
   'john.smith@serenityrehab.com',
@@ -29,8 +27,6 @@ INSERT INTO employers (
   'MI',
   '48201',
   '123 Healthcare Drive',
-  'Leading rehabilitation center specializing in physical therapy and occupational therapy services.',
-  true,
   NOW(),
   NOW()
 );
@@ -54,12 +50,11 @@ INSERT INTO job_postings (
   city,
   state,
   zip_code,
-  is_active,
   created_at,
   updated_at
 ) VALUES (
-  'job_test_001',
-  'emp_test_001',
+  '550e8400-e29b-41d4-a716-446655440002',
+  '550e8400-e29b-41d4-a716-446655440001',
   'Physical Therapist',
   'We are seeking a skilled Physical Therapist to join our team. The ideal candidate will have experience in outpatient rehabilitation and be passionate about helping patients recover and improve their quality of life.',
   'Physical Therapy',
@@ -75,7 +70,6 @@ INSERT INTO job_postings (
   'Detroit',
   'MI',
   '48201',
-  true,
   NOW(),
   NOW()
 );
@@ -99,12 +93,11 @@ INSERT INTO job_postings (
   city,
   state,
   zip_code,
-  is_active,
   created_at,
   updated_at
 ) VALUES (
-  'job_test_002',
-  'emp_test_001',
+  '550e8400-e29b-41d4-a716-446655440003',
+  '550e8400-e29b-41d4-a716-446655440001',
   'Occupational Therapist',
   'Join our team as an Occupational Therapist and help patients regain independence in their daily activities. We offer a supportive environment with opportunities for professional growth.',
   'Occupational Therapy',
@@ -120,7 +113,6 @@ INSERT INTO job_postings (
   'Detroit',
   'MI',
   '48201',
-  true,
   NOW(),
   NOW()
 );
