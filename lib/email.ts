@@ -128,7 +128,11 @@ export const sendInvitationEmail = async (
   body: string,
   invitationId?: string
 ) => {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  // Use Vercel URL in production, localhost in development
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+    (process.env.NODE_ENV === 'production' 
+      ? `https://${process.env.VERCEL_URL}` 
+      : 'http://localhost:3000')
   
   // Create tracking URLs
   const applicationUrl = invitationId 

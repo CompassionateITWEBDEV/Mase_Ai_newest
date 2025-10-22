@@ -44,7 +44,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const applicationLink = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/application`
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+      (process.env.NODE_ENV === 'production' 
+        ? `https://${process.env.VERCEL_URL}` 
+        : 'http://localhost:3000')
+    const applicationLink = `${baseUrl}/application`
     const invitations = []
     const errors = []
 

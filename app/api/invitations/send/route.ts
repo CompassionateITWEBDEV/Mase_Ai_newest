@@ -41,7 +41,11 @@ export async function POST(request: NextRequest) {
     }
 
     // Replace template variables
-    const applicationLink = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/application`
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
+      (process.env.NODE_ENV === 'production' 
+        ? `https://${process.env.VERCEL_URL}` 
+        : 'http://localhost:3000')
+    const applicationLink = `${baseUrl}/application`
     let emailSubject = template.subject.replace(/\[Name\]/g, recipientName)
     let emailBody = template.body
       .replace(/\[Name\]/g, recipientName)
