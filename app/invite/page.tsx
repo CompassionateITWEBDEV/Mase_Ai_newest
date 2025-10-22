@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,13 +10,55 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ArrowLeft, Send, Copy, CheckCircle, Mail, Users, LinkIcon, MessageSquare } from "lucide-react"
+import { ArrowLeft, Send, Copy, CheckCircle, Mail, Users, LinkIcon, MessageSquare, Loader2 } from "lucide-react"
 import Link from "next/link"
+
+interface EmailTemplate {
+  id: string
+  name: string
+  subject: string
+  body: string
+  template_type: string
+  variables: string[]
+}
+
+interface Invitation {
+  id: string
+  recipient_name: string
+  recipient_email: string
+  position: string
+  template_type: string
+  subject: string
+  status: string
+  sent_at: string
+  opened_at?: string
+  clicked_at?: string
+  applied_at?: string
+}
 
 export default function InviteSystem() {
   const [linkCopied, setLinkCopied] = useState(false)
   const [selectedTemplate, setSelectedTemplate] = useState("general")
   const [invitesSent, setInvitesSent] = useState(0)
+  const [isLoading, setIsLoading] = useState(false)
+  const [templates, setTemplates] = useState<EmailTemplate[]>([])
+  const [inviteHistory, setInviteHistory] = useState<Invitation[]>([])
+  const [analytics, setAnalytics] = useState<any>(null)
+  
+  // Form states
+  const [individualForm, setIndividualForm] = useState({
+    candidateName: '',
+    candidateEmail: '',
+    position: '',
+    personalMessage: '',
+    scheduleLater: false
+  })
+  
+  const [bulkForm, setBulkForm] = useState({
+    emails: '',
+    template: 'general',
+    csvFile: null as File | null
+  })
 
   const emailTemplates = {
     general: {
@@ -108,21 +150,53 @@ Serenity Rehabilitation Center`,
     },
   }
 
-  const [inviteHistory, setInviteHistory] = useState<any[]>([])
+  // Load data on component mount
+  useEffect(() => {
+    loadTemplates()
+    loadInviteHistory()
+    loadAnalytics()
+  }, [])
 
-  // In a real app, you would load invitation history from an API
-  // useEffect(() => {
-  //   const loadInviteHistory = async () => {
-  //     try {
-  //       const response = await fetch('/api/invitations/history')
-  //       const data = await response.json()
-  //       setInviteHistory(data.history || [])
-  //     } catch (error) {
-  //       console.error('Failed to load invite history:', error)
-  //     }
-  //   }
-  //   loadInviteHistory()
-  // }, [])
+  const loadTemplates = async () => {
+    try {
+      console.log('Loading templates...')
+      const response = await fetch('/api/invitations/templates')
+      const data = await response.json()
+      console.log('Templates response:', data)
+      if (data.success) {
+        setTemplates(data.templates)
+        console.log('Templates loaded:', data.templates)
+      } else {
+        console.error('Failed to load templates:', data.error)
+      }
+    } catch (error) {
+      console.error('Failed to load templates:', error)
+    }
+  }
+
+  const loadInviteHistory = async () => {
+    try {
+      const response = await fetch('/api/invitations/history')
+      const data = await response.json()
+      if (data.success) {
+        setInviteHistory(data.invitations)
+      }
+    } catch (error) {
+      console.error('Failed to load invite history:', error)
+    }
+  }
+
+  const loadAnalytics = async () => {
+    try {
+      const response = await fetch('/api/invitations/analytics')
+      const data = await response.json()
+      if (data.success) {
+        setAnalytics(data)
+      }
+    } catch (error) {
+      console.error('Failed to load analytics:', error)
+    }
+  }
 
   const copyApplicationLink = () => {
     const link = `${typeof window !== "undefined" ? window.location.origin : ""}/application`
@@ -131,10 +205,137 @@ Serenity Rehabilitation Center`,
     setTimeout(() => setLinkCopied(false), 2000)
   }
 
-  const sendInvite = () => {
-    // In a real app, this would send the email
-    setInvitesSent(invitesSent + 1)
-    console.log("Invite sent!")
+  const sendIndividualInvite = async () => {
+    if (!individualForm.candidateName || !individualForm.candidateEmail || !individualForm.position) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const response = await fetch('/api/invitations/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          recipientName: individualForm.candidateName,
+          recipientEmail: individualForm.candidateEmail,
+          position: individualForm.position,
+          templateType: selectedTemplate,
+          personalMessage: individualForm.personalMessage
+        })
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert('Invitation sent successfully!')
+        setInvitesSent(invitesSent + 1)
+        setIndividualForm({
+          candidateName: '',
+          candidateEmail: '',
+          position: '',
+          personalMessage: '',
+          scheduleLater: false
+        })
+        loadInviteHistory()
+        loadAnalytics()
+      } else {
+        alert('Failed to send invitation: ' + data.error)
+      }
+    } catch (error) {
+      console.error('Error sending invitation:', error)
+      alert('Failed to send invitation. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const sendBulkInvites = async () => {
+    if (!bulkForm.emails.trim()) {
+      alert('Please enter email addresses')
+      return
+    }
+
+    console.log('Original input:', bulkForm.emails)
+
+    // Parse email addresses - support both comma-separated and newline-separated
+    let emailList: string[] = []
+    
+    // First, split by newlines
+    const lines = bulkForm.emails.split('\n').filter(line => line.trim())
+    console.log('Lines after newline split:', lines)
+    
+    // Then for each line, split by commas
+    lines.forEach(line => {
+      const emails = line.split(',').map(email => email.trim()).filter(email => email)
+      console.log('Emails from line:', line, '->', emails)
+      emailList.push(...emails)
+    })
+    
+    // Remove duplicates and filter out invalid emails
+    const uniqueEmails = [...new Set(emailList)].filter(email => {
+      const trimmedEmail = email.trim()
+      const isValid = trimmedEmail.includes('@') && 
+             trimmedEmail.includes('.') && 
+             trimmedEmail.length > 5 &&
+             !trimmedEmail.includes(' ')
+      console.log('Email validation:', trimmedEmail, '->', isValid)
+      return isValid
+    })
+    
+    console.log('Email list after splitting:', emailList)
+    console.log('Unique emails after filtering:', uniqueEmails)
+    
+    const recipients = uniqueEmails.map(email => ({
+      name: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+      email: email,
+      position: 'Healthcare Professional'
+    }))
+    
+    console.log('Parsed recipients:', recipients)
+    console.log('Number of recipients:', recipients.length)
+
+    if (recipients.length === 0) {
+      alert('No valid email addresses found. Please check your input format.')
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      const requestBody = {
+        recipients,
+        templateType: bulkForm.template
+      }
+      
+      console.log('Sending bulk request:', requestBody)
+      
+      const response = await fetch('/api/invitations/bulk-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody)
+      })
+
+      const data = await response.json()
+      console.log('Bulk response:', data)
+      
+      if (data.success) {
+        alert(`Bulk invitations sent! ${data.totalSent} sent successfully, ${data.errors.length} failed.`)
+        setInvitesSent(invitesSent + data.totalSent)
+        setBulkForm({
+          emails: '',
+          template: 'general',
+          csvFile: null
+        })
+        loadInviteHistory()
+        loadAnalytics()
+      } else {
+        alert('Failed to send bulk invitations: ' + data.error)
+      }
+    } catch (error) {
+      console.error('Error sending bulk invitations:', error)
+      alert('Failed to send bulk invitations. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -193,27 +394,38 @@ Serenity Rehabilitation Center`,
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="candidate-name">Candidate Name</Label>
-                      <Input id="candidate-name" placeholder="Enter full name" />
+                      <Input 
+                        id="candidate-name" 
+                        placeholder="Enter full name" 
+                        value={individualForm.candidateName}
+                        onChange={(e) => setIndividualForm({...individualForm, candidateName: e.target.value})}
+                      />
                     </div>
                     <div>
                       <Label htmlFor="candidate-email">Email Address</Label>
-                      <Input id="candidate-email" type="email" placeholder="candidate@email.com" />
+                      <Input 
+                        id="candidate-email" 
+                        type="email" 
+                        placeholder="candidate@email.com" 
+                        value={individualForm.candidateEmail}
+                        onChange={(e) => setIndividualForm({...individualForm, candidateEmail: e.target.value})}
+                      />
                     </div>
                   </div>
 
                   <div>
                     <Label htmlFor="position">Target Position</Label>
-                    <Select>
+                    <Select value={individualForm.position} onValueChange={(value) => setIndividualForm({...individualForm, position: value})}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select position" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="rn">Registered Nurse (RN)</SelectItem>
-                        <SelectItem value="pt">Physical Therapist (PT)</SelectItem>
-                        <SelectItem value="ot">Occupational Therapist (OT)</SelectItem>
-                        <SelectItem value="hha">Home Health Aide (HHA)</SelectItem>
-                        <SelectItem value="msw">Master of Social Work (MSW)</SelectItem>
-                        <SelectItem value="st">Speech Therapist (ST)</SelectItem>
+                        <SelectItem value="Registered Nurse (RN)">Registered Nurse (RN)</SelectItem>
+                        <SelectItem value="Physical Therapist (PT)">Physical Therapist (PT)</SelectItem>
+                        <SelectItem value="Occupational Therapist (OT)">Occupational Therapist (OT)</SelectItem>
+                        <SelectItem value="Home Health Aide (HHA)">Home Health Aide (HHA)</SelectItem>
+                        <SelectItem value="Master of Social Work (MSW)">Master of Social Work (MSW)</SelectItem>
+                        <SelectItem value="Speech Therapist (ST)">Speech Therapist (ST)</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -225,26 +437,50 @@ Serenity Rehabilitation Center`,
                         <SelectValue placeholder="Select template" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="general">General Healthcare Positions</SelectItem>
-                        <SelectItem value="rn">Registered Nurse Specific</SelectItem>
-                        <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                        {templates.length > 0 ? (
+                          templates.map((template) => (
+                            <SelectItem key={template.id} value={template.template_type}>
+                              {template.name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <>
+                            <SelectItem value="general">General Healthcare Positions</SelectItem>
+                            <SelectItem value="rn">Registered Nurse Specific</SelectItem>
+                            <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
 
                   <div>
                     <Label htmlFor="personal-message">Personal Message (Optional)</Label>
-                    <Textarea id="personal-message" placeholder="Add a personal note to the candidate..." rows={3} />
+                    <Textarea 
+                      id="personal-message" 
+                      placeholder="Add a personal note to the candidate..." 
+                      rows={3}
+                      value={individualForm.personalMessage}
+                      onChange={(e) => setIndividualForm({...individualForm, personalMessage: e.target.value})}
+                    />
                   </div>
 
                   <div className="flex items-center space-x-2">
-                    <Checkbox id="schedule-send" />
+                    <Checkbox 
+                      id="schedule-send" 
+                      checked={individualForm.scheduleLater}
+                      onCheckedChange={(checked) => setIndividualForm({...individualForm, scheduleLater: !!checked})}
+                    />
                     <Label htmlFor="schedule-send">Schedule for later</Label>
                   </div>
 
-                  <Button onClick={sendInvite} className="w-full">
-                    <Send className="h-4 w-4 mr-2" />
-                    Send Invitation
+                  <Button onClick={sendIndividualInvite} className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4 mr-2" />
+                    )}
+                    {isLoading ? 'Sending...' : 'Send Invitation'}
                   </Button>
                 </CardContent>
               </Card>
@@ -265,20 +501,35 @@ Serenity Rehabilitation Center`,
                       id="bulk-emails"
                       placeholder="Enter email addresses separated by commas or new lines..."
                       rows={6}
+                      value={bulkForm.emails}
+                      onChange={(e) => setBulkForm({...bulkForm, emails: e.target.value})}
                     />
-                    <p className="text-xs text-gray-500 mt-1">Format: email@domain.com, Name (optional)</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Format: email1@domain.com, email2@domain.com, email3@domain.com<br/>
+                      Or one per line: email1@domain.com<br/>email2@domain.com
+                    </p>
                   </div>
 
                   <div>
                     <Label htmlFor="bulk-template">Email Template</Label>
-                    <Select>
+                    <Select value={bulkForm.template} onValueChange={(value) => setBulkForm({...bulkForm, template: value})}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select template" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="general">General Healthcare Positions</SelectItem>
-                        <SelectItem value="rn">Registered Nurse Specific</SelectItem>
-                        <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                        {templates.length > 0 ? (
+                          templates.map((template) => (
+                            <SelectItem key={template.id} value={template.template_type}>
+                              {template.name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <>
+                            <SelectItem value="general">General Healthcare Positions</SelectItem>
+                            <SelectItem value="rn">Registered Nurse Specific</SelectItem>
+                            <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -294,9 +545,13 @@ Serenity Rehabilitation Center`,
                     <p className="text-xs text-gray-500 mt-1">CSV format: Name, Email, Position (optional)</p>
                   </div>
 
-                  <Button className="w-full">
-                    <Send className="h-4 w-4 mr-2" />
-                    Send Bulk Invitations
+                  <Button onClick={sendBulkInvites} className="w-full" disabled={isLoading}>
+                    {isLoading ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4 mr-2" />
+                    )}
+                    {isLoading ? 'Sending...' : 'Send Bulk Invitations'}
                   </Button>
                 </CardContent>
               </Card>
@@ -362,9 +617,19 @@ Serenity Rehabilitation Center`,
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="general">General Healthcare Positions</SelectItem>
-                        <SelectItem value="rn">Registered Nurse Specific</SelectItem>
-                        <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                        {templates.length > 0 ? (
+                          templates.map((template) => (
+                            <SelectItem key={template.id} value={template.template_type}>
+                              {template.name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <>
+                            <SelectItem value="general">General Healthcare Positions</SelectItem>
+                            <SelectItem value="rn">Registered Nurse Specific</SelectItem>
+                            <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                          </>
+                        )}
                       </SelectContent>
                     </Select>
                   </div>
@@ -373,7 +638,7 @@ Serenity Rehabilitation Center`,
                     <Label htmlFor="email-subject">Subject Line</Label>
                     <Input
                       id="email-subject"
-                      value={emailTemplates[selectedTemplate as keyof typeof emailTemplates].subject}
+                      value={templates.find(t => t.template_type === selectedTemplate)?.subject || ''}
                       readOnly
                     />
                   </div>
@@ -382,7 +647,7 @@ Serenity Rehabilitation Center`,
                     <Label htmlFor="email-body">Email Body</Label>
                     <Textarea
                       id="email-body"
-                      value={emailTemplates[selectedTemplate as keyof typeof emailTemplates].body}
+                      value={templates.find(t => t.template_type === selectedTemplate)?.body || ''}
                       rows={15}
                       readOnly
                     />
@@ -432,28 +697,42 @@ Serenity Rehabilitation Center`,
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {inviteHistory.map((invite) => (
-                    <div key={invite.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <Mail className="h-8 w-8 text-gray-400" />
-                        <div>
-                          <p className="font-medium">{invite.recipient}</p>
-                          <p className="text-sm text-gray-600">
-                            {invite.position} • Sent: {invite.sentDate}
-                          </p>
-                          <p className="text-xs text-gray-500">Template: {invite.template}</p>
+                  {inviteHistory.length === 0 ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Mail className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                      <p>No invitations sent yet</p>
+                      <p className="text-sm">Start by sending your first invitation!</p>
+                    </div>
+                  ) : (
+                    inviteHistory.map((invite) => (
+                      <div key={invite.id} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          <Mail className="h-8 w-8 text-gray-400" />
+                          <div>
+                            <p className="font-medium">{invite.recipient_name}</p>
+                            <p className="text-sm text-gray-600">
+                              {invite.position} • Sent: {new Date(invite.sent_at).toLocaleDateString()}
+                            </p>
+                            <p className="text-xs text-gray-500">Template: {invite.template_type}</p>
+                            {invite.opened_at && (
+                              <p className="text-xs text-green-600">Opened: {new Date(invite.opened_at).toLocaleDateString()}</p>
+                            )}
+                            {invite.applied_at && (
+                              <p className="text-xs text-blue-600">Applied: {new Date(invite.applied_at).toLocaleDateString()}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          <Badge className={getStatusColor(invite.status)}>
+                            {invite.status.charAt(0).toUpperCase() + invite.status.slice(1)}
+                          </Badge>
+                          <Button variant="outline" size="sm">
+                            Resend
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center space-x-3">
-                        <Badge className={getStatusColor(invite.status)}>
-                          {invite.status.charAt(0).toUpperCase() + invite.status.slice(1)}
-                        </Badge>
-                        <Button variant="outline" size="sm">
-                          Resend
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -467,7 +746,7 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <Send className="h-8 w-8 text-blue-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">127</p>
+                      <p className="text-2xl font-bold">{analytics?.metrics?.totalSent || 0}</p>
                       <p className="text-gray-600 text-sm">Invitations Sent</p>
                     </div>
                   </div>
@@ -479,8 +758,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <Mail className="h-8 w-8 text-green-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">89</p>
+                      <p className="text-2xl font-bold">{analytics?.metrics?.opened || 0}</p>
                       <p className="text-gray-600 text-sm">Emails Opened</p>
+                      <p className="text-xs text-gray-500">{analytics?.metrics?.openRate || 0}% open rate</p>
                     </div>
                   </div>
                 </CardContent>
@@ -491,8 +771,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <Users className="h-8 w-8 text-purple-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">34</p>
-                      <p className="text-gray-600 text-sm">Applications Started</p>
+                      <p className="text-2xl font-bold">{analytics?.metrics?.clicked || 0}</p>
+                      <p className="text-gray-600 text-sm">Links Clicked</p>
+                      <p className="text-xs text-gray-500">{analytics?.metrics?.clickRate || 0}% click rate</p>
                     </div>
                   </div>
                 </CardContent>
@@ -503,8 +784,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <CheckCircle className="h-8 w-8 text-orange-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">27%</p>
+                      <p className="text-2xl font-bold">{analytics?.metrics?.conversionRate || 0}%</p>
                       <p className="text-gray-600 text-sm">Conversion Rate</p>
+                      <p className="text-xs text-gray-500">{analytics?.metrics?.applied || 0} applications</p>
                     </div>
                   </div>
                 </CardContent>
@@ -519,31 +801,34 @@ Serenity Rehabilitation Center`,
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[
-                    { template: "General Healthcare", sent: 45, opened: 32, applied: 12, rate: "27%" },
-                    { template: "RN Specific", sent: 38, opened: 29, applied: 15, rate: "39%" },
-                    { template: "PT Specific", sent: 28, opened: 21, applied: 8, rate: "29%" },
-                  ].map((template) => (
-                    <div key={template.template} className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="font-medium">{template.template}</span>
-                        <span className="text-sm text-gray-600">
-                          {template.applied}/{template.sent} applied ({template.rate})
-                        </span>
+                  {analytics?.templateMetrics ? (
+                    Object.entries(analytics.templateMetrics).map(([templateType, metrics]: [string, any]) => (
+                      <div key={templateType} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="font-medium">{templateType.charAt(0).toUpperCase() + templateType.slice(1)}</span>
+                          <span className="text-sm text-gray-600">
+                            {metrics.applied}/{metrics.sent} applied ({metrics.conversionRate.toFixed(1)}%)
+                          </span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div
+                            className="bg-blue-600 h-2 rounded-full"
+                            style={{ width: `${metrics.conversionRate}%` }}
+                          ></div>
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span>{metrics.sent} sent</span>
+                          <span>{metrics.opened} opened ({metrics.openRate.toFixed(1)}%)</span>
+                          <span>{metrics.applied} applied</span>
+                        </div>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-blue-600 h-2 rounded-full"
-                          style={{ width: `${(template.applied / template.sent) * 100}%` }}
-                        ></div>
-                      </div>
-                      <div className="flex justify-between text-xs text-gray-500">
-                        <span>{template.sent} sent</span>
-                        <span>{template.opened} opened</span>
-                        <span>{template.applied} applied</span>
-                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-4 text-gray-500">
+                      <p>No template data available yet</p>
+                      <p className="text-sm">Send some invitations to see performance metrics</p>
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>
