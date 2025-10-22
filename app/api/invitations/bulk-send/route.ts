@@ -83,13 +83,41 @@ export async function POST(request: NextRequest) {
           emailBody += `\n\nPersonal Note:\n${personalMessage}`
         }
 
-        // Send the actual email
+        // Insert invitation record first to get ID for tracking
+        const { data: invitation, error: insertError } = await supabase
+          .from('invitations')
+          .insert({
+            recipient_name: name,
+            recipient_email: email,
+            position: position,
+            template_type: templateType,
+            subject: emailSubject,
+            email_body: emailBody,
+            personal_message: personalMessage,
+            sent_by: null, // TODO: Get from auth context
+            status: 'sent',
+            sent_at: new Date().toISOString()
+          })
+          .select()
+          .single()
+
+        if (insertError) {
+          console.error('Failed to insert invitation for', email, ':', insertError)
+          errors.push({ 
+            email, 
+            error: 'Failed to save invitation record' 
+          })
+          continue
+        }
+
+        // Send the actual email with tracking
         console.log('Sending bulk invitation to:', email)
         const emailResult = await sendInvitationEmail(
           email,
           name,
           emailSubject,
-          emailBody
+          emailBody,
+          invitation.id
         )
 
         if (!emailResult.success) {
@@ -106,20 +134,6 @@ export async function POST(request: NextRequest) {
 
         console.log('Email sent successfully to', email, ':', emailResult.messageId)
 
-        // Prepare invitation data
-        invitations.push({
-          recipient_name: name,
-          recipient_email: email,
-          position: position,
-          template_type: templateType,
-          subject: emailSubject,
-          email_body: emailBody,
-          personal_message: personalMessage,
-          sent_by: null, // TODO: Get from auth context
-          status: 'sent',
-          sent_at: new Date().toISOString()
-        })
-
       } catch (error) {
         console.error('Error processing recipient:', recipient, error)
         errors.push({ 
@@ -131,26 +145,11 @@ export async function POST(request: NextRequest) {
     
     console.log(`📊 Final stats: Processed ${processedCount}, Success ${successCount}, Errors ${errors.length}`)
 
-    // Insert all invitations
-    const { data: insertedInvitations, error: insertError } = await supabase
-      .from('invitations')
-      .insert(invitations)
-      .select()
-
-    if (insertError) {
-      console.error('Error inserting bulk invitations:', insertError)
-      return NextResponse.json(
-        { error: 'Failed to save invitation records' },
-        { status: 500 }
-      )
-    }
-
     return NextResponse.json({
       success: true,
-      invitations: insertedInvitations,
-      totalSent: insertedInvitations?.length || 0,
+      totalSent: successCount,
       errors: errors,
-      message: `Bulk invitations sent! ${insertedInvitations?.length || 0} sent successfully, ${errors.length} failed.`
+      message: `Bulk invitations sent! ${successCount} sent successfully, ${errors.length} failed.`
     })
 
   } catch (error: any) {

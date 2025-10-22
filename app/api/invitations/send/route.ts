@@ -58,26 +58,7 @@ export async function POST(request: NextRequest) {
       emailBody += `\n\nPersonal Note:\n${personalMessage}`
     }
 
-    // Send the actual email
-    console.log('Sending invitation email to:', recipientEmail)
-    const emailResult = await sendInvitationEmail(
-      recipientEmail,
-      recipientName,
-      emailSubject,
-      emailBody
-    )
-
-    if (!emailResult.success) {
-      console.error('Failed to send email:', emailResult.error)
-      return NextResponse.json(
-        { error: 'Failed to send email: ' + emailResult.error },
-        { status: 500 }
-      )
-    }
-
-    console.log('Email sent successfully:', emailResult.messageId)
-
-    // Insert invitation record
+    // Insert invitation record first to get ID for tracking
     const { data: invitation, error: insertError } = await supabase
       .from('invitations')
       .insert({
@@ -103,8 +84,25 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // TODO: In production, actually send the email here
-    // For now, we'll just log it and return success
+    // Send the actual email with tracking
+    console.log('Sending invitation email to:', recipientEmail)
+    const emailResult = await sendInvitationEmail(
+      recipientEmail,
+      recipientName,
+      emailSubject,
+      emailBody,
+      invitation.id
+    )
+
+    if (!emailResult.success) {
+      console.error('Failed to send email:', emailResult.error)
+      return NextResponse.json(
+        { error: 'Failed to send email: ' + emailResult.error },
+        { status: 500 }
+      )
+    }
+
+    console.log('Email sent successfully:', emailResult.messageId)
 
     return NextResponse.json({
       success: true,

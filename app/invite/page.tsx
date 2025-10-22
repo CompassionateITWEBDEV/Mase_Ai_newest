@@ -278,7 +278,7 @@ Serenity Rehabilitation Center`,
       const data = await response.json()
       if (data.success) {
         alert('Invitation sent successfully!')
-        setInvitesSent(invitesSent + 1)
+    setInvitesSent(invitesSent + 1)
         setIndividualForm({
           candidateName: '',
           candidateEmail: '',
@@ -495,9 +495,9 @@ Serenity Rehabilitation Center`,
                           ))
                         ) : (
                           <>
-                            <SelectItem value="general">General Healthcare Positions</SelectItem>
-                            <SelectItem value="rn">Registered Nurse Specific</SelectItem>
-                            <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                        <SelectItem value="general">General Healthcare Positions</SelectItem>
+                        <SelectItem value="rn">Registered Nurse Specific</SelectItem>
+                        <SelectItem value="pt">Physical Therapist Specific</SelectItem>
                           </>
                         )}
                       </SelectContent>
@@ -528,7 +528,7 @@ Serenity Rehabilitation Center`,
                     {isLoading ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
-                      <Send className="h-4 w-4 mr-2" />
+                    <Send className="h-4 w-4 mr-2" />
                     )}
                     {isLoading ? 'Sending...' : 'Send Invitation'}
                   </Button>
@@ -575,9 +575,9 @@ Serenity Rehabilitation Center`,
                           ))
                         ) : (
                           <>
-                            <SelectItem value="general">General Healthcare Positions</SelectItem>
-                            <SelectItem value="rn">Registered Nurse Specific</SelectItem>
-                            <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                        <SelectItem value="general">General Healthcare Positions</SelectItem>
+                        <SelectItem value="rn">Registered Nurse Specific</SelectItem>
+                        <SelectItem value="pt">Physical Therapist Specific</SelectItem>
                           </>
                         )}
                       </SelectContent>
@@ -599,7 +599,7 @@ Serenity Rehabilitation Center`,
                     {isLoading ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     ) : (
-                      <Send className="h-4 w-4 mr-2" />
+                    <Send className="h-4 w-4 mr-2" />
                     )}
                     {isLoading ? 'Sending...' : 'Send Bulk Invitations'}
                   </Button>
@@ -675,9 +675,9 @@ Serenity Rehabilitation Center`,
                           ))
                         ) : (
                           <>
-                            <SelectItem value="general">General Healthcare Positions</SelectItem>
-                            <SelectItem value="rn">Registered Nurse Specific</SelectItem>
-                            <SelectItem value="pt">Physical Therapist Specific</SelectItem>
+                        <SelectItem value="general">General Healthcare Positions</SelectItem>
+                        <SelectItem value="rn">Registered Nurse Specific</SelectItem>
+                        <SelectItem value="pt">Physical Therapist Specific</SelectItem>
                           </>
                         )}
                       </SelectContent>
@@ -760,12 +760,12 @@ Serenity Rehabilitation Center`,
                     </div>
                   ) : (
                     inviteHistory.map((invite) => (
-                      <div key={invite.id} className="flex items-center justify-between p-4 border rounded-lg">
-                        <div className="flex items-center space-x-4">
-                          <Mail className="h-8 w-8 text-gray-400" />
-                          <div>
+                    <div key={invite.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div className="flex items-center space-x-4">
+                        <Mail className="h-8 w-8 text-gray-400" />
+                        <div>
                             <p className="font-medium">{invite.recipient_name}</p>
-                            <p className="text-sm text-gray-600">
+                          <p className="text-sm text-gray-600">
                               {invite.position} • Sent: {new Date(invite.sent_at).toLocaleDateString()}
                             </p>
                             <p className="text-xs text-gray-500">Template: {invite.template_type}</p>
@@ -776,16 +776,16 @@ Serenity Rehabilitation Center`,
                               <p className="text-xs text-blue-600">Applied: {new Date(invite.applied_at).toLocaleDateString()}</p>
                             )}
                           </div>
-                        </div>
-                        <div className="flex items-center space-x-3">
-                          <Badge className={getStatusColor(invite.status)}>
-                            {invite.status.charAt(0).toUpperCase() + invite.status.slice(1)}
-                          </Badge>
-                          <Button variant="outline" size="sm">
-                            Resend
-                          </Button>
-                        </div>
                       </div>
+                      <div className="flex items-center space-x-3">
+                        <Badge className={getStatusColor(invite.status)}>
+                          {invite.status.charAt(0).toUpperCase() + invite.status.slice(1)}
+                        </Badge>
+                        <Button variant="outline" size="sm">
+                          Resend
+                        </Button>
+                      </div>
+                    </div>
                     ))
                   )}
                 </div>
@@ -808,7 +808,7 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <Send className="h-8 w-8 text-blue-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">{analytics?.metrics?.totalSent || 0}</p>
+                      <p className="text-2xl font-bold">{analytics?.totalSent || 0}</p>
                       <p className="text-gray-600 text-sm">Invitations Sent</p>
                     </div>
                   </div>
@@ -820,9 +820,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <Mail className="h-8 w-8 text-green-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">{analytics?.metrics?.opened || 0}</p>
+                      <p className="text-2xl font-bold">{analytics?.opened || 0}</p>
                       <p className="text-gray-600 text-sm">Emails Opened</p>
-                      <p className="text-xs text-gray-500">{analytics?.metrics?.openRate || 0}% open rate</p>
+                      <p className="text-xs text-gray-500">{analytics?.openRate || 0}% open rate</p>
                     </div>
                   </div>
                 </CardContent>
@@ -833,9 +833,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <Users className="h-8 w-8 text-purple-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">{analytics?.metrics?.clicked || 0}</p>
+                      <p className="text-2xl font-bold">{analytics?.clicked || 0}</p>
                       <p className="text-gray-600 text-sm">Links Clicked</p>
-                      <p className="text-xs text-gray-500">{analytics?.metrics?.clickRate || 0}% click rate</p>
+                      <p className="text-xs text-gray-500">{analytics?.clickRate || 0}% click rate</p>
                     </div>
                   </div>
                 </CardContent>
@@ -846,9 +846,9 @@ Serenity Rehabilitation Center`,
                   <div className="flex items-center">
                     <CheckCircle className="h-8 w-8 text-orange-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">{analytics?.metrics?.conversionRate || 0}%</p>
+                      <p className="text-2xl font-bold">{analytics?.conversionRate || 0}%</p>
                       <p className="text-gray-600 text-sm">Conversion Rate</p>
-                      <p className="text-xs text-gray-500">{analytics?.metrics?.applied || 0} applications</p>
+                      <p className="text-xs text-gray-500">{analytics?.applied || 0} applications</p>
                     </div>
                   </div>
                 </CardContent>
@@ -866,19 +866,19 @@ Serenity Rehabilitation Center`,
                   {analytics?.templateMetrics ? (
                     Object.entries(analytics.templateMetrics).map(([templateType, metrics]: [string, any]) => (
                       <div key={templateType} className="space-y-2">
-                        <div className="flex justify-between items-center">
+                      <div className="flex justify-between items-center">
                           <span className="font-medium">{templateType.charAt(0).toUpperCase() + templateType.slice(1)}</span>
-                          <span className="text-sm text-gray-600">
+                        <span className="text-sm text-gray-600">
                             {metrics.applied}/{metrics.sent} applied ({metrics.conversionRate.toFixed(1)}%)
-                          </span>
-                        </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-blue-600 h-2 rounded-full"
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-blue-600 h-2 rounded-full"
                             style={{ width: `${metrics.conversionRate}%` }}
-                          ></div>
-                        </div>
-                        <div className="flex justify-between text-xs text-gray-500">
+                        ></div>
+                      </div>
+                      <div className="flex justify-between text-xs text-gray-500">
                           <span>{metrics.sent} sent</span>
                           <span>{metrics.opened} opened ({metrics.openRate.toFixed(1)}%)</span>
                           <span>{metrics.applied} applied</span>

@@ -125,14 +125,27 @@ export const sendInvitationEmail = async (
   recipientEmail: string,
   recipientName: string,
   subject: string,
-  body: string
+  body: string,
+  invitationId?: string
 ) => {
-  // Convert plain text to HTML
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+  
+  // Create tracking URLs
+  const applicationUrl = invitationId 
+    ? `${baseUrl}/api/invitations/track?action=click&id=${invitationId}&redirect=${encodeURIComponent(`${baseUrl}/application`)}`
+    : `${baseUrl}/application`
+  
+  // Convert plain text to HTML with tracking
   const htmlBody = body
     .replace(/\n/g, '<br>')
     .replace(/\*\s/g, '• ')
     .replace(/✓/g, '✅')
-    .replace(/\[APPLICATION_LINK\]/g, `<a href="${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/application" style="color: #2563eb; text-decoration: underline;">Apply Now</a>`)
+    .replace(/\[APPLICATION_LINK\]/g, `<a href="${applicationUrl}" style="color: #2563eb; text-decoration: underline;">Apply Now</a>`)
+
+  // Add tracking pixel for email opens
+  const trackingPixel = invitationId 
+    ? `<img src="${baseUrl}/api/invitations/track?action=open&id=${invitationId}" width="1" height="1" style="display:none;" />`
+    : ''
 
   return sendEmail({
     to: recipientEmail,
@@ -152,6 +165,7 @@ export const sendInvitationEmail = async (
             <p>If you did not expect this message, please disregard it.</p>
           </div>
         </div>
+        ${trackingPixel}
       </div>
     `,
     text: body
