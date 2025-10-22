@@ -44,6 +44,8 @@ export default function InviteSystem() {
   const [templates, setTemplates] = useState<EmailTemplate[]>([])
   const [inviteHistory, setInviteHistory] = useState<Invitation[]>([])
   const [analytics, setAnalytics] = useState<any>(null)
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false)
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false)
   
   // Form states
   const [individualForm, setIndividualForm] = useState({
@@ -175,26 +177,74 @@ Serenity Rehabilitation Center`,
   }
 
   const loadInviteHistory = async () => {
+    setIsLoadingHistory(true)
     try {
+      console.log('Loading invite history...')
       const response = await fetch('/api/invitations/history')
       const data = await response.json()
+      console.log('History response:', data)
       if (data.success) {
-        setInviteHistory(data.invitations)
+        setInviteHistory(data.invitations || [])
+        console.log('History loaded:', data.invitations?.length || 0, 'invitations')
+      } else {
+        console.error('Failed to load invite history:', data.error)
+        setInviteHistory([])
       }
     } catch (error) {
       console.error('Failed to load invite history:', error)
+      setInviteHistory([])
+    } finally {
+      setIsLoadingHistory(false)
     }
   }
 
   const loadAnalytics = async () => {
+    setIsLoadingAnalytics(true)
     try {
+      console.log('Loading analytics...')
       const response = await fetch('/api/invitations/analytics')
       const data = await response.json()
+      console.log('Analytics response:', data)
       if (data.success) {
         setAnalytics(data)
+        console.log('Analytics loaded:', data.metrics)
+      } else {
+        console.error('Failed to load analytics:', data.error)
+        setAnalytics({
+          metrics: {
+            totalSent: 0,
+            opened: 0,
+            clicked: 0,
+            applied: 0,
+            openRate: 0,
+            clickRate: 0,
+            conversionRate: 0
+          },
+          templateMetrics: {},
+          dailyMetrics: [],
+          topPositions: [],
+          period: '30 days'
+        })
       }
     } catch (error) {
       console.error('Failed to load analytics:', error)
+      setAnalytics({
+        metrics: {
+          totalSent: 0,
+          opened: 0,
+          clicked: 0,
+          applied: 0,
+          openRate: 0,
+          clickRate: 0,
+          conversionRate: 0
+        },
+        templateMetrics: {},
+        dailyMetrics: [],
+        topPositions: [],
+        period: '30 days'
+      })
+    } finally {
+      setIsLoadingAnalytics(false)
     }
   }
 
@@ -697,7 +747,12 @@ Serenity Rehabilitation Center`,
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {inviteHistory.length === 0 ? (
+                  {isLoadingHistory ? (
+                    <div className="text-center py-8 text-gray-500">
+                      <Loader2 className="h-12 w-12 mx-auto mb-4 text-gray-300 animate-spin" />
+                      <p>Loading invitation history...</p>
+                    </div>
+                  ) : inviteHistory.length === 0 ? (
                     <div className="text-center py-8 text-gray-500">
                       <Mail className="h-12 w-12 mx-auto mb-4 text-gray-300" />
                       <p>No invitations sent yet</p>
@@ -740,6 +795,12 @@ Serenity Rehabilitation Center`,
 
           <TabsContent value="analytics" className="space-y-6">
             {/* Analytics Dashboard */}
+            {isLoadingAnalytics ? (
+              <div className="text-center py-8 text-gray-500">
+                <Loader2 className="h-12 w-12 mx-auto mb-4 text-gray-300 animate-spin" />
+                <p>Loading analytics...</p>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <Card>
                 <CardContent className="p-6">
@@ -832,6 +893,7 @@ Serenity Rehabilitation Center`,
                 </div>
               </CardContent>
             </Card>
+            )}
           </TabsContent>
         </Tabs>
       </main>

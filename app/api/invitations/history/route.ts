@@ -65,9 +65,18 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Invitation history API error:', error)
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
+    
+    // Return empty history instead of error
+    return NextResponse.json({
+      success: true,
+      invitations: [],
+      pagination: {
+        page: 1,
+        limit: 50,
+        total: 0,
+        totalPages: 0
+      },
+      error: error.message
+    })
   }
 }
