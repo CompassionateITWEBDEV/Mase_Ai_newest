@@ -1,14 +1,55 @@
 import nodemailer from 'nodemailer'
 
-// Create a transporter for Gmail SMTP
+// Create a transporter - supports multiple email services
 const createTransporter = () => {
-  return nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER || 'mase2025ai@gmail.com',
-      pass: process.env.EMAIL_PASS || 'your-app-password' // Use App Password, not regular password
-    }
-  })
+  // Try different email services based on environment
+  if (process.env.EMAIL_SERVICE === 'sendgrid') {
+    return nodemailer.createTransport({
+      service: 'SendGrid',
+      auth: {
+        user: 'apikey',
+        pass: process.env.SENDGRID_API_KEY
+      }
+    })
+  } else if (process.env.EMAIL_SERVICE === 'resend') {
+    return nodemailer.createTransport({
+      host: 'smtp.resend.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: 'resend',
+        pass: process.env.RESEND_API_KEY
+      }
+    })
+  } else if (process.env.EMAIL_SERVICE === 'mailgun') {
+    return nodemailer.createTransport({
+      host: 'smtp.mailgun.org',
+      port: 587,
+      secure: false,
+      auth: {
+        user: process.env.MAILGUN_SMTP_USER,
+        pass: process.env.MAILGUN_SMTP_PASS
+      }
+    })
+  } else {
+    // Fallback to Gmail with better configuration for cloud platforms
+    return nodemailer.createTransport({
+      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false,
+      auth: {
+        user: process.env.EMAIL_USER || 'mase2025ai@gmail.com',
+        pass: process.env.EMAIL_PASS || 'your-app-password'
+      },
+      tls: {
+        rejectUnauthorized: false
+      },
+      connectionTimeout: 60000, // 60 seconds
+      greetingTimeout: 30000,   // 30 seconds
+      socketTimeout: 60000      // 60 seconds
+    })
+  }
 }
 
 export interface EmailOptions {
@@ -30,12 +71,30 @@ export const sendEmail = async (options: EmailOptions) => {
       text: options.text || options.html.replace(/<[^>]*>/g, '') // Strip HTML for text version
     }
 
+    console.log('Attempting to send email to:', options.to)
+    console.log('Using email service:', process.env.EMAIL_SERVICE || 'gmail')
+    
     const result = await transporter.sendMail(mailOptions)
     console.log('Email sent successfully:', result.messageId)
     return { success: true, messageId: result.messageId }
   } catch (error) {
     console.error('Error sending email:', error)
-    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    
+    // Provide more specific error messages
+    let errorMessage = 'Unknown error'
+    if (error instanceof Error) {
+      if (error.message.includes('ETIMEDOUT')) {
+        errorMessage = 'Connection timeout - try using a different email service (Resend/SendGrid)'
+      } else if (error.message.includes('EAUTH')) {
+        errorMessage = 'Authentication failed - check your email service credentials'
+      } else if (error.message.includes('ECONNREFUSED')) {
+        errorMessage = 'Connection refused - email service may be down'
+      } else {
+        errorMessage = error.message
+      }
+    }
+    
+    return { success: false, error: errorMessage }
   }
 }
 
