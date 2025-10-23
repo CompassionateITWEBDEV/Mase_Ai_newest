@@ -2019,7 +2019,7 @@ export default function EmployerDashboard() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => scheduleInterview(application)}
-                                disabled={application.status === 'interview_scheduled' || application.status === 'offer_received' || application.status === 'offer_accepted'}
+                                disabled={application.status === 'interview_scheduled' || application.status === 'offer_received' || application.status === 'offer_accepted' || application.status === 'accepted' || application.status === 'hired'}
                                 className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-50"
                               >
                                 <Calendar className="h-4 w-4 mr-2" />
@@ -2030,7 +2030,7 @@ export default function EmployerDashboard() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => sendJobOffer(application)}
-                                disabled={application.status === 'offer_received' || application.status === 'offer_accepted' || application.status === 'offer_declined'}
+                                disabled={application.status === 'offer_received' || application.status === 'offer_accepted' || application.status === 'offer_declined' || application.status === 'accepted' || application.status === 'hired'}
                                 className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 disabled:opacity-50"
                               >
                                 <Send className="h-4 w-4 mr-2" />
@@ -2052,7 +2052,7 @@ export default function EmployerDashboard() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => updateApplicationStatus(application.id, 'rejected')}
-                                disabled={application.status === 'rejected'}
+                                disabled={application.status === 'rejected' || application.status === 'accepted' || application.status === 'hired'}
                                 className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50"
                               >
                                 <XCircle className="h-4 w-4 mr-2" />
@@ -2311,7 +2311,7 @@ export default function EmployerDashboard() {
                   <Button
                     variant="outline"
                     onClick={() => updateApplicationStatus(selectedApplication.id, 'accepted')}
-                    disabled={selectedApplication.status === 'accepted'}
+                    disabled={selectedApplication.status === 'accepted' || selectedApplication.status === 'hired'}
                     className="text-green-600 hover:text-green-700"
                   >
                     <CheckCircle className="h-4 w-4 mr-1" />
@@ -2321,7 +2321,7 @@ export default function EmployerDashboard() {
                   <Button
                     variant="outline"
                     onClick={() => updateApplicationStatus(selectedApplication.id, 'rejected')}
-                    disabled={selectedApplication.status === 'rejected'}
+                    disabled={selectedApplication.status === 'rejected' || selectedApplication.status === 'accepted' || selectedApplication.status === 'hired'}
                     className="text-red-600 hover:text-red-700"
                   >
                     <XCircle className="h-4 w-4 mr-1" />
