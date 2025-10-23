@@ -357,6 +357,34 @@ export default function EmployerDashboard() {
     }
   }
 
+  const sendOfferToCandidate = (candidate: any) => {
+    // Create a mock application object for the offer modal
+    const mockApplication = {
+      id: `candidate-${candidate.id}`,
+      applicant_id: candidate.id,
+      applicant: {
+        full_name: candidate.full_name,
+        email: candidate.email,
+        phone: candidate.phone,
+        profession: candidate.profession,
+        experience_level: candidate.experience_level,
+        education_level: candidate.education_level,
+        city: candidate.city,
+        state: candidate.state
+      },
+      job_posting: {
+        title: 'Direct Offer',
+        company_name: employerInfo?.company_name || 'Our Company'
+      },
+      status: 'pending',
+      applied_date: new Date().toISOString(),
+      is_candidate_pool: true // Flag to indicate this is from candidate pool
+    }
+    
+    setSelectedApplicationForAction(mockApplication)
+    setIsOfferModalOpen(true)
+  }
+
   const saveCandidate = async (candidate: any) => {
     try {
       // Save candidate to employer's saved candidates list
@@ -402,6 +430,12 @@ export default function EmployerDashboard() {
   const handleOfferSent = () => {
     // Refresh applications to show updated status
     loadApplications()
+    
+    // If this was an offer to a candidate from candidate pool, refresh candidates too
+    if (selectedApplicationForAction?.is_candidate_pool) {
+      loadCandidates()
+    }
+    
     setIsOfferModalOpen(false)
     setSelectedApplicationForAction(null)
   }
@@ -2254,8 +2288,18 @@ export default function EmployerDashboard() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => saveCandidate(candidate)}
+                                  onClick={() => sendOfferToCandidate(candidate)}
                                   className="text-purple-600 hover:text-purple-700"
+                                >
+                                  <Send className="h-4 w-4 mr-1" />
+                                  Send Offer
+                                </Button>
+                                
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => saveCandidate(candidate)}
+                                  className="text-gray-600 hover:text-gray-700"
                                 >
                                   <Plus className="h-4 w-4 mr-1" />
                                   Save
@@ -2552,8 +2596,16 @@ export default function EmployerDashboard() {
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => saveCandidate(selectedCandidate)}
+                  onClick={() => sendOfferToCandidate(selectedCandidate)}
                   className="text-purple-600 hover:text-purple-700"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Send Offer
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => saveCandidate(selectedCandidate)}
+                  className="text-gray-600 hover:text-gray-700"
                 >
                   <Plus className="h-4 w-4 mr-2" />
                   Save Candidate
