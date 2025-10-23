@@ -342,6 +342,73 @@ export default function UserManagement() {
     }
   }
 
+  const handleEditUser = async () => {
+    if (!selectedUser) return
+
+    if (!selectedUser.email || !selectedUser.name) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    try {
+      const response = await fetch('/api/staff/update', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: selectedUser.id,
+          email: selectedUser.email,
+          name: selectedUser.name,
+          role_id: selectedUser.role.id,
+          department: selectedUser.department,
+          organization: selectedUser.organization,
+          is_active: selectedUser.isActive,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update staff member')
+      }
+
+      // Update local state
+      setUsers(users.map((u) => (u.id === selectedUser.id ? selectedUser : u)))
+      setIsEditUserOpen(false)
+      setSelectedUser(null)
+
+      alert('Staff member updated successfully!')
+
+      // Log this action to audit log
+      await fetch('/api/audit/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'Updated staff user account',
+          resource_type: 'staff',
+          resource_id: selectedUser.id,
+          details: {
+            target: selectedUser.email,
+            name: selectedUser.name,
+            role: selectedUser.role.name,
+          },
+        }),
+      })
+
+      // Reload audit logs
+      const auditResponse = await fetch('/api/audit/list?limit=100')
+      const auditData = await auditResponse.json()
+      if (auditData.success && auditData.logs) {
+        setAuditLogs(auditData.logs)
+      }
+      
+    } catch (error: any) {
+      console.error('Error updating staff:', error)
+      alert('Failed to update staff member: ' + error.message)
+    }
+  }
+
   const handleDeleteUser = async (userId: string) => {
     const user = users.find(u => u.id === userId)
     if (!user) return
@@ -492,6 +559,99 @@ export default function UserManagement() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Edit User Dialog */}
+      <Dialog open={isEditUserOpen} onOpenChange={setIsEditUserOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+            <DialogDescription>Update user information and permissions</DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="edit-name">Full Name</Label>
+                  <Input
+                    id="edit-name"
+                    value={selectedUser.name}
+                    onChange={(e) => setSelectedUser({ ...selectedUser, name: e.target.value })}
+                    placeholder="Enter full name"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="edit-email">Email Address</Label>
+                  <Input
+                    id="edit-email"
+                    type="email"
+                    value={selectedUser.email}
+                    onChange={(e) => setSelectedUser({ ...selectedUser, email: e.target.value })}
+                    placeholder="Enter email address"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="edit-role">Role</Label>
+                  <Select 
+                    value={selectedUser.role.id} 
+                    onValueChange={(value) => {
+                      const newRole = Object.values(USER_ROLES).find(r => r.id === value) || selectedUser.role
+                      setSelectedUser({ ...selectedUser, role: newRole, permissions: newRole.permissions })
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select role" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.values(USER_ROLES).map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          <div className="flex items-center space-x-2">
+                            {getRoleIcon(role)}
+                            <span>{role.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="edit-department">Department/Organization</Label>
+                  <Input
+                    id="edit-department"
+                    value={selectedUser.role.id === "survey_user" ? selectedUser.organization || "" : selectedUser.department || ""}
+                    onChange={(e) =>
+                      setSelectedUser({
+                        ...selectedUser,
+                        ...(selectedUser.role.id === "survey_user"
+                          ? { organization: e.target.value }
+                          : { department: e.target.value }),
+                      })
+                    }
+                    placeholder={selectedUser.role.id === "survey_user" ? "Enter organization" : "Enter department"}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  checked={selectedUser.isActive}
+                  onCheckedChange={(checked) => setSelectedUser({ ...selectedUser, isActive: checked })}
+                />
+                <Label>Active User</Label>
+              </div>
+
+              <div className="flex justify-end space-x-2">
+                <Button variant="outline" onClick={() => setIsEditUserOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleEditUser}>Update User</Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
