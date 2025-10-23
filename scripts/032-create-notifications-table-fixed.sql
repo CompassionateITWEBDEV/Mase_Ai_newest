@@ -40,4 +40,5 @@ INSERT INTO notifications (employer_id, type, title, message, action_url, read) 
   ('550e8400-e29b-41d4-a716-446655440001', 'interview', 'Interview Scheduled', 'Interview with Mike Chen scheduled for tomorrow at 2 PM', '/employer-dashboard?tab=applications', false),
   ('550e8400-e29b-41d4-a716-446655440001', 'offer', 'Offer Response', 'Lisa Rodriguez accepted your job offer', '/employer-dashboard?tab=applications', true),
   ('550e8400-e29b-41d4-a716-446655440001', 'document', 'Document Uploaded', 'John Smith uploaded their professional license', '/employer-dashboard?tab=applications', true),
-  ('550e8400-e29b-41d4-a716-446655440001', 'candidate', 'New Candidate', 'Emma Wilson joined the candidate pool', '/employer-dashboard?tab=candidates', true);
+  ('550e8400-e29b-41d4-a716-446655440001', 'candidate', 'New Candidate', 'Emma Wilson joined the candidate pool', '/employer-dashboard?tab=candidates', true)
+ON CONFLICT (id) DO NOTHING;

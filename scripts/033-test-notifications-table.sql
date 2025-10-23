@@ -13,10 +13,10 @@ ORDER BY ordinal_position;
 
 -- Check if we can insert a test record
 INSERT INTO notifications (employer_id, type, title, message, read) 
-VALUES ('550e8400-e29b-41d4-a716-446655440001', 'test', 'Test Notification', 'This is a test', false);
+VALUES ('550e8400-e29b-41d4-a716-446655440001', 'application', 'Test Notification', 'This is a test', false);
 
 -- Check if the record was inserted
-SELECT * FROM notifications WHERE type = 'test';
+SELECT * FROM notifications WHERE title = 'Test Notification';
 
 -- Clean up test record
-DELETE FROM notifications WHERE type = 'test';
+DELETE FROM notifications WHERE title = 'Test Notification';
