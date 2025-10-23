@@ -24,77 +24,92 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
+  const [isLoading, setIsLoading] = useState(true)
 
-  // Mock notifications - in real app, this would come from API
+  // Load notifications from API
   useEffect(() => {
-    const mockNotifications: Notification[] = [
-      {
-        id: '1',
-        type: 'application',
-        title: 'New Application Received',
-        message: 'Sarah Johnson applied for Registered Nurse position',
-        timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-        read: false,
-        actionUrl: '/employer-dashboard?tab=applications'
-      },
-      {
-        id: '2',
-        type: 'interview',
-        title: 'Interview Scheduled',
-        message: 'Interview with Mike Chen scheduled for tomorrow at 2 PM',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-        read: false,
-        actionUrl: '/employer-dashboard?tab=applications'
-      },
-      {
-        id: '3',
-        type: 'offer',
-        title: 'Offer Response',
-        message: 'Lisa Rodriguez accepted your job offer',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 4), // 4 hours ago
-        read: true,
-        actionUrl: '/employer-dashboard?tab=applications'
-      },
-      {
-        id: '4',
-        type: 'document',
-        title: 'Document Uploaded',
-        message: 'John Smith uploaded their professional license',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 6), // 6 hours ago
-        read: true,
-        actionUrl: '/employer-dashboard?tab=applications'
-      },
-      {
-        id: '5',
-        type: 'candidate',
-        title: 'New Candidate',
-        message: 'Emma Wilson joined the candidate pool',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 8), // 8 hours ago
-        read: true,
-        actionUrl: '/employer-dashboard?tab=candidates'
+    const loadNotifications = async () => {
+      if (!employerId) return
+
+      try {
+        setIsLoading(true)
+        const response = await fetch(`/api/notifications?employer_id=${employerId}`)
+        const data = await response.json()
+
+        if (data.success && data.notifications) {
+          const formattedNotifications = data.notifications.map((notif: any) => ({
+            id: notif.id,
+            type: notif.type,
+            title: notif.title,
+            message: notif.message,
+            timestamp: new Date(notif.created_at),
+            read: notif.read,
+            actionUrl: notif.action_url
+          }))
+          
+          setNotifications(formattedNotifications)
+          setUnreadCount(formattedNotifications.filter(n => !n.read).length)
+        }
+      } catch (error) {
+        console.error('Error loading notifications:', error)
+      } finally {
+        setIsLoading(false)
       }
-    ]
-    
-    setNotifications(mockNotifications)
-    setUnreadCount(mockNotifications.filter(n => !n.read).length)
+    }
+
+    loadNotifications()
   }, [employerId])
 
-  const markAsRead = (notificationId: string) => {
-    setNotifications(prev => 
-      prev.map(notif => 
-        notif.id === notificationId 
-          ? { ...notif, read: true }
-          : notif
-      )
-    )
-    setUnreadCount(prev => Math.max(0, prev - 1))
+  const markAsRead = async (notificationId: string) => {
+    try {
+      const response = await fetch('/api/notifications/update', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          notification_id: notificationId,
+          read: true,
+          employer_id: employerId
+        })
+      })
+
+      if (response.ok) {
+        setNotifications(prev => 
+          prev.map(notif => 
+            notif.id === notificationId 
+              ? { ...notif, read: true }
+              : notif
+          )
+        )
+        setUnreadCount(prev => Math.max(0, prev - 1))
+      }
+    } catch (error) {
+      console.error('Error marking notification as read:', error)
+    }
   }
 
-  const markAllAsRead = () => {
-    setNotifications(prev => 
-      prev.map(notif => ({ ...notif, read: true }))
-    )
-    setUnreadCount(0)
+  const markAllAsRead = async () => {
+    try {
+      const response = await fetch('/api/notifications/update', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          employer_id: employerId
+        })
+      })
+
+      if (response.ok) {
+        setNotifications(prev => 
+          prev.map(notif => ({ ...notif, read: true }))
+        )
+        setUnreadCount(0)
+      }
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error)
+    }
   }
 
   const getNotificationIcon = (type: string) => {
@@ -189,7 +204,12 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
           </CardHeader>
           <CardContent className="p-0">
             <div className="max-h-96 overflow-y-auto">
-              {notifications.length === 0 ? (
+              {isLoading ? (
+                <div className="p-4 text-center text-gray-500">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
+                  <p>Loading notifications...</p>
+                </div>
+              ) : notifications.length === 0 ? (
                 <div className="p-4 text-center text-gray-500">
                   <Bell className="h-8 w-8 mx-auto mb-2 text-gray-400" />
                   <p>No notifications yet</p>
