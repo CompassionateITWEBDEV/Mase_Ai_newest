@@ -190,6 +190,7 @@ export default function EmployerDashboard() {
     
     console.log('🔄 Loading applications for employer ID:', employerId)
     console.log('🔄 Employer info:', employerInfo)
+    console.log('🔄 Company name:', employerInfo?.company_name)
     
     try {
       setIsLoadingApplications(true)
@@ -209,7 +210,7 @@ export default function EmployerDashboard() {
         console.log('Applications data:', data.applications)
         
         // Log hired applications specifically
-        const hiredApps = data.applications.filter(app => app.status === 'accepted' || app.status === 'hired')
+        const hiredApps = data.applications.filter((app: any) => app.status === 'accepted' || app.status === 'hired')
         console.log(`📊 Found ${hiredApps.length} hired applications:`, hiredApps)
       } else {
         console.log('❌ No applications found or API error:', data.error)

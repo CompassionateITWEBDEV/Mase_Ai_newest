@@ -22,6 +22,32 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    // First, get all job posting IDs for this employer
+    const { data: employerJobs, error: jobsError } = await supabase
+      .from('job_postings')
+      .select('id')
+      .eq('employer_id', employerId)
+
+    if (jobsError) {
+      console.error('Error fetching employer jobs:', jobsError)
+      return NextResponse.json(
+        { error: 'Failed to fetch employer jobs: ' + jobsError.message },
+        { status: 500 }
+      )
+    }
+
+    if (!employerJobs || employerJobs.length === 0) {
+      console.log('No job postings found for employer:', employerId)
+      return NextResponse.json({
+        success: true,
+        applications: [],
+        count: 0,
+      })
+    }
+
+    const jobPostingIds = employerJobs.map(job => job.id)
+    console.log('Found job posting IDs for employer:', jobPostingIds)
+
     let query = supabase
       .from('job_applications')
       .select(`
@@ -55,13 +81,22 @@ export async function GET(request: NextRequest) {
           )
         )
       `)
-      .eq('job_posting.employer_id', employerId)
+      .in('job_posting_id', jobPostingIds)
       .order('applied_date', { ascending: false })
       .limit(limit)
 
-    // Filter by specific job if specified
+    // Filter by specific job if specified (and ensure it belongs to this employer)
     if (jobId) {
-      query = query.eq('job_posting_id', jobId)
+      if (jobPostingIds.includes(jobId)) {
+        query = query.eq('job_posting_id', jobId)
+      } else {
+        console.log('Job ID does not belong to this employer:', jobId)
+        return NextResponse.json({
+          success: true,
+          applications: [],
+          count: 0,
+        })
+      }
     }
 
     // Filter by status if specified
