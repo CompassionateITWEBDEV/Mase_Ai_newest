@@ -153,7 +153,14 @@ export default function EmployerDashboard() {
     }
   }, [employerInfo])
 
-  // Load candidates when candidate pool tab is active
+  // Load candidates when employer info is available (for overview tab candidate count)
+  useEffect(() => {
+    if (employerInfo?.id) {
+      loadCandidates()
+    }
+  }, [employerInfo])
+
+  // Refresh candidates when candidate pool tab is active
   useEffect(() => {
     if (activeTab === 'candidates' && employerInfo?.id) {
       loadCandidates()
