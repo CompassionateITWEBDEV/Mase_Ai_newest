@@ -81,6 +81,8 @@ export default function EmployerDashboard() {
   const [selectedApplicantName, setSelectedApplicantName] = useState('')
   const [isInterviewModalOpen, setIsInterviewModalOpen] = useState(false)
   const [isOfferModalOpen, setIsOfferModalOpen] = useState(false)
+  const [selectedCandidate, setSelectedCandidate] = useState<any>(null)
+  const [isCandidateModalOpen, setIsCandidateModalOpen] = useState(false)
   const [selectedApplicationForAction, setSelectedApplicationForAction] = useState<any>(null)
 
   // Employer info from login
@@ -305,6 +307,13 @@ export default function EmployerDashboard() {
 
   const viewCandidateProfile = async (candidateId: string) => {
     try {
+      // Find the candidate in the candidates array
+      const candidate = candidates.find(c => c.id === candidateId)
+      if (candidate) {
+        setSelectedCandidate(candidate)
+        setIsCandidateModalOpen(true)
+      }
+      
       // Track the profile view
       await fetch('/api/candidates/view-profile', {
         method: 'POST',
@@ -312,10 +321,64 @@ export default function EmployerDashboard() {
         body: JSON.stringify({ candidateId })
       })
       
-      // TODO: Implement view full profile modal
       console.log('View candidate profile:', candidateId)
     } catch (error) {
       console.error('Error tracking profile view:', error)
+    }
+  }
+
+  const contactCandidate = async (candidate: any) => {
+    try {
+      // Create a contact message modal or redirect to email
+      const subject = `Job Opportunity at ${employerInfo?.company_name || 'Our Company'}`
+      const body = `Hello ${candidate.full_name},\n\nI hope this message finds you well. I came across your profile in our candidate pool and was impressed by your qualifications.\n\nWe have opportunities at ${employerInfo?.company_name || 'our company'} that might be a great fit for your skills and experience.\n\nWould you be interested in discussing potential opportunities?\n\nBest regards,\n${employerInfo?.first_name} ${employerInfo?.last_name}\n${employerInfo?.company_name}`
+      
+      // Open email client
+      const mailtoLink = `mailto:${candidate.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+      window.open(mailtoLink, '_blank')
+      
+      // Track the contact action
+      await fetch('/api/candidates/contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          candidate_id: candidate.id,
+          employer_id: employerInfo?.id,
+          contact_type: 'email',
+          timestamp: new Date().toISOString()
+        })
+      })
+      
+      console.log('Contact email opened for candidate:', candidate.id)
+    } catch (error) {
+      console.error('Error contacting candidate:', error)
+    }
+  }
+
+  const saveCandidate = async (candidate: any) => {
+    try {
+      // Save candidate to employer's saved candidates list
+      await fetch('/api/candidates/save', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          candidate_id: candidate.id,
+          employer_id: employerInfo?.id,
+          saved_at: new Date().toISOString(),
+          notes: `Saved from candidate pool - ${candidate.profession}`
+        })
+      })
+      
+      // Show success message
+      alert(`Candidate ${candidate.full_name} has been saved to your saved candidates list!`)
+      console.log('Candidate saved:', candidate.id)
+    } catch (error) {
+      console.error('Error saving candidate:', error)
+      alert('Failed to save candidate. Please try again.')
     }
   }
 
@@ -2181,10 +2244,8 @@ export default function EmployerDashboard() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => {
-                                    // TODO: Implement contact candidate
-                                    console.log('Contact candidate:', candidate.id)
-                                  }}
+                                  onClick={() => contactCandidate(candidate)}
+                                  className="text-green-600 hover:text-green-700"
                                 >
                                   <FileText className="h-4 w-4 mr-1" />
                                   Contact
@@ -2193,10 +2254,8 @@ export default function EmployerDashboard() {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => {
-                                    // TODO: Implement save candidate
-                                    console.log('Save candidate:', candidate.id)
-                                  }}
+                                  onClick={() => saveCandidate(candidate)}
+                                  className="text-purple-600 hover:text-purple-700"
                                 >
                                   <Plus className="h-4 w-4 mr-1" />
                                   Save
@@ -2357,6 +2416,161 @@ export default function EmployerDashboard() {
         application={selectedApplicationForAction}
         onOfferSuccess={handleOfferSent}
       />
+
+      {/* Candidate Profile Modal */}
+      {selectedCandidate && (
+        <Dialog open={isCandidateModalOpen} onOpenChange={setIsCandidateModalOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold text-gray-900">
+                {selectedCandidate.full_name}
+              </DialogTitle>
+              <DialogDescription>
+                Detailed profile information for {selectedCandidate.profession || 'Healthcare Professional'}
+              </DialogDescription>
+            </DialogHeader>
+            
+            <div className="space-y-6">
+              {/* Profile Header */}
+              <div className="flex items-start justify-between p-4 bg-gray-50 rounded-lg">
+                <div className="flex items-center space-x-4">
+                  <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-semibold text-xl">
+                    {selectedCandidate.full_name?.charAt(0) || 'C'}
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-semibold text-gray-900">{selectedCandidate.full_name}</h3>
+                    <p className="text-gray-600">{selectedCandidate.profession || 'Healthcare Professional'}</p>
+                    <div className="flex items-center space-x-2 mt-1">
+                      <Badge variant="outline">{selectedCandidate.experience_level || 'Experience not specified'}</Badge>
+                      <Badge variant="secondary">{selectedCandidate.profile_completion}% Complete</Badge>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm text-gray-500">Profile Views</p>
+                  <p className="text-2xl font-bold text-blue-600">{selectedCandidate.profile_views || 0}</p>
+                </div>
+              </div>
+
+              {/* Contact Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Contact Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Email Address</p>
+                      <p className="text-gray-900">{selectedCandidate.email}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Phone Number</p>
+                      <p className="text-gray-900">{selectedCandidate.phone || 'Not provided'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Location</p>
+                      <p className="text-gray-900">{selectedCandidate.location}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Professional Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Profession</p>
+                      <p className="text-gray-900">{selectedCandidate.profession || 'Not specified'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Experience Level</p>
+                      <p className="text-gray-900">{selectedCandidate.experience_level || 'Not specified'}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium">Education Level</p>
+                      <p className="text-gray-900">{selectedCandidate.education_level || 'Not specified'}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Certifications */}
+              {selectedCandidate.certifications && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Certifications</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-gray-700 whitespace-pre-wrap">{selectedCandidate.certifications}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Profile Statistics */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Profile Statistics</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-blue-600">{selectedCandidate.profile_completion}%</p>
+                      <p className="text-sm text-gray-600">Profile Complete</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-green-600">{selectedCandidate.profile_views || 0}</p>
+                      <p className="text-sm text-gray-600">Profile Views</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-purple-600">
+                        {new Date(selectedCandidate.created_at).toLocaleDateString()}
+                      </p>
+                      <p className="text-sm text-gray-600">Member Since</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-2xl font-bold text-orange-600">
+                        {new Date(selectedCandidate.updated_at).toLocaleDateString()}
+                      </p>
+                      <p className="text-sm text-gray-600">Last Updated</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end space-x-3 pt-4 border-t">
+                <Button
+                  variant="outline"
+                  onClick={() => contactCandidate(selectedCandidate)}
+                  className="text-green-600 hover:text-green-700"
+                >
+                  <FileText className="h-4 w-4 mr-2" />
+                  Contact Candidate
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => saveCandidate(selectedCandidate)}
+                  className="text-purple-600 hover:text-purple-700"
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Save Candidate
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => loadApplicantDocuments(selectedCandidate.id, selectedCandidate.full_name)}
+                  className="text-blue-600 hover:text-blue-700"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download Documents
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   )
 }
