@@ -570,7 +570,11 @@ export default function EmployerDashboard() {
     totalViews: jobs.reduce((sum, j) => sum + (j.views_count || 0), 0),
     totalApplications: applications.length,
     hiredApplicants: applications.filter(app => app.status === 'accepted' || app.status === 'hired').length,
-    pendingApplications: applications.filter(app => app.status === 'pending').length,
+    pendingApplications: applications.filter(app => 
+      app.status === 'pending' || 
+      app.status === 'interview_scheduled' || 
+      app.status === 'offer_received'
+    ).length,
     rejectedApplications: applications.filter(app => app.status === 'rejected').length,
   }
 
@@ -1129,7 +1133,7 @@ export default function EmployerDashboard() {
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900">Review Applications</h3>
-                      <p className="text-sm text-gray-600">{stats.totalApplications} pending review</p>
+                      <p className="text-sm text-gray-600">{stats.pendingApplications} pending review</p>
                     </div>
                   </div>
                 </CardContent>
@@ -1241,7 +1245,10 @@ export default function EmployerDashboard() {
                   <CardDescription>Latest applications requiring your attention</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {applications.slice(0, 3).map((application, index) => (
+                  {applications
+                    .filter(app => app.status !== 'accepted' && app.status !== 'hired')
+                    .slice(0, 3)
+                    .map((application, index) => (
                     <div key={application.id} className="flex items-center justify-between p-3 border rounded-lg mb-2 hover:bg-gray-50 cursor-pointer"
                          onClick={() => {
                            setSelectedApplication(application)
@@ -1299,10 +1306,10 @@ export default function EmployerDashboard() {
                       </div>
                     </div>
                   ))}
-                  {applications.length === 0 && (
+                  {applications.filter(app => app.status !== 'accepted' && app.status !== 'hired').length === 0 && (
                     <p className="text-center text-gray-500 py-4">No recent applications</p>
                   )}
-                  {applications.length > 3 && (
+                  {applications.filter(app => app.status !== 'accepted' && app.status !== 'hired').length > 3 && (
                     <Button 
                       variant="outline" 
                       className="w-full mt-2"
@@ -1780,7 +1787,11 @@ export default function EmployerDashboard() {
                     <div>
                       <p className="text-sm font-medium text-gray-600">Pending</p>
                       <p className="text-2xl font-bold text-yellow-600">
-                        {applications.filter(app => app.status === 'pending').length}
+                        {applications.filter(app => 
+                          app.status === 'pending' || 
+                          app.status === 'interview_scheduled' || 
+                          app.status === 'offer_received'
+                        ).length}
                       </p>
                     </div>
                     <Clock className="h-8 w-8 text-yellow-500" />
