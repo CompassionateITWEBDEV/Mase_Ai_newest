@@ -144,17 +144,24 @@ export default function EmployerDashboard() {
     }
   }, [employerInfo])
 
-  // Load applications when applications tab is active
+  // Load applications when employer info is available (for overview tab)
   useEffect(() => {
-    if (activeTab === 'applications' && employerInfo?.id) {
+    if (employerInfo?.id) {
       loadApplications()
     }
-  }, [activeTab, employerInfo])
+  }, [employerInfo])
 
   // Load candidates when candidate pool tab is active
   useEffect(() => {
     if (activeTab === 'candidates' && employerInfo?.id) {
       loadCandidates()
+    }
+  }, [activeTab, employerInfo])
+
+  // Refresh applications when switching to applications tab
+  useEffect(() => {
+    if (activeTab === 'applications' && employerInfo?.id) {
+      loadApplications()
     }
   }, [activeTab, employerInfo])
 
@@ -182,6 +189,7 @@ export default function EmployerDashboard() {
     }
     
     console.log('🔄 Loading applications for employer ID:', employerId)
+    console.log('🔄 Employer info:', employerInfo)
     
     try {
       setIsLoadingApplications(true)
@@ -198,6 +206,11 @@ export default function EmployerDashboard() {
       if (data.success && data.applications) {
         setApplications(data.applications)
         console.log(`✅ Loaded ${data.applications.length} applications for employer ${employerId}`)
+        console.log('Applications data:', data.applications)
+        
+        // Log hired applications specifically
+        const hiredApps = data.applications.filter(app => app.status === 'accepted' || app.status === 'hired')
+        console.log(`📊 Found ${hiredApps.length} hired applications:`, hiredApps)
       } else {
         console.log('❌ No applications found or API error:', data.error)
         setApplications([])

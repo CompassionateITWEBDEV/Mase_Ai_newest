@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     }
 
     let query = supabase
-      .from('applications')
+      .from('job_applications')
       .select(`
         *,
         applicant:applicants(
@@ -50,13 +50,13 @@ export async function GET(request: NextRequest) {
           city,
           state,
           employer_id,
-          employer:employees(
+          employer:employers(
             company_name
           )
         )
       `)
       .eq('job_posting.employer_id', employerId)
-      .order('applied_at', { ascending: false })
+      .order('applied_date', { ascending: false })
       .limit(limit)
 
     // Filter by specific job if specified
@@ -79,7 +79,8 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    console.log(`Found ${applications?.length || 0} applications for employer`)
+    console.log(`Found ${applications?.length || 0} applications for employer ${employerId}`)
+    console.log('Raw applications data:', applications)
 
     // Transform the data to include company name in job_posting
     const transformedApplications = applications?.map(app => ({
@@ -95,6 +96,8 @@ export async function GET(request: NextRequest) {
         location: `${app.applicant.city}, ${app.applicant.state}`
       } : null
     }))
+
+    console.log('Transformed applications:', transformedApplications)
 
     return NextResponse.json({
       success: true,

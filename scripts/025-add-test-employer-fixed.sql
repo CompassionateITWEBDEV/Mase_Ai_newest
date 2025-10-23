@@ -217,3 +217,6 @@ INSERT INTO applications (
   NOW() - INTERVAL '1 day',
   NOW() - INTERVAL '1 day'
 );
+
+
+
