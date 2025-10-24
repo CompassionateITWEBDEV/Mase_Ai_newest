@@ -93,7 +93,11 @@ export default function StaffLogin() {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || "Login failed")
+        // Handle invalid credentials gracefully
+        setDialogMessage(data.error || "Invalid email or password. Please check your credentials and try again.")
+        setShowErrorDialog(true)
+        setIsLoading(false)
+        return
       }
 
       // Save user info to localStorage
@@ -108,7 +112,7 @@ export default function StaffLogin() {
       
     } catch (error: any) {
       console.error("Login error:", error)
-      setDialogMessage(error.message || "Login failed. Please check your credentials and try again.")
+      setDialogMessage("Login failed. Please try again.")
       setShowErrorDialog(true)
     } finally {
       setIsLoading(false)

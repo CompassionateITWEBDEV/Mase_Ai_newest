@@ -32,12 +32,7 @@ export async function GET(request: NextRequest) {
         status,
         verified_date,
         notes,
-        applicant:applicants(
-          id,
-          first_name,
-          last_name,
-          email
-        )
+        applicant_id
       `)
       .eq('applicant_id', applicantId)
       .order('uploaded_date', { ascending: false })
@@ -55,12 +50,9 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Transform the data to include applicant name
+    // Transform the data for better display
     const transformedDocuments = documents?.map(doc => ({
       ...doc,
-      applicant_name: doc.applicant ? 
-        `${doc.applicant.first_name} ${doc.applicant.last_name}` : 
-        'Unknown Applicant',
       file_size_mb: doc.file_size ? (doc.file_size / (1024 * 1024)).toFixed(2) : '0',
       uploaded_date_formatted: new Date(doc.uploaded_date).toLocaleDateString(),
       status_badge: getStatusBadge(doc.status)

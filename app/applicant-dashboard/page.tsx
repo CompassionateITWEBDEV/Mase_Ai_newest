@@ -214,7 +214,7 @@ export default function ApplicantDashboard() {
         
         // Immediately update local state to reflect deletion
         setDocuments(prevDocs => {
-          const filtered = prevDocs.filter(doc => doc.id !== documentId)
+          const filtered = prevDocs.filter((doc: any) => doc.id !== documentId)
           console.log('Filtered documents after deletion:', filtered)
           return filtered
         })
@@ -242,7 +242,7 @@ export default function ApplicantDashboard() {
   // Handle manual verification of all documents
   const handleVerifyAllDocuments = async () => {
     try {
-      const pendingDocs = documents.filter(doc => doc.status === 'pending')
+      const pendingDocs = documents.filter((doc: any) => doc.status === 'pending')
       if (pendingDocs.length === 0) {
         alert('No pending documents to verify.')
         return
@@ -458,14 +458,14 @@ export default function ApplicantDashboard() {
     
     // Required documents (5 points total) - uploaded and not rejected
     const requiredDocs = [
-      { type: 'resume', uploaded: documents.some(doc => doc.document_type === 'resume' && doc.status !== 'rejected') },
-      { type: 'license', uploaded: documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected') },
-      { type: 'certification', uploaded: documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected') },
-      { type: 'background_check', uploaded: documents.some(doc => doc.document_type === 'background_check' && doc.status !== 'rejected') },
-      { type: 'references', uploaded: documents.some(doc => doc.document_type === 'references' && doc.status !== 'rejected') }
+      { type: 'resume', uploaded: documents.some((doc: any) => doc.document_type === 'resume' && doc.status !== 'rejected') },
+      { type: 'license', uploaded: documents.some((doc: any) => doc.document_type === 'license' && doc.status !== 'rejected') },
+      { type: 'certification', uploaded: documents.some((doc: any) => doc.document_type === 'certification' && doc.status !== 'rejected') },
+      { type: 'background_check', uploaded: documents.some((doc: any) => doc.document_type === 'background_check' && doc.status !== 'rejected') },
+      { type: 'references', uploaded: documents.some((doc: any) => doc.document_type === 'references' && doc.status !== 'rejected') }
     ]
     
-    requiredDocs.forEach(doc => {
+    requiredDocs.forEach((doc: any) => {
       if (doc.uploaded) completed++
     })
 
@@ -992,15 +992,22 @@ export default function ApplicantDashboard() {
     }
   }, [applicantInfo?.profession, applicantInfo?.experience, applicantInfo?.city, applicantInfo?.state, applicantInfo?.certifications])
 
+  // Check if applicant has uploaded a resume
+  const hasResume = () => {
+    if (!documents || documents.length === 0) {
+      return false
+    }
+    return documents.some((doc: any) => doc.document_type === 'resume')
+  }
+
   // Apply for a job - show confirmation dialog
   const applyForJob = async (jobId: string) => {
     if (!applicantInfo?.id) return
 
-    // Check if profile is complete (at least 80% complete)
-    const profileCompletion = calculateProfileCompletion(applicantInfo)
-    if (profileCompletion < 80) {
-      alert(`Please complete your profile before applying for jobs. Your profile is ${profileCompletion}% complete. Complete your profile in the Profile tab.`)
-      setActiveTab('profile')
+    // Check if resume is uploaded
+    if (!hasResume()) {
+      alert('Please upload your resume before applying for jobs. You can upload your resume in the Documents section of your dashboard.')
+      setActiveTab('documents')
       return
     }
 
@@ -1029,11 +1036,11 @@ export default function ApplicantDashboard() {
       if (!response.ok) {
         const errorData = await response.json()
         
-        // Check if it's a document requirement error
-        if (errorData.error === 'Missing required documents') {
+        // Check if it's a resume requirement error
+        if (errorData.error === 'Resume required' || errorData.action === 'upload_resume') {
           setIsApplyConfirmOpen(false)
-          setDocumentRequirements(errorData)
-          setIsDocumentUploadOpen(true)
+          alert(errorData.message || 'Please upload your resume before applying for jobs. You can upload your resume in the Documents section of your dashboard.')
+          setActiveTab('documents') // Navigate to documents tab
           return
         }
         
@@ -2552,13 +2559,13 @@ export default function ApplicantDashboard() {
                                 e.stopPropagation()
                                 applyForJob(job.id)
                               }}
-                              disabled={applications.some(app => app.job_posting_id === job.id) || (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)}
+                              disabled={applications.some(app => app.job_posting_id === job.id) || !hasResume()}
                               className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
                             >
                               {applications.some(app => app.job_posting_id === job.id) 
                                 ? 'Applied' 
-                                : (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)
-                                  ? 'Complete Profile First'
+                                : !hasResume()
+                                  ? 'Upload Resume First'
                                   : 'Apply Now'
                               }
                             </Button>
@@ -2655,13 +2662,13 @@ export default function ApplicantDashboard() {
                           <Button 
                             size="sm" 
                             onClick={() => applyForJob(job.id)}
-                            disabled={applications.some(app => app.job_posting_id === job.id) || (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)}
+                            disabled={applications.some(app => app.job_posting_id === job.id) || !hasResume()}
                               className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
                           >
                             {applications.some(app => app.job_posting_id === job.id) 
                               ? 'Applied' 
-                              : (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)
-                                  ? 'Complete Profile'
+                              : !hasResume()
+                                  ? 'Upload Resume First'
                                 : 'Apply Now'
                             }
                           </Button>
@@ -2921,7 +2928,7 @@ export default function ApplicantDashboard() {
                     { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
                     { name: "References", required: true, type: "references", description: "Professional references" },
                   ].map((req, index) => {
-                    const uploadedDoc = documents.find(doc => doc.document_type === req.type)
+                    const uploadedDoc = documents.find((doc: any) => doc.document_type === req.type)
                     const isUploaded = !!uploadedDoc
                     const isVerified = uploadedDoc?.status === 'verified'
                     const isPending = uploadedDoc?.status === 'pending'
@@ -3114,7 +3121,7 @@ export default function ApplicantDashboard() {
                     { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
                     { name: "References", required: true, type: "references", description: "Professional references" },
                   ].map((req, index) => {
-                    const uploadedDoc = documents.find(doc => doc.document_type === req.type)
+                    const uploadedDoc = documents.find((doc: any) => doc.document_type === req.type)
                     const isUploaded = !!uploadedDoc
                     const isVerified = uploadedDoc?.status === 'verified'
                     const isPending = uploadedDoc?.status === 'pending'
@@ -3301,7 +3308,7 @@ export default function ApplicantDashboard() {
                   <h3 className="text-xl font-semibold text-gray-900">Document Status</h3>
                   <div className="flex gap-2">
           
-                    {documents.some(doc => doc.status === 'pending') && (
+                    {documents.some((doc: any) => doc.status === 'pending') && (
                       <Button
                         onClick={() => handleVerifyAllDocuments()}
                         className="bg-green-600 hover:bg-green-700 text-white"
@@ -3606,13 +3613,13 @@ export default function ApplicantDashboard() {
                       setSelectedJob(updatedJobs)
                     }
                   }}
-                  disabled={applications.some(app => app.job_posting_id === selectedJob.id) || (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)}
+                  disabled={applications.some(app => app.job_posting_id === selectedJob.id) || !hasResume()}
                   className="flex-1"
                 >
                   {applications.some(app => app.job_posting_id === selectedJob.id) 
                     ? 'Already Applied' 
-                    : (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)
-                      ? 'Complete Profile First'
+                    : !hasResume()
+                      ? 'Upload Resume First'
                       : 'Apply Now'
                   }
                 </Button>

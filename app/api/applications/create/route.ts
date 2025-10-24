@@ -22,13 +22,12 @@ export async function POST(request: NextRequest) {
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // For testing purposes, only require resume - other documents are optional
+    // Check if applicant has uploaded a resume (any status)
     const { data: documents, error: docError } = await supabase
       .from('applicant_documents')
       .select('document_type, status, file_name, uploaded_date')
       .eq('applicant_id', applicant_id)
       .eq('document_type', 'resume')
-      .eq('status', 'verified')
 
     if (docError) {
       console.error('Document validation error:', docError)
@@ -38,24 +37,21 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // For testing: Only require resume, other documents are optional
-    const requiredDocuments = [
-      { type: 'resume', name: 'Resume' }
-    ]
-
-    // Check if resume is present and verified
+    // Check if resume is present (any status - pending, verified, etc.)
     const hasResume = documents && documents.length > 0
 
     if (!hasResume) {
       return NextResponse.json(
         { 
-          error: 'Missing required documents',
-          missingDocuments: [{ type: 'resume', name: 'Resume' }],
-          message: 'Please upload your resume before applying for jobs.'
+          error: 'Resume required',
+          message: 'Please upload your resume before applying for jobs. You can upload your resume in the Documents section of your dashboard.',
+          action: 'upload_resume'
         },
         { status: 400 }
       )
     }
+
+    console.log('✅ Resume found for applicant:', applicant_id, 'Status:', documents[0]?.status)
 
     console.log('Creating job application:', { job_posting_id, applicant_id })
 
