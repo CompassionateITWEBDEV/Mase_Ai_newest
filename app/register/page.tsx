@@ -506,9 +506,9 @@ export default function RegisterPage() {
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="hospital">Hospital</SelectItem>
-                            <SelectItem value="nursing_home">Nursing Home</SelectItem>
-                            <SelectItem value="assisted_living">Assisted Living</SelectItem>
-                            <SelectItem value="home_health">Home Health Agency</SelectItem>
+                            <SelectItem value="nursing-home">Nursing Home</SelectItem>
+                            <SelectItem value="assisted-living">Assisted Living</SelectItem>
+                            <SelectItem value="home-health">Home Health Agency</SelectItem>
                             <SelectItem value="clinic">Medical Clinic</SelectItem>
                             <SelectItem value="rehabilitation">Rehabilitation Center</SelectItem>
                           </SelectContent>
@@ -555,14 +555,14 @@ export default function RegisterPage() {
                       <SelectValue placeholder="Select your profession" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="registered_nurse">Registered Nurse (RN)</SelectItem>
-                      <SelectItem value="licensed_practical_nurse">Licensed Practical Nurse (LPN)</SelectItem>
-                      <SelectItem value="certified_nursing_assistant">Certified Nursing Assistant (CNA)</SelectItem>
-                      <SelectItem value="physical_therapist">Physical Therapist (PT)</SelectItem>
-                      <SelectItem value="occupational_therapist">Occupational Therapist (OT)</SelectItem>
-                      <SelectItem value="speech_therapist">Speech Language Pathologist</SelectItem>
-                      <SelectItem value="medical_assistant">Medical Assistant</SelectItem>
-                      <SelectItem value="home_health_aide">Home Health Aide</SelectItem>
+                      <SelectItem value="registered-nurse">Registered Nurse (RN)</SelectItem>
+                      <SelectItem value="licensed-practical-nurse">Licensed Practical Nurse (LPN)</SelectItem>
+                      <SelectItem value="certified-nursing-assistant">Certified Nursing Assistant (CNA)</SelectItem>
+                      <SelectItem value="physical-therapist">Physical Therapist (PT)</SelectItem>
+                      <SelectItem value="occupational-therapist">Occupational Therapist (OT)</SelectItem>
+                      <SelectItem value="speech-therapist">Speech Language Pathologist</SelectItem>
+                      <SelectItem value="medical-assistant">Medical Assistant</SelectItem>
+                      <SelectItem value="home-health-aide">Home Health Aide</SelectItem>
                       <SelectItem value="other">Other</SelectItem>
                     </SelectContent>
                   </Select>
@@ -594,7 +594,7 @@ export default function RegisterPage() {
                       <SelectValue placeholder="Select education level" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="high_school">High School Diploma</SelectItem>
+                      <SelectItem value="high-school">High School Diploma</SelectItem>
                       <SelectItem value="certificate">Certificate Program</SelectItem>
                       <SelectItem value="associate">Associate Degree</SelectItem>
                       <SelectItem value="bachelor">Bachelor's Degree</SelectItem>

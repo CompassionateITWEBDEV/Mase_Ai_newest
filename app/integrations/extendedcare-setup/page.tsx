@@ -364,12 +364,12 @@ export default function ExtendedCareSetupPage() {
                   <Label>Required Services (Select all that apply)</Label>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2 mt-2">
                     {[
-                      { id: "skilled_nursing", label: "Skilled Nursing" },
-                      { id: "physical_therapy", label: "Physical Therapy" },
-                      { id: "occupational_therapy", label: "Occupational Therapy" },
-                      { id: "speech_therapy", label: "Speech Therapy" },
-                      { id: "medical_social_work", label: "Medical Social Work" },
-                      { id: "home_health_aide", label: "Home Health Aide" },
+                      { id: "skilled-nursing", label: "Skilled Nursing" },
+                      { id: "physical-therapy", label: "Physical Therapy" },
+                      { id: "occupational-therapy", label: "Occupational Therapy" },
+                      { id: "speech-therapy", label: "Speech Therapy" },
+                      { id: "medical-social-work", label: "Medical Social Work" },
+                      { id: "home-health-aide", label: "Home Health Aide" },
                     ].map((service) => (
                       <div key={service.id} className="flex items-center space-x-2">
                         <Switch

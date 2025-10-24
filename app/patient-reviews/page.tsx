@@ -444,12 +444,12 @@ export default function PatientReviewsPage() {
                         <SelectValue placeholder="Select service type" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="home_health">Home Health Care</SelectItem>
-                        <SelectItem value="physical_therapy">Physical Therapy</SelectItem>
-                        <SelectItem value="personal_care">Personal Care</SelectItem>
-                        <SelectItem value="wound_care">Wound Care</SelectItem>
-                        <SelectItem value="occupational_therapy">Occupational Therapy</SelectItem>
-                        <SelectItem value="speech_therapy">Speech Therapy</SelectItem>
+                        <SelectItem value="home-health">Home Health Care</SelectItem>
+                        <SelectItem value="physical-therapy">Physical Therapy</SelectItem>
+                        <SelectItem value="personal-care">Personal Care</SelectItem>
+                        <SelectItem value="wound-care">Wound Care</SelectItem>
+                        <SelectItem value="occupational-therapy">Occupational Therapy</SelectItem>
+                        <SelectItem value="speech-therapy">Speech Therapy</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
