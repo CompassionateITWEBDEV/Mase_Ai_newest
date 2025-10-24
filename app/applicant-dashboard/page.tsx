@@ -102,6 +102,8 @@ export default function ApplicantDashboard() {
   const [isLoadingJobs, setIsLoadingJobs] = useState(false)
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false)
   const [profileData, setProfileData] = useState<Partial<ApplicantInfo>>({})
+  const [selectedDocument, setSelectedDocument] = useState<any>(null)
+  const [isDocumentViewerOpen, setIsDocumentViewerOpen] = useState(false)
 
   // Handle document verification
   const handleDocumentVerification = async (documentId: string, action: 'verified' | 'rejected', notes?: string) => {
@@ -206,6 +208,34 @@ export default function ApplicantDashboard() {
     } catch (error) {
       console.error('Bulk download error:', error)
       alert('Failed to download documents. Please try again.')
+    }
+  }
+
+  // Handle document deletion
+  const handleDeleteDocument = async (documentId: string, documentName: string) => {
+    if (!confirm(`Are you sure you want to delete "${documentName}"? This action cannot be undone.`)) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/documents/delete', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ documentId })
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+      if (data.success) {
+        alert('Document deleted successfully!')
+        loadDocuments() // Refresh the documents list
+      }
+    } catch (error) {
+      console.error('Error deleting document:', error)
+      alert('Failed to delete document. Please try again.')
     }
   }
 
@@ -2620,6 +2650,18 @@ export default function ApplicantDashboard() {
                                 <Button
                                   size="sm"
                                   variant="outline"
+                                  onClick={() => {
+                                    setSelectedDocument(uploadedDoc)
+                                    setIsDocumentViewerOpen(true)
+                                  }}
+                                  className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                                >
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
                                   onClick={() => handleDocumentDownload(uploadedDoc.id)}
                                   className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                 >
@@ -2637,6 +2679,15 @@ export default function ApplicantDashboard() {
                                     Verify
                                   </Button>
                                 )}
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDeleteDocument(uploadedDoc.id, uploadedDoc.file_name)}
+                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                >
+                                  <Trash2 className="h-3 w-3 mr-1" />
+                                  Delete
+                                </Button>
                               </div>
                             </>
                           ) : (
@@ -2902,6 +2953,108 @@ export default function ApplicantDashboard() {
           applicantId={applicantInfo.id}
           onUploadSuccess={handleDocumentUploadSuccess}
         />
+      )}
+
+      {/* Document Viewer Modal */}
+      {isDocumentViewerOpen && selectedDocument && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Document Details</h3>
+              <button
+                onClick={() => setIsDocumentViewerOpen(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="border rounded-lg p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <FileText className="h-8 w-8 text-blue-500" />
+                  <div>
+                    <h4 className="font-medium text-gray-900">{selectedDocument.file_name}</h4>
+                    <p className="text-sm text-gray-600">
+                      {selectedDocument.document_type.charAt(0).toUpperCase() + selectedDocument.document_type.slice(1)}
+                    </p>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700">File Size:</span>
+                    <span className="ml-2 text-gray-600">
+                      {selectedDocument.file_size ? `${(selectedDocument.file_size / 1024).toFixed(1)} KB` : 'Unknown'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Upload Date:</span>
+                    <span className="ml-2 text-gray-600">
+                      {new Date(selectedDocument.uploaded_date).toLocaleDateString()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-700">Status:</span>
+                    <span className={`ml-2 px-2 py-1 rounded-full text-xs ${
+                      selectedDocument.status === 'verified' 
+                        ? 'bg-green-100 text-green-800' 
+                        : selectedDocument.status === 'pending'
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : 'bg-red-100 text-red-800'
+                    }`}>
+                      {selectedDocument.status.charAt(0).toUpperCase() + selectedDocument.status.slice(1)}
+                    </span>
+                  </div>
+                  {selectedDocument.verified_date && (
+                    <div>
+                      <span className="font-medium text-gray-700">Verified Date:</span>
+                      <span className="ml-2 text-gray-600">
+                        {new Date(selectedDocument.verified_date).toLocaleDateString()}
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                {selectedDocument.notes && (
+                  <div className="mt-3">
+                    <span className="font-medium text-gray-700">Notes:</span>
+                    <p className="text-sm text-gray-600 mt-1">{selectedDocument.notes}</p>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex gap-2 justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => handleDocumentDownload(selectedDocument.id)}
+                  className="text-blue-600 hover:text-blue-700"
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Download
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (confirm(`Are you sure you want to delete "${selectedDocument.file_name}"?`)) {
+                      handleDeleteDocument(selectedDocument.id, selectedDocument.file_name)
+                      setIsDocumentViewerOpen(false)
+                    }
+                  }}
+                  className="text-red-600 hover:text-red-700"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete
+                </Button>
+                <Button
+                  onClick={() => setIsDocumentViewerOpen(false)}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
