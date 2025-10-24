@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Search, MapPin, Clock, DollarSign, Users, Star, Heart, Briefcase, Building2, ArrowRight } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
+import { Search, MapPin, Clock, DollarSign, Users, Star, Heart, Briefcase, Building2, ArrowRight, Eye, X } from "lucide-react"
 import Link from "next/link"
 
 interface JobPosting {
@@ -49,6 +50,14 @@ export default function JobsPage() {
   const [typeFilter, setTypeFilter] = useState("all")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [jobRatings, setJobRatings] = useState<Record<string, number>>({})
+  const [selectedJob, setSelectedJob] = useState<any>(null)
+  const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+
+  // Handle job details modal
+  const handleJobDetails = (job: any) => {
+    setSelectedJob(job)
+    setIsDetailsOpen(true)
+  }
 
   // Load job ratings
   const loadJobRatings = async (jobIds: string[]) => {
@@ -407,8 +416,13 @@ export default function JobsPage() {
                             </div>
                           </div>
                           <div className="flex space-x-2">
-                            <Button variant="outline" size="sm">
-                              Learn More
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleJobDetails(job)}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              Details
                             </Button>
                             <Link href="/register">
                               <Button size="sm">
@@ -495,7 +509,12 @@ export default function JobsPage() {
                           <div className="text-sm text-gray-600">Posted {job.posted}</div>
                         </div>
                         <div className="flex space-x-2">
-                          <Button variant="outline" size="sm">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handleJobDetails(job)}
+                          >
+                            <Eye className="h-4 w-4 mr-1" />
                             Details
                           </Button>
                           <Link href="/register">
@@ -540,6 +559,113 @@ export default function JobsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Job Details Modal */}
+        <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold flex items-center justify-between">
+                <span>{selectedJob?.title}</span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setIsDetailsOpen(false)}
+                  className="h-8 w-8 p-0"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </DialogTitle>
+              <DialogDescription className="text-lg">
+                {selectedJob?.company} • {selectedJob?.location}
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedJob && (
+              <div className="space-y-6">
+                {/* Job Overview */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center text-gray-600">
+                      <MapPin className="h-4 w-4 mr-2" />
+                      <span>{selectedJob.location}</span>
+                    </div>
+                    <div className="flex items-center text-gray-600">
+                      <Clock className="h-4 w-4 mr-2" />
+                      <span>{selectedJob.type}</span>
+                    </div>
+                    <div className="flex items-center text-gray-600">
+                      <DollarSign className="h-4 w-4 mr-2" />
+                      <span>{selectedJob.salary}</span>
+                    </div>
+                    <div className="flex items-center text-gray-600">
+                      <Briefcase className="h-4 w-4 mr-2" />
+                      <span>{selectedJob.department}</span>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center text-gray-600">
+                      <Users className="h-4 w-4 mr-2" />
+                      <span>{selectedJob.applications} applicants</span>
+                    </div>
+                    <div className="flex items-center text-gray-600">
+                      <Star className="h-4 w-4 mr-2 text-yellow-400 fill-current" />
+                      <span>Company Rating: {selectedJob.companyRating}/5</span>
+                    </div>
+                    <div className="text-gray-600">
+                      <span>Posted: {selectedJob.posted}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Job Description */}
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Job Description</h3>
+                  <p className="text-gray-700 leading-relaxed">{selectedJob.description}</p>
+                </div>
+
+                {/* Requirements */}
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Requirements</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedJob.requirements.map((req: string, index: number) => (
+                      <Badge key={index} variant="secondary" className="text-sm">
+                        {req}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Benefits */}
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Benefits</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedJob.benefits.map((benefit: string, index: number) => (
+                      <Badge key={index} variant="outline" className="text-sm">
+                        {benefit}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-4 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={() => setIsDetailsOpen(false)}
+                  >
+                    Close
+                  </Button>
+                  <Link href="/register">
+                    <Button className="bg-blue-600 hover:bg-blue-700">
+                      Apply Now
+                      <ArrowRight className="h-4 w-4 ml-2" />
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )
