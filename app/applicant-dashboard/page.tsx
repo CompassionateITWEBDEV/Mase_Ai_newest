@@ -2575,6 +2575,146 @@ export default function ApplicantDashboard() {
                 </div>
               </div>
 
+              {/* My Documents Section */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center">
+                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
+                      <FileText className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <h3 className="text-xl font-semibold text-gray-900">My Documents</h3>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => loadDocuments()}
+                      variant="outline"
+                      className="text-gray-600 hover:text-gray-700"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Refresh
+                    </Button>
+                    {documents.length > 0 && (
+                      <Button
+                        onClick={() => handleDownloadAllDocuments()}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download All
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
+                {documents.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Documents Found</h3>
+                    <p className="text-gray-600 mb-4">You haven't uploaded any documents yet.</p>
+                    <Button
+                      onClick={() => setIsDocumentUploadOpen(true)}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Document
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {documents.map((doc) => (
+                      <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 flex-1">
+                            <FileText className="h-8 w-8 text-blue-500" />
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-medium text-gray-900 truncate">
+                                {doc.file_name}
+                              </h4>
+                              <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {new Date(doc.uploaded_date).toLocaleDateString()}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span>Size: {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'Unknown'}</span>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span className="capitalize">{doc.document_type}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-2 ml-4">
+                            <div className="flex items-center gap-1">
+                              {doc.status === 'verified' ? (
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              ) : doc.status === 'pending' ? (
+                                <Clock className="h-4 w-4 text-yellow-500" />
+                              ) : (
+                                <XCircle className="h-4 w-4 text-red-500" />
+                              )}
+                              <span className={`px-2 py-1 rounded-full text-xs ${
+                                doc.status === 'verified' 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : doc.status === 'pending'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-red-100 text-red-800'
+                              }`}>
+                                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                              </span>
+                            </div>
+                            
+                            <div className="flex gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedDocument(doc)
+                                  setIsDocumentViewerOpen(true)
+                                }}
+                                className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDocumentDownload(doc.id)}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              >
+                                <Download className="h-4 w-4 mr-1" />
+                                Download
+                              </Button>
+                              {doc.status === 'pending' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleDocumentVerification(doc.id, 'verified', 'Manually verified')}
+                                  className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-1" />
+                                  Verify
+                                </Button>
+                              )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Documents Status */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
                 <div className="flex items-center mb-6">
