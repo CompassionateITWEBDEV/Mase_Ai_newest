@@ -467,7 +467,7 @@ export default function ApplicantDashboard() {
   // Calculate profile completion percentage
   const calculateProfileCompletion = (user: any) => {
     let completed = 0
-    const total = 12 // 10 profile fields + 2 required documents
+    const total = 13 // 9 profile fields + 4 required documents
 
     // Basic information (4 points)
     if (user.firstName) completed++
@@ -484,8 +484,12 @@ export default function ApplicantDashboard() {
     if (user.city) completed++
     if (user.state) completed++
     
-    // Certifications field in profile (1 point) - covers licenses and certifications
-    if (user.certifications) completed++
+    // Certifications & Licenses (3 points) - requires text field + 2 document uploads
+    const hasLicense = documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected')
+    const hasCertification = documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected')
+    if (user.certifications) completed++ // Text field
+    if (hasLicense) completed++ // License document
+    if (hasCertification) completed++ // Certification document
     
     // Required documents (2 points total) - uploaded and not rejected
     const requiredDocs = [
@@ -2940,29 +2944,60 @@ export default function ApplicantDashboard() {
                     )}
                   </div>
 
-                  {/* Certifications */}
-                  <div className={`flex items-center justify-between p-3 border rounded-lg ${
-                    applicantInfo?.certifications
-                      ? 'bg-green-50 border-green-200' 
-                      : 'bg-yellow-50 border-yellow-200'
-                  }`}>
-                    <div className="flex items-center space-x-3">
-                      {applicantInfo?.certifications ? (
-                        <CheckCircle className="h-5 w-5 text-green-600" />
-                      ) : (
-                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
-                      )}
-                      <div>
-                        <span className="font-medium">Certifications & Licenses</span>
-                        <p className="text-xs text-gray-600">Professional certifications</p>
+                  {/* Certifications & Licenses */}
+                  {(() => {
+                    const hasLicense = documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected')
+                    const hasCertification = documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected')
+                    const hasTextField = applicantInfo?.certifications
+                    const isComplete = hasTextField && hasLicense && hasCertification
+                    
+                    return (
+                      <div className={`flex items-center justify-between p-3 border rounded-lg ${
+                        isComplete
+                          ? 'bg-green-50 border-green-200' 
+                          : 'bg-yellow-50 border-yellow-200'
+                      }`}>
+                        <div className="flex items-center space-x-3">
+                          {isComplete ? (
+                            <CheckCircle className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                          )}
+                          <div>
+                            <span className="font-medium">Certifications & Licenses</span>
+                            <p className="text-xs text-gray-600">
+                              {isComplete 
+                                ? 'All documents uploaded'
+                                : !hasTextField 
+                                ? 'Add certification details'
+                                : !hasLicense
+                                ? 'Upload license document'
+                                : 'Upload certification document'}
+                            </p>
+                          </div>
+                        </div>
+                        {isComplete ? (
+                          <Badge className="bg-green-600">Complete</Badge>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-yellow-700 border-yellow-700"
+                            onClick={() => {
+                              if (!hasTextField) {
+                                setActiveTab('profile')
+                              } else {
+                                setActiveTab('documents')
+                                setTimeout(() => setIsDocumentUploadOpen(true), 300)
+                              }
+                            }}
+                          >
+                            {!hasTextField ? 'Add Details' : 'Upload'}
+                          </Button>
+                        )}
                       </div>
-                    </div>
-                    {applicantInfo?.certifications ? (
-                      <Badge className="bg-green-600">Complete</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-yellow-700 border-yellow-700">Add Details</Badge>
-                    )}
-                  </div>
+                    )
+                  })()}
 
                   {/* Required Documents */}
                   {[
