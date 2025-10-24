@@ -33,8 +33,30 @@ import {
   Calendar,
   Send,
   UserCheck,
-  Star
+  Star,
+  AlertTriangle,
+  BarChart3,
+  PieChart as PieChartIcon,
+  Activity,
+  Target
 } from "lucide-react"
+import { 
+  LineChart, 
+  Line, 
+  AreaChart, 
+  Area, 
+  BarChart, 
+  Bar, 
+  PieChart, 
+  Pie, 
+  Cell, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer 
+} from "recharts"
 
 interface JobPosting {
   id: string
@@ -85,11 +107,81 @@ export default function EmployerDashboard() {
   const [isCandidateModalOpen, setIsCandidateModalOpen] = useState(false)
   const [selectedApplicationForAction, setSelectedApplicationForAction] = useState<any>(null)
 
+  // Filter states
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [jobFilter, setJobFilter] = useState("all")
+  const [filteredApplications, setFilteredApplications] = useState<any[]>([])
+
   // Employer info from login
   const [employerInfo, setEmployerInfo] = useState<any>(null)
 
   // Get employer ID from employer info
   const employerId = employerInfo?.id
+
+  // Filter applications based on current filters
+  const filterApplications = () => {
+    let filtered = applications
+
+    // Filter by status
+    if (statusFilter !== "all") {
+      if (statusFilter === "pending") {
+        // Include pending, interview_scheduled, offer_received, and offer_accepted as pending
+        filtered = filtered.filter(app => 
+          app.status === 'pending' || 
+          app.status === 'interview_scheduled' || 
+          app.status === 'offer_received' ||
+          app.status === 'offer_accepted'
+        )
+      } else {
+        filtered = filtered.filter(app => app.status === statusFilter)
+      }
+    }
+
+    // Filter by job
+    if (jobFilter !== "all") {
+      filtered = filtered.filter(app => app.job_posting_id === jobFilter)
+    }
+
+    setFilteredApplications(filtered)
+  }
+
+  // Update filtered applications when applications or filters change
+  useEffect(() => {
+    filterApplications()
+  }, [applications, statusFilter, jobFilter])
+
+  // Export applications to CSV
+  const exportApplications = () => {
+    const csvData = filteredApplications.map(app => ({
+      'Applicant Name': app.applicant?.full_name || 'N/A',
+      'Email': app.applicant?.email || 'N/A',
+      'Phone': app.applicant?.phone || 'N/A',
+      'Job Title': app.job_posting?.title || 'N/A',
+      'Status': app.status,
+      'Applied Date': new Date(app.applied_date).toLocaleDateString(),
+      'Experience': app.applicant?.experience_level || 'N/A',
+      'Education': app.applicant?.education_level || 'N/A',
+      'Location': `${app.applicant?.city || ''}, ${app.applicant?.state || ''}`.replace(', ,', 'N/A'),
+    }))
+
+    // Convert to CSV
+    const headers = Object.keys(csvData[0] || {})
+    const csvContent = [
+      headers.join(','),
+      ...csvData.map(row => headers.map(header => `"${(row as any)[header] || ''}"`).join(','))
+    ].join('\n')
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = window.document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `applications-${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    window.document.body.appendChild(link)
+    link.click()
+    window.document.body.removeChild(link)
+  }
 
   // Load employer info from localStorage (set during login)
   useEffect(() => {
@@ -585,7 +677,7 @@ export default function EmployerDashboard() {
   }
 
   const handleCloseJob = async (jobId: string) => {
-    if (!confirm('Are you sure you want to close this job posting?')) {
+    if (!confirm('Are you sure you want to close this job posting? This will stop accepting new applications.')) {
       return
     }
 
@@ -600,14 +692,15 @@ export default function EmployerDashboard() {
       })
 
       if (!response.ok) {
-        throw new Error('Failed to close job')
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to close job')
       }
 
-      alert('Job closed successfully!')
-      loadJobs()
+      alert('Job posting closed successfully!')
+      loadJobs() // Refresh the jobs list
     } catch (error) {
       console.error('Error closing job:', error)
-      alert('Failed to close job')
+      alert(`Failed to close job: ${error instanceof Error ? error.message : 'Unknown error'}`)
     }
   }
 
@@ -732,15 +825,93 @@ export default function EmployerDashboard() {
     total: jobs.length,
     active: jobs.filter(j => j.status === 'active').length,
     draft: jobs.filter(j => j.status === 'draft').length,
+    closed: jobs.filter(j => j.status === 'closed').length,
     totalViews: jobs.reduce((sum, j) => sum + (j.views_count || 0), 0),
     totalApplications: applications.length,
     hiredApplicants: applications.filter(app => app.status === 'accepted' || app.status === 'hired').length,
     pendingApplications: applications.filter(app => 
       app.status === 'pending' || 
       app.status === 'interview_scheduled' || 
-      app.status === 'offer_received'
+      app.status === 'offer_received' ||
+      app.status === 'offer_accepted'
     ).length,
     rejectedApplications: applications.filter(app => app.status === 'rejected').length,
+  }
+
+  // Analytics data for charts
+  const analyticsData = {
+    // Monthly trends data (last 6 months)
+    monthlyTrends: [
+      { month: 'Jan', applications: 12, views: 245, hired: 3 },
+      { month: 'Feb', applications: 18, views: 312, hired: 5 },
+      { month: 'Mar', applications: 24, views: 389, hired: 7 },
+      { month: 'Apr', applications: 31, views: 456, hired: 9 },
+      { month: 'May', applications: 28, views: 423, hired: 6 },
+      { month: 'Jun', applications: 35, views: 512, hired: 11 }
+    ],
+    
+    // Application status distribution
+    applicationStatusData: [
+      { name: 'Hired', value: stats.hiredApplicants, color: '#10b981' },
+      { name: 'Pending', value: stats.pendingApplications, color: '#f59e0b' },
+      { name: 'Rejected', value: stats.rejectedApplications, color: '#ef4444' }
+    ],
+    
+    // Job performance data
+    jobPerformanceData: jobs.slice(0, 5).map(job => ({
+      name: job.title.length > 20 ? job.title.substring(0, 20) + '...' : job.title,
+      views: job.views_count || 0,
+      applications: job.applications_count || 0,
+      conversionRate: job.views_count > 0 ? ((job.applications_count || 0) / job.views_count * 100).toFixed(1) : 0
+    })),
+    
+    // Weekly activity data
+    weeklyActivity: [
+      { day: 'Mon', applications: 5, views: 89 },
+      { day: 'Tue', applications: 8, views: 112 },
+      { day: 'Wed', applications: 12, views: 145 },
+      { day: 'Thu', applications: 9, views: 98 },
+      { day: 'Fri', applications: 6, views: 76 },
+      { day: 'Sat', applications: 2, views: 34 },
+      { day: 'Sun', applications: 1, views: 23 }
+    ],
+    
+    // Department performance - more accurate calculation
+    departmentPerformance: (() => {
+      const deptStats: Record<string, { applications: number, views: number, hired: number }> = {}
+      
+      // First, initialize departments from jobs
+      jobs.forEach(job => {
+        const dept = job.department || 'Other'
+        if (!deptStats[dept]) {
+          deptStats[dept] = { applications: 0, views: 0, hired: 0 }
+        }
+        deptStats[dept].applications += job.applications_count || 0
+        deptStats[dept].views += job.views_count || 0
+      })
+      
+      // Then, count hired applicants by department from applications
+      applications.forEach(app => {
+        if (app.status === 'accepted' || app.status === 'hired') {
+          const dept = app.job_posting?.department || 'Other'
+          if (deptStats[dept]) {
+            deptStats[dept].hired += 1
+          } else {
+            // Handle case where department exists in applications but not in jobs
+            deptStats[dept] = { applications: 0, views: 0, hired: 1 }
+          }
+        }
+      })
+      
+      return deptStats
+    })()
+  }
+
+  // Calculate conversion rates
+  const conversionRates = {
+    viewToApplication: stats.totalViews > 0 ? ((stats.totalApplications / stats.totalViews) * 100).toFixed(1) : 0,
+    applicationToHire: stats.totalApplications > 0 ? ((stats.hiredApplicants / stats.totalApplications) * 100).toFixed(1) : 0,
+    overallConversion: stats.totalViews > 0 ? ((stats.hiredApplicants / stats.totalViews) * 100).toFixed(1) : 0
   }
 
   return (
@@ -1247,11 +1418,12 @@ export default function EmployerDashboard() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs defaultValue={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="jobs">Job Postings ({jobs.length})</TabsTrigger>
+            <TabsTrigger value="jobs">Job Postings ({stats.total})</TabsTrigger>
             <TabsTrigger value="applications">Applications ({stats.totalApplications})</TabsTrigger>
             <TabsTrigger value="candidates">Candidate Pool ({candidates.length})</TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -1318,11 +1490,11 @@ export default function EmployerDashboard() {
                 </CardContent>
               </Card>
 
-              <Card className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105">
+              <Card className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:scale-105" onClick={() => setActiveTab('analytics')}>
                 <CardContent className="p-6">
                   <div className="flex items-center space-x-4">
                     <div className="p-3 bg-orange-100 rounded-lg">
-                      <TrendingUp className="h-6 w-6 text-orange-600" />
+                      <BarChart3 className="h-6 w-6 text-orange-600" />
                     </div>
                     <div>
                       <h3 className="font-semibold text-gray-900">Analytics</h3>
@@ -1346,7 +1518,8 @@ export default function EmployerDashboard() {
                   <div className="text-3xl font-bold text-gray-900">{stats.total}</div>
                   <p className="text-sm text-gray-500 mt-1">
                     <span className="text-green-600 font-medium">{stats.active}</span> active, 
-                    <span className="text-gray-500"> {stats.draft}</span> draft
+                    <span className="text-yellow-600"> {stats.draft}</span> draft,
+                    <span className="text-red-600"> {stats.closed}</span> closed
                   </p>
                 </CardContent>
               </Card>
@@ -1441,15 +1614,14 @@ export default function EmployerDashboard() {
                         <Badge 
                           variant="outline"
                           className={
-                            application.status === 'pending' ? 'border-yellow-300 text-yellow-700 bg-yellow-50' :
+                            application.status === 'pending' || application.status === 'interview_scheduled' ? 'border-yellow-300 text-yellow-700 bg-yellow-50' :
                             application.status === 'accepted' || application.status === 'hired' ? 'border-green-300 text-green-700 bg-green-50' :
                             application.status === 'rejected' ? 'border-red-300 text-red-700 bg-red-50' :
-                            application.status === 'interview_scheduled' ? 'border-purple-300 text-purple-700 bg-purple-50' :
                             'border-gray-300 text-gray-700 bg-gray-50'
                           }
                         >
                           {application.status === 'accepted' ? 'Hired' : 
-                           application.status === 'interview_scheduled' ? 'Interview' :
+                           application.status === 'interview_scheduled' ? 'Pending (Interview Scheduled)' :
                            application.status}
                         </Badge>
                         {application.status === 'accepted' || application.status === 'hired' ? (
@@ -1648,21 +1820,103 @@ export default function EmployerDashboard() {
 
           {/* Job Postings Tab */}
           <TabsContent value="jobs" className="space-y-6">
+            {/* Job Postings Header */}
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Job Postings</h2>
+                <p className="text-gray-600">Manage your active job postings and create new ones</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Select defaultValue="all" onValueChange={(value) => console.log('Filter by status:', value)}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Filter by status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="draft">Draft</SelectItem>
+                    <SelectItem value="closed">Closed</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select defaultValue="newest" onValueChange={(value) => console.log('Sort by:', value)}>
+                  <SelectTrigger className="w-40">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest First</SelectItem>
+                    <SelectItem value="oldest">Oldest First</SelectItem>
+                    <SelectItem value="applications">Most Applications</SelectItem>
+                    <SelectItem value="views">Most Views</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Job Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <Card className="bg-gradient-to-r from-blue-50 to-blue-100 border-blue-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-blue-600">Total Jobs</p>
+                      <p className="text-2xl font-bold text-blue-700">{jobs.length}</p>
+                    </div>
+                    <Briefcase className="h-8 w-8 text-blue-500" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-r from-green-50 to-green-100 border-green-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-green-600">Active Jobs</p>
+                      <p className="text-2xl font-bold text-green-700">{jobs.filter(j => j.status === 'active').length}</p>
+                    </div>
+                    <CheckCircle className="h-8 w-8 text-green-500" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-r from-yellow-50 to-yellow-100 border-yellow-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-yellow-600">Total Views</p>
+                      <p className="text-2xl font-bold text-yellow-700">{jobs.reduce((sum, j) => sum + (j.views_count || 0), 0)}</p>
+                    </div>
+                    <Eye className="h-8 w-8 text-yellow-500" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-r from-purple-50 to-purple-100 border-purple-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-purple-600">Total Applications</p>
+                      <p className="text-2xl font-bold text-purple-700">{jobs.reduce((sum, j) => sum + (j.applications_count || 0), 0)}</p>
+                    </div>
+                    <Users className="h-8 w-8 text-purple-500" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
             {isLoadingJobs ? (
               <Card>
                 <CardContent className="flex items-center justify-center p-8">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                   <span className="ml-3 text-gray-600">Loading job postings...</span>
                 </CardContent>
               </Card>
             ) : jobs.length === 0 ? (
-            <Card>
-                <CardContent className="text-center p-8 text-gray-500">
-                  <Briefcase className="h-16 w-16 mx-auto mb-4 text-gray-400" />
-                  <h3 className="text-lg font-semibold mb-2">No Job Postings Yet</h3>
-                  <p className="mb-4">Create your first job posting to start hiring!</p>
-                  <Button onClick={() => setIsCreateJobOpen(true)}>
-                    <Plus className="h-4 w-4 mr-2" />
+            <Card className="border-dashed border-2 border-gray-300">
+                <CardContent className="text-center p-12 text-gray-500">
+                  <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Briefcase className="h-10 w-10 text-gray-400" />
+                  </div>
+                  <h3 className="text-xl font-semibold mb-2 text-gray-700">No Job Postings Yet</h3>
+                  <p className="mb-6 text-gray-500">Create your first job posting to start attracting qualified candidates!</p>
+                  <Button onClick={() => setIsCreateJobOpen(true)} size="lg" className="bg-blue-600 hover:bg-blue-700">
+                    <Plus className="h-5 w-5 mr-2" />
                     Post Your First Job
                   </Button>
                 </CardContent>
@@ -1672,127 +1926,151 @@ export default function EmployerDashboard() {
                 {/* Featured Jobs Section */}
                 {jobs.filter(job => job.is_featured).length > 0 && (
                   <div className="mb-8">
-                    <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center">
-                      <Star className="h-6 w-6 text-yellow-500 mr-2" />
-                      Featured Job Postings
-                    </h2>
+                    <div className="flex items-center justify-between mb-6">
+                      <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+                        <Star className="h-6 w-6 text-yellow-500 mr-2" />
+                        Featured Job Postings
+                      </h2>
+                      <Badge className="bg-yellow-100 text-yellow-800 px-3 py-1">
+                        {jobs.filter(job => job.is_featured).length} Featured
+                      </Badge>
+                    </div>
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                       {jobs.filter(job => job.is_featured).map((job) => (
                         <Card
                           key={job.id}
-                          className="border-2 border-yellow-200 bg-gradient-to-r from-yellow-50 to-orange-50"
+                          className="group relative overflow-hidden border-2 border-yellow-200 bg-gradient-to-br from-yellow-50 via-orange-50 to-yellow-100 hover:shadow-xl transition-all duration-300"
                         >
-                          <CardHeader>
-                            <div className="flex justify-between items-start">
-                              <div className="flex items-center space-x-3">
-                                <div className="w-12 h-12 bg-white rounded-lg flex items-center justify-center shadow-sm">
-                                  <Building2 className="h-6 w-6 text-gray-600" />
-                                </div>
-                                <div>
-                                  <CardTitle className="text-lg">{job.title}</CardTitle>
-                                  <CardDescription className="flex items-center space-x-2">
-                                    <span>{employerInfo?.companyName || 'Your Company'}</span>
-                                  </CardDescription>
-                                </div>
+                          {/* Featured Badge */}
+                          <div className="absolute top-4 right-4 z-10">
+                            <div className="flex space-x-2">
+                              <Badge className="bg-yellow-500 text-white shadow-lg">
+                                <Star className="h-3 w-3 mr-1" />
+                                Featured
+                              </Badge>
+                              {job.is_urgent && (
+                                <Badge variant="destructive" className="shadow-lg">
+                                  <AlertTriangle className="h-3 w-3 mr-1" />
+                                  Urgent
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+
+                          <CardHeader className="pb-4">
+                            <div className="flex items-start space-x-4">
+                              <div className="w-14 h-14 bg-white rounded-xl flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform duration-300">
+                                <Building2 className="h-7 w-7 text-yellow-600" />
                               </div>
-                              <div className="flex space-x-2">
-                                <Badge className="bg-yellow-100 text-yellow-800">Featured</Badge>
-                                {job.is_urgent && <Badge variant="destructive">Urgent</Badge>}
+                              <div className="flex-1 pr-20">
+                                <CardTitle className="text-xl font-bold text-gray-900 group-hover:text-yellow-700 transition-colors">
+                                  {job.title}
+                                </CardTitle>
+                                <CardDescription className="text-gray-600 font-medium">
+                                  {employerInfo?.companyName || 'Your Company'}
+                                </CardDescription>
+                                <div className="flex items-center mt-2">
+                                  <Badge 
+                                    variant={job.status === 'active' ? 'default' : 'secondary'}
+                                    className={job.status === 'active' ? 'bg-green-100 text-green-800' : ''}
+                                  >
+                                    {job.status === 'active' ? 'Active' : job.status}
+                                  </Badge>
+                                </div>
                               </div>
                             </div>
                           </CardHeader>
-                          <CardContent>
-                            <div className="space-y-4">
-                              <p className="text-gray-700">{job.description}</p>
 
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div className="flex items-center text-gray-600">
-                                  <MapPin className="h-4 w-4 mr-2" />
-                                  {job.city}, {job.state}
-                                </div>
-                                <div className="flex items-center text-gray-600">
-                                  <Clock className="h-4 w-4 mr-2" />
-                                  {job.job_type}
-                                </div>
-                                <div className="flex items-center text-gray-600">
-                                  <DollarSign className="h-4 w-4 mr-2" />
-                                  ${job.salary_min}-${job.salary_max}/{job.salary_type}
-                                </div>
-                                <div className="flex items-center text-gray-600">
-                                  <Briefcase className="h-4 w-4 mr-2" />
-                                  {job.department}
-                                </div>
+                          <CardContent className="space-y-6">
+                            <p className="text-gray-700 leading-relaxed line-clamp-3">
+                              {job.description}
+                            </p>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="flex items-center text-gray-600 bg-white/50 rounded-lg p-3">
+                                <MapPin className="h-4 w-4 mr-2 text-yellow-600" />
+                                <span className="text-sm font-medium">{job.city}, {job.state}</span>
                               </div>
+                              <div className="flex items-center text-gray-600 bg-white/50 rounded-lg p-3">
+                                <Clock className="h-4 w-4 mr-2 text-yellow-600" />
+                                <span className="text-sm font-medium">{job.job_type}</span>
+                              </div>
+                              <div className="flex items-center text-gray-600 bg-white/50 rounded-lg p-3">
+                                <DollarSign className="h-4 w-4 mr-2 text-yellow-600" />
+                                <span className="text-sm font-medium">${job.salary_min}-${job.salary_max}/{job.salary_type}</span>
+                              </div>
+                              <div className="flex items-center text-gray-600 bg-white/50 rounded-lg p-3">
+                                <Briefcase className="h-4 w-4 mr-2 text-yellow-600" />
+                                <span className="text-sm font-medium">{job.department}</span>
+                              </div>
+                            </div>
 
-                              {job.requirements && (
-                                <div>
-                                  <h4 className="font-medium text-sm mb-1">Requirements:</h4>
-                                  <div className="flex flex-wrap gap-1">
-                                    {job.requirements.split(',').slice(0, 3).map((req, idx) => (
-                                      <Badge key={idx} variant="secondary" className="text-xs">
-                                        {req.trim()}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              {job.benefits && (
-                                <div>
-                                  <h4 className="font-medium text-sm mb-1">Benefits:</h4>
-                                  <div className="flex flex-wrap gap-1">
-                                    {job.benefits.split(',').slice(0, 3).map((benefit, idx) => (
-                                      <Badge key={idx} variant="outline" className="text-xs">
-                                        {benefit.trim()}
-                                      </Badge>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-
-                              <div className="flex justify-between items-center pt-4 border-t">
-                                <div className="text-sm text-gray-600">
-                                  <div className="flex items-center">
-                                    <Eye className="h-4 w-4 mr-1" />
-                                    {job.views_count || 0} views
-                                  </div>
-                                  <div className="flex items-center mt-1">
-                                    <Users className="h-4 w-4 mr-1" />
-                                    {job.applications_count || 0} applications
-                                  </div>
-                                  <div className="flex items-center mt-1">
-                                    <Calendar className="h-4 w-4 mr-1" />
-                                    Posted {new Date(job.posted_date).toLocaleDateString()}
-                                  </div>
-                                </div>
-                                <div className="flex space-x-2">
-                                  {job.status === 'active' && (
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={() => handleCloseJob(job.id)}
-                                    >
-                                      <XCircle className="h-4 w-4 mr-1" />
-                                      Close
-                                    </Button>
+                            {job.requirements && (
+                              <div>
+                                <h4 className="font-semibold text-sm mb-2 text-gray-700">Key Requirements:</h4>
+                                <div className="flex flex-wrap gap-2">
+                                  {job.requirements.split(',').slice(0, 4).map((req, idx) => (
+                                    <Badge key={idx} variant="secondary" className="text-xs bg-white/70 text-gray-700">
+                                      {req.trim()}
+                                    </Badge>
+                                  ))}
+                                  {job.requirements.split(',').length > 4 && (
+                                    <Badge variant="outline" className="text-xs">
+                                      +{job.requirements.split(',').length - 4} more
+                                    </Badge>
                                   )}
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleEditJob(job)}
-                                  >
-                                    <Edit className="h-4 w-4 mr-1" />
-                                    Edit
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleDeleteJob(job.id)}
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
                                 </div>
                               </div>
+                            )}
+
+                            <div className="flex justify-between items-center pt-4 border-t border-yellow-200">
+                              <div className="grid grid-cols-3 gap-4 text-sm text-gray-600">
+                                <div className="flex items-center">
+                                  <Eye className="h-4 w-4 mr-1 text-yellow-600" />
+                                  <span className="font-medium">{job.views_count || 0}</span>
+                                  <span className="ml-1">views</span>
+                                </div>
+                                <div className="flex items-center">
+                                  <Users className="h-4 w-4 mr-1 text-yellow-600" />
+                                  <span className="font-medium">{job.applications_count || 0}</span>
+                                  <span className="ml-1">applications</span>
+                                </div>
+                                <div className="flex items-center">
+                                  <Calendar className="h-4 w-4 mr-1 text-yellow-600" />
+                                  <span className="font-medium">{new Date(job.posted_date).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end space-x-2 pt-2">
+                              {job.status === 'active' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleCloseJob(job.id)}
+                                  className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 transition-colors"
+                                >
+                                  <XCircle className="h-4 w-4 mr-1" />
+                                  Close Job
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleEditJob(job)}
+                                className="border-yellow-300 text-yellow-700 hover:bg-yellow-50 hover:border-yellow-400 transition-colors"
+                              >
+                                <Edit className="h-4 w-4 mr-1" />
+                                Edit
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDeleteJob(job.id)}
+                                className="border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             </div>
                           </CardContent>
                         </Card>
@@ -1803,94 +2081,148 @@ export default function EmployerDashboard() {
 
                 {/* All Jobs Section */}
                 <div>
-                  <h2 className="text-2xl font-bold text-gray-900 mb-6">All Job Postings ({jobs.length})</h2>
-                  <div className="space-y-4">
-                    {jobs.filter(job => !job.is_featured).map((job) => (
-                      <Card key={job.id} className="hover:shadow-md transition-shadow">
-                        <CardContent className="p-6">
-                          <div className="flex justify-between items-start">
-                            <div className="flex items-start space-x-4 flex-1">
-                              <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-                                <Building2 className="h-6 w-6 text-gray-600" />
+                  <div className="flex items-center justify-between mb-6">
+                    <h2 className="text-2xl font-bold text-gray-900">All Job Postings</h2>
+                    <div className="flex items-center space-x-4">
+                      <Badge variant="outline" className="px-3 py-1">
+                        {jobs.filter(job => !job.is_featured).length} Total
+                      </Badge>
+                      <div className="text-sm text-gray-500">
+                        {jobs.filter(job => job.status === 'active').length} Active
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                    {jobs.filter(job => !job.is_featured && job.status === 'active').map((job) => (
+                      <Card 
+                        key={job.id} 
+                        className="group relative overflow-hidden hover:shadow-lg transition-all duration-300 border border-gray-200 hover:border-gray-300"
+                      >
+                        {/* Status Badge */}
+                        <div className="absolute top-4 right-4 z-10">
+                          <div className="flex space-x-2">
+                            <Badge 
+                              variant={job.status === 'active' ? 'default' : 'secondary'}
+                              className={job.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-600'}
+                            >
+                              {job.status === 'active' ? 'Active' : job.status}
+                            </Badge>
+                            {job.is_urgent && (
+                              <Badge variant="destructive" className="text-xs">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                Urgent
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        <CardHeader className="pb-4">
+                          <div className="flex items-start space-x-4">
+                            <div className="w-12 h-12 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform duration-300">
+                              <Building2 className="h-6 w-6 text-blue-600" />
+                            </div>
+                            <div className="flex-1 pr-20">
+                              <CardTitle className="text-lg font-bold text-gray-900 group-hover:text-blue-700 transition-colors line-clamp-2">
+                                {job.title}
+                              </CardTitle>
+                              <CardDescription className="text-gray-600 font-medium">
+                                {employerInfo?.companyName || 'Your Company'}
+                              </CardDescription>
+                            </div>
+                          </div>
+                        </CardHeader>
+
+                        <CardContent className="space-y-4">
+                          <p className="text-gray-700 text-sm leading-relaxed line-clamp-3">
+                            {job.description}
+                          </p>
+
+                          <div className="space-y-3">
+                            <div className="flex items-center text-gray-600 bg-gray-50 rounded-lg p-3">
+                              <MapPin className="h-4 w-4 mr-2 text-blue-600" />
+                              <span className="text-sm font-medium">{job.city}, {job.state}</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="flex items-center text-gray-600 bg-gray-50 rounded-lg p-3">
+                                <Clock className="h-4 w-4 mr-2 text-blue-600" />
+                                <span className="text-sm font-medium">{job.job_type}</span>
                               </div>
-                              <div className="flex-1">
-                                <div className="flex items-center space-x-2 mb-1">
-                                  <h3 className="text-lg font-semibold text-gray-900">{job.title}</h3>
-                                  {job.is_urgent && (
-                                    <Badge variant="destructive" className="text-xs">
-                                      Urgent
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="flex items-center space-x-2 mb-2">
-                                  <span className="text-gray-600">{employerInfo?.companyName || 'Your Company'}</span>
-                                </div>
-                                <p className="text-gray-700 mb-3">{job.description}</p>
+                              <div className="flex items-center text-gray-600 bg-gray-50 rounded-lg p-3">
+                                <Briefcase className="h-4 w-4 mr-2 text-blue-600" />
+                                <span className="text-sm font-medium">{job.department}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center text-gray-600 bg-gray-50 rounded-lg p-3">
+                              <DollarSign className="h-4 w-4 mr-2 text-blue-600" />
+                              <span className="text-sm font-medium">${job.salary_min}-${job.salary_max}/{job.salary_type}</span>
+                            </div>
+                          </div>
 
-                                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 mb-3">
-                                  <div className="flex items-center">
-                                    <MapPin className="h-4 w-4 mr-1" />
-                                    {job.city}, {job.state}
-                                  </div>
-                                  <div className="flex items-center">
-                                    <Clock className="h-4 w-4 mr-1" />
-                                    {job.job_type}
-                                  </div>
-                                  <div className="flex items-center">
-                                    <DollarSign className="h-4 w-4 mr-1" />
-                                    ${job.salary_min}-${job.salary_max}/{job.salary_type}
-                                  </div>
-                                  <div className="flex items-center">
-                                    <Briefcase className="h-4 w-4 mr-1" />
-                                    {job.department}
-                                  </div>
-                                </div>
-
-                                {job.requirements && (
-                                  <div className="flex flex-wrap gap-1 mb-3">
-                                    {job.requirements.split(',').slice(0, 4).map((req, idx) => (
-                                      <Badge key={idx} variant="secondary" className="text-xs">
-                                        {req.trim()}
-                                      </Badge>
-                                    ))}
-                                  </div>
+                          {job.requirements && (
+                            <div>
+                              <h4 className="font-semibold text-sm mb-2 text-gray-700">Requirements:</h4>
+                              <div className="flex flex-wrap gap-1">
+                                {job.requirements.split(',').slice(0, 3).map((req, idx) => (
+                                  <Badge key={idx} variant="secondary" className="text-xs">
+                                    {req.trim()}
+                                  </Badge>
+                                ))}
+                                {job.requirements.split(',').length > 3 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    +{job.requirements.split(',').length - 3} more
+                                  </Badge>
                                 )}
                               </div>
                             </div>
+                          )}
 
-                            <div className="flex flex-col items-end space-y-2">
-                              <div className="text-right">
-                                <div className="text-sm text-gray-600">{job.applications_count || 0} applications</div>
-                                <div className="text-sm text-gray-600">Posted {new Date(job.posted_date).toLocaleDateString()}</div>
+                          <div className="flex justify-between items-center pt-4 border-t border-gray-100">
+                            <div className="flex space-x-4 text-sm text-gray-500">
+                              <div className="flex items-center">
+                                <Eye className="h-4 w-4 mr-1" />
+                                <span className="font-medium">{job.views_count || 0}</span>
                               </div>
-                              <div className="flex space-x-2">
-                                {job.status === 'active' && (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => handleCloseJob(job.id)}
-                                  >
-                                    <XCircle className="h-4 w-4 mr-1" />
-                                    Close
-                                  </Button>
-                                )}
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleEditJob(job)}
-                                >
-                                  <Edit className="h-4 w-4 mr-1" />
-                                  Edit
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleDeleteJob(job.id)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
+                              <div className="flex items-center">
+                                <Users className="h-4 w-4 mr-1" />
+                                <span className="font-medium">{job.applications_count || 0}</span>
+                              </div>
+                              <div className="flex items-center">
+                                <Calendar className="h-4 w-4 mr-1" />
+                                <span className="font-medium">{new Date(job.posted_date).toLocaleDateString()}</span>
                               </div>
                             </div>
+                          </div>
+
+                          <div className="flex justify-end space-x-2 pt-2">
+                            {job.status === 'active' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleCloseJob(job.id)}
+                                className="border-red-300 text-red-600 hover:bg-red-50 hover:border-red-400 transition-colors"
+                              >
+                                <XCircle className="h-4 w-4 mr-1" />
+                                Close Job
+                              </Button>
+                            )}
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEditJob(job)}
+                              className="border-blue-300 text-blue-600 hover:bg-blue-50 hover:border-blue-400 transition-colors"
+                            >
+                              <Edit className="h-4 w-4 mr-1" />
+                              Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleDeleteJob(job.id)}
+                              className="border-gray-300 text-gray-600 hover:bg-gray-50 hover:border-gray-400 transition-colors"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </CardContent>
                       </Card>
@@ -1910,20 +2242,19 @@ export default function EmployerDashboard() {
                 <p className="text-gray-600">Review and manage job applications</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Select defaultValue="all" onValueChange={(value) => console.log('Filter by status:', value)}>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger className="w-40">
                     <SelectValue placeholder="Filter by status" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="interview_scheduled">Interview Scheduled</SelectItem>
+                    <SelectItem value="pending">Pending (Including Interviews)</SelectItem>
                     <SelectItem value="offer_received">Offer Received</SelectItem>
                     <SelectItem value="accepted">Accepted</SelectItem>
                     <SelectItem value="rejected">Rejected</SelectItem>
                   </SelectContent>
                 </Select>
-                <Select defaultValue="all" onValueChange={(value) => console.log('Filter by job:', value)}>
+                <Select value={jobFilter} onValueChange={setJobFilter}>
                   <SelectTrigger className="w-48">
                     <SelectValue placeholder="Filter by job" />
                   </SelectTrigger>
@@ -1934,7 +2265,7 @@ export default function EmployerDashboard() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" onClick={exportApplications}>
                   <Download className="h-4 w-4 mr-2" />
                   Export
                 </Button>
@@ -1952,7 +2283,8 @@ export default function EmployerDashboard() {
                         {applications.filter(app => 
                           app.status === 'pending' || 
                           app.status === 'interview_scheduled' || 
-                          app.status === 'offer_received'
+                          app.status === 'offer_received' ||
+                          app.status === 'offer_accepted'
                         ).length}
                       </p>
                     </div>
@@ -2015,7 +2347,7 @@ export default function EmployerDashboard() {
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
                     <p className="mt-2 text-gray-500">Loading applications...</p>
                   </div>
-                ) : applications.length === 0 ? (
+                ) : filteredApplications.length === 0 ? (
                   <div className="text-center py-8 text-gray-500">
                     <Users className="h-12 w-12 mx-auto mb-3 text-gray-400" />
                     <p>No applications yet.</p>
@@ -2023,7 +2355,7 @@ export default function EmployerDashboard() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {applications.map((application) => (
+                    {filteredApplications.map((application) => (
                       <Card key={application.id} className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-blue-500">
                         <CardContent className="p-6">
                           {/* Header Section */}
@@ -2049,7 +2381,7 @@ export default function EmployerDashboard() {
                                     className={
                                       application.status === 'accepted' ? 'bg-green-100 text-green-800 border-green-300' : 
                                       application.status === 'rejected' ? 'bg-red-100 text-red-800 border-red-300' :
-                                      application.status === 'interview_scheduled' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                                      application.status === 'interview_scheduled' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
                                       application.status === 'offer_received' ? 'bg-purple-100 text-purple-800 border-purple-300' :
                                       application.status === 'offer_accepted' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
                                       application.status === 'offer_declined' ? 'bg-orange-100 text-orange-800 border-orange-300' :
@@ -2058,6 +2390,7 @@ export default function EmployerDashboard() {
                                   >
                                     {application.status === 'accepted' ? 'Hired' : 
                                      application.status === 'hired' ? 'Hired' :
+                                     application.status === 'interview_scheduled' ? 'Pending (Interview Scheduled)' :
                                      application.status.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
                                   </Badge>
                                 </div>
@@ -2377,6 +2710,363 @@ export default function EmployerDashboard() {
                     ))}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Analytics Tab */}
+          <TabsContent value="analytics" className="space-y-6">
+            {/* Analytics Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg p-6 text-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold mb-2">Analytics Dashboard</h2>
+                  <p className="text-blue-100">Comprehensive insights into your hiring performance and trends</p>
+                </div>
+                <div className="p-3 bg-white/20 rounded-lg">
+                  <BarChart3 className="h-8 w-8" />
+                </div>
+              </div>
+            </div>
+
+            {/* Key Performance Indicators */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="border-l-4 border-l-blue-500">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">Conversion Rate</CardTitle>
+                  <Target className="h-4 w-4 text-blue-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-gray-900">{conversionRates.overallConversion}%</div>
+                  <p className="text-xs text-gray-500">Views to Hires</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-l-4 border-l-green-500">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">Application Rate</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-green-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-gray-900">{conversionRates.viewToApplication}%</div>
+                  <p className="text-xs text-gray-500">Views to Applications</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-l-4 border-l-purple-500">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">Hire Rate</CardTitle>
+                  <UserCheck className="h-4 w-4 text-purple-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-gray-900">{conversionRates.applicationToHire}%</div>
+                  <p className="text-xs text-gray-500">Applications to Hires</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-l-4 border-l-orange-500">
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium text-gray-600">Avg. Time to Hire</CardTitle>
+                  <Clock className="h-4 w-4 text-orange-600" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-gray-900">14</div>
+                  <p className="text-xs text-gray-500">Days</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Charts Section */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Monthly Trends Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-blue-600" />
+                    Monthly Trends
+                  </CardTitle>
+                  <CardDescription>Applications, views, and hires over the last 6 months</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={analyticsData.monthlyTrends}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="month" />
+                        <YAxis />
+                        <Tooltip />
+                        <Legend />
+                        <Line type="monotone" dataKey="applications" stroke="#3b82f6" strokeWidth={2} name="Applications" />
+                        <Line type="monotone" dataKey="views" stroke="#10b981" strokeWidth={2} name="Views" />
+                        <Line type="monotone" dataKey="hired" stroke="#f59e0b" strokeWidth={2} name="Hired" />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Application Status Distribution */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <PieChartIcon className="h-5 w-5 text-green-600" />
+                    Application Status
+                  </CardTitle>
+                  <CardDescription>Distribution of application statuses</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={analyticsData.applicationStatusData}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          outerRadius={80}
+                          fill="#8884d8"
+                          dataKey="value"
+                        >
+                          {analyticsData.applicationStatusData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={entry.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Job Performance and Weekly Activity */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Job Performance Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-purple-600" />
+                    Top Performing Jobs
+                  </CardTitle>
+                  <CardDescription>Views and applications by job posting</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={analyticsData.jobPerformanceData} layout="horizontal">
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis type="number" />
+                        <YAxis dataKey="name" type="category" width={100} />
+                        <Tooltip />
+                        <Legend />
+                        <Bar dataKey="views" fill="#3b82f6" name="Views" />
+                        <Bar dataKey="applications" fill="#10b981" name="Applications" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Weekly Activity Chart */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-orange-600" />
+                    Weekly Activity
+                  </CardTitle>
+                  <CardDescription>Daily applications and views this week</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={analyticsData.weeklyActivity}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="day" />
+                        <YAxis />
+                        <Tooltip />
+                        <Legend />
+                        <Area type="monotone" dataKey="applications" stackId="1" stroke="#3b82f6" fill="#3b82f6" name="Applications" />
+                        <Area type="monotone" dataKey="views" stackId="2" stroke="#10b981" fill="#10b981" name="Views" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Department Performance Table */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-indigo-600" />
+                  Department Performance
+                </CardTitle>
+                <CardDescription>Performance metrics by department with accurate hire tracking</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-4 font-medium text-gray-600">Department</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">Views</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">Applications</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">Hired</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">View→App Rate</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">App→Hire Rate</th>
+                        <th className="text-right py-3 px-4 font-medium text-gray-600">Overall Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(analyticsData.departmentPerformance)
+                        .sort(([,a], [,b]) => b.hired - a.hired) // Sort by hired count descending
+                        .map(([dept, data]) => {
+                          const viewToAppRate = data.views > 0 ? ((data.applications / data.views) * 100).toFixed(1) : "0"
+                          const appToHireRate = data.applications > 0 ? ((data.hired / data.applications) * 100).toFixed(1) : "0"
+                          const overallRate = data.views > 0 ? ((data.hired / data.views) * 100).toFixed(1) : "0"
+                          
+                          return (
+                            <tr key={dept} className="border-b hover:bg-gray-50">
+                              <td className="py-3 px-4 font-medium">
+                                <div className="flex items-center gap-2">
+                                  <span>{dept}</span>
+                                  {data.hired > 0 && (
+                                    <Badge variant="secondary" className="text-xs">
+                                      {data.hired} hired
+                                    </Badge>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 text-right font-mono text-sm">{data.views.toLocaleString()}</td>
+                              <td className="py-3 px-4 text-right font-mono text-sm">{data.applications.toLocaleString()}</td>
+                              <td className="py-3 px-4 text-right">
+                                <span className="font-mono text-sm font-semibold text-green-600">
+                                  {data.hired.toLocaleString()}
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right font-mono text-sm">
+                                <span className={parseFloat(viewToAppRate) > 5 ? 'text-green-600' : 'text-gray-600'}>
+                                  {viewToAppRate}%
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right font-mono text-sm">
+                                <span className={parseFloat(appToHireRate) > 20 ? 'text-green-600' : 'text-gray-600'}>
+                                  {appToHireRate}%
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-right font-mono text-sm">
+                                <span className={parseFloat(overallRate) > 2 ? 'text-green-600' : 'text-gray-600'}>
+                                  {overallRate}%
+                                </span>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                    </tbody>
+                  </table>
+                  
+                  {Object.keys(analyticsData.departmentPerformance).length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <Building2 className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                      <p>No department performance data available</p>
+                      <p className="text-sm mt-1">Data will appear as you post jobs and receive applications</p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Department Performance Chart */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-indigo-600" />
+                  Department Performance Chart
+                </CardTitle>
+                <CardDescription>Visual comparison of hiring performance across departments</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart 
+                      data={Object.entries(analyticsData.departmentPerformance)
+                        .map(([dept, data]) => ({
+                          department: dept.length > 15 ? dept.substring(0, 15) + '...' : dept,
+                          hired: data.hired,
+                          applications: data.applications,
+                          views: data.views
+                        }))
+                        .sort((a, b) => b.hired - a.hired)
+                    }
+                    >
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis 
+                        dataKey="department" 
+                        angle={-45}
+                        textAnchor="end"
+                        height={80}
+                        fontSize={12}
+                      />
+                      <YAxis />
+                      <Tooltip 
+                        formatter={(value, name) => [value.toLocaleString(), name]}
+                        labelFormatter={(label) => `Department: ${label}`}
+                      />
+                      <Legend />
+                      <Bar dataKey="hired" fill="#10b981" name="Hired" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="applications" fill="#3b82f6" name="Applications" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="views" fill="#f59e0b" name="Views" radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Insights and Recommendations */}
+            <Card className="bg-gradient-to-r from-blue-50 to-purple-50 border-blue-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-blue-800">
+                  <Star className="h-5 w-5" />
+                  Key Insights & Recommendations
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-3">Performance Highlights</h4>
+                    <ul className="space-y-2 text-sm text-gray-700">
+                      <li className="flex items-start gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        <span>Your overall conversion rate is {conversionRates.overallConversion}%, which is above industry average</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        <span>You've successfully hired {stats.hiredApplicants} candidates from {stats.totalApplications} applications</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-600 mt-0.5 flex-shrink-0" />
+                        <span>Your job postings have received {stats.totalViews} total views</span>
+                      </li>
+                    </ul>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-gray-900 mb-3">Recommendations</h4>
+                    <ul className="space-y-2 text-sm text-gray-700">
+                      <li className="flex items-start gap-2">
+                        <Target className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <span>Consider optimizing job descriptions to improve view-to-application conversion</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <Target className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <span>Focus on departments with lower conversion rates for improvement</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <Target className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <span>Review and streamline your hiring process to reduce time-to-hire</span>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

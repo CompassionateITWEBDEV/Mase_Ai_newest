@@ -182,42 +182,7 @@ export default function ApplicantDashboard() {
   }
 
   // Handle download all documents
-  const handleDownloadAllDocuments = async () => {
-    if (!applicantInfo?.id || documents.length === 0) return
-    
-    try {
-      const response = await fetch(`/api/documents/download?applicant_id=${applicantInfo.id}`)
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      
-      // Get the filename from the response headers
-      const contentDisposition = response.headers.get('content-disposition')
-      const filename = contentDisposition 
-        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') 
-        : `${applicantInfo.firstName}-${applicantInfo.lastName}-documents.zip`
-      
-      // Create a blob from the response
-      const blob = await response.blob()
-      
-      // Create a download link
-      const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename
-      document.body.appendChild(link)
-      link.click()
-      
-      // Clean up
-      document.body.removeChild(link)
-      window.URL.revokeObjectURL(url)
-      
-    } catch (error) {
-      console.error('Bulk download error:', error)
-      alert('Failed to download documents. Please try again.')
-    }
-  }
+ 
 
   // Handle document deletion
   const handleDeleteDocument = async (documentId: string, documentName: string) => {
@@ -474,7 +439,7 @@ export default function ApplicantDashboard() {
   // Calculate profile completion percentage
   const calculateProfileCompletion = (user: any) => {
     let completed = 0
-    const total = 13 // 9 profile fields + 4 required documents
+    const total = 14 // 9 profile fields + 5 required documents
 
     // Basic information (4 points)
     if (user.firstName) completed++
@@ -491,12 +456,13 @@ export default function ApplicantDashboard() {
     if (user.city) completed++
     if (user.state) completed++
     
-    // Required documents (4 points total) - uploaded and not rejected
+    // Required documents (5 points total) - uploaded and not rejected
     const requiredDocs = [
       { type: 'resume', uploaded: documents.some(doc => doc.document_type === 'resume' && doc.status !== 'rejected') },
       { type: 'license', uploaded: documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected') },
       { type: 'certification', uploaded: documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected') },
-      { type: 'background_check', uploaded: documents.some(doc => doc.document_type === 'background_check' && doc.status !== 'rejected') }
+      { type: 'background_check', uploaded: documents.some(doc => doc.document_type === 'background_check' && doc.status !== 'rejected') },
+      { type: 'references', uploaded: documents.some(doc => doc.document_type === 'references' && doc.status !== 'rejected') }
     ]
     
     requiredDocs.forEach(doc => {
@@ -2946,29 +2912,6 @@ export default function ApplicantDashboard() {
                     )}
                   </div>
 
-                  {/* Certifications & Licenses */}
-                  <div className={`flex items-center justify-between p-3 border rounded-lg ${
-                    applicantInfo?.certifications
-                      ? 'bg-green-50 border-green-200' 
-                      : 'bg-yellow-50 border-yellow-200'
-                  }`}>
-                    <div className="flex items-center space-x-3">
-                      {applicantInfo?.certifications ? (
-                        <CheckCircle className="h-5 w-5 text-green-600" />
-                      ) : (
-                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
-                      )}
-                      <div>
-                        <span className="font-medium">Certifications & Licenses</span>
-                        <p className="text-xs text-gray-600">Professional certifications</p>
-                      </div>
-                    </div>
-                    {applicantInfo?.certifications ? (
-                      <Badge className="bg-green-600">Complete</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-yellow-700 border-yellow-700">Add Details</Badge>
-                    )}
-                  </div>
 
                   {/* Required Documents */}
                   {[
@@ -2976,6 +2919,7 @@ export default function ApplicantDashboard() {
                     { name: "License", required: true, type: "license", description: "Professional/Nursing license" },
                     { name: "Certification", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
                     { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
+                    { name: "References", required: true, type: "references", description: "Professional references" },
                   ].map((req, index) => {
                     const uploadedDoc = documents.find(doc => doc.document_type === req.type)
                     const isUploaded = !!uploadedDoc
@@ -3045,152 +2989,6 @@ export default function ApplicantDashboard() {
           </TabsContent>
 
           <TabsContent value="documents" className="space-y-6">
-            {/* Document Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <Card className="bg-blue-50 border-blue-200">
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-8 w-8 text-blue-600" />
-                    <div>
-                      <p className="text-2xl font-bold text-blue-600">{documents.length}</p>
-                      <p className="text-sm text-gray-600">Total Documents</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="bg-green-50 border-green-200">
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle className="h-8 w-8 text-green-600" />
-                    <div>
-                      <p className="text-2xl font-bold text-green-600">
-                        {documents.filter(doc => doc.status === 'verified').length}
-                      </p>
-                      <p className="text-sm text-gray-600">Verified</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-              <Card className="bg-yellow-50 border-yellow-200">
-                <CardContent className="p-6">
-                  <div className="flex items-center gap-3">
-                    <Clock className="h-8 w-8 text-yellow-600" />
-                    <div>
-                      <p className="text-2xl font-bold text-yellow-600">
-                        {documents.filter(doc => doc.status === 'pending').length}
-                      </p>
-                      <p className="text-sm text-gray-600">Pending Review</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Document Tracking Section */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5 text-purple-500" />
-                  Document Tracking
-                </CardTitle>
-                <CardDescription>Track your required documents for profile completion</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { name: "Resume", required: true, type: "resume", description: "Professional resume or CV" },
-                    { name: "License", required: true, type: "license", description: "Professional/Nursing license" },
-                    { name: "Certification", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
-                    { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
-                  ].map((req, index) => {
-                    const uploadedDoc = documents.find(doc => doc.document_type === req.type)
-                    const isUploaded = !!uploadedDoc
-                    const isVerified = uploadedDoc?.status === 'verified'
-                    const isPending = uploadedDoc?.status === 'pending'
-                    
-                    return (
-                      <div key={index} className={`flex items-center justify-between p-4 border rounded-lg ${
-                        isVerified 
-                          ? 'bg-green-50 border-green-200'
-                          : isPending
-                          ? 'bg-blue-50 border-blue-200'
-                          : req.required
-                          ? 'bg-red-50 border-red-200'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}>
-                        <div className="flex items-center space-x-4">
-                          {isVerified ? (
-                            <CheckCircle className="h-6 w-6 text-green-600" />
-                          ) : isPending ? (
-                            <Clock className="h-6 w-6 text-blue-600" />
-                          ) : req.required ? (
-                            <AlertTriangle className="h-6 w-6 text-red-600" />
-                          ) : (
-                            <FileText className="h-6 w-6 text-gray-400" />
-                          )}
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-gray-900">{req.name}</span>
-                              <Badge variant="secondary" className={`text-xs ${
-                                req.required 
-                                  ? 'bg-red-100 text-red-700 border-red-300' 
-                                  : 'bg-gray-100 text-gray-600'
-                              }`}>
-                                {req.required ? 'Required' : 'Optional'}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-0.5">{req.description}</p>
-                            <p className="text-xs text-gray-600 mt-1">
-                              {isVerified 
-                                ? '✓ Verified and ready' 
-                                : isPending 
-                                ? '⏳ Uploaded, pending verification' 
-                                : req.required
-                                ? '⚠️ Required to complete profile'
-                                : 'Optional document'}
-                            </p>
-                          </div>
-                        </div>
-                        {!isUploaded ? (
-                          <Button 
-                            size="sm" 
-                            className={req.required ? 'bg-red-600 hover:bg-red-700' : ''}
-                            variant={req.required ? 'default' : 'outline'}
-                            onClick={() => openUploadModal(req.type)}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            Upload
-                          </Button>
-                        ) : (
-                          <div className="flex gap-2">
-                            {isVerified ? (
-                              <Badge className="bg-green-600">Verified</Badge>
-                            ) : isPending ? (
-                              <Badge className="bg-blue-600">Pending</Badge>
-                            ) : (
-                              <Badge className="bg-yellow-600">Under Review</Badge>
-                            )}
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedDocument(uploadedDoc)
-                                setIsDocumentViewerOpen(true)
-                              }}
-                              className="text-purple-600 hover:text-purple-700"
-                            >
-                              <Eye className="h-4 w-4 mr-1" />
-                              View
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-
             {/* My Documents Section */}
             <Card>
               <CardHeader>
@@ -3198,9 +2996,9 @@ export default function ApplicantDashboard() {
                   <div>
                     <CardTitle className="flex items-center gap-2">
                       <FileText className="h-5 w-5 text-blue-500" />
-                      My Uploaded Documents
+                      My Documents
                     </CardTitle>
-                    <CardDescription>View, download, and manage your uploaded documents</CardDescription>
+                    <CardDescription>Manage your professional documents and certifications</CardDescription>
                   </div>
                   <div className="flex gap-2">
                     <Button
@@ -3211,14 +3009,14 @@ export default function ApplicantDashboard() {
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Refresh
                     </Button>
-                  <Button 
-                    onClick={() => setIsDocumentUploadOpen(true)}
+                    <Button 
+                      onClick={() => setIsDocumentUploadOpen(true)}
                       size="sm"
-                      className="bg-blue-600 hover:bg-blue-700"
-                  >
+                      className="bg-red-600 hover:bg-red-700"
+                    >
                       <Upload className="h-4 w-4 mr-2" />
-                      Upload New
-                  </Button>
+                      + Upload Document
+                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -3227,101 +3025,128 @@ export default function ApplicantDashboard() {
                   <div className="text-center py-12">
                     <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-xl font-medium text-gray-900 mb-2">No Documents Uploaded Yet</h3>
-                    <p className="text-gray-600 mb-6">Upload your resume and other documents to apply for jobs</p>
-                    <Button
-                      onClick={() => setIsDocumentUploadOpen(true)}
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload Your First Document
-                    </Button>
+                    <p className="text-gray-600">Use the upload button above to add your documents</p>
                   </div>
                 ) : (
                   <div className="space-y-4">
                     {documents.map((doc) => (
-                      <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-gray-50">
+                      <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3 flex-1">
+                          <div className="flex items-center gap-4 flex-1">
                             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                               <FileText className="h-6 w-6 text-blue-600" />
-                    </div>
+                            </div>
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-gray-900 truncate text-lg">
+                              <h4 className="font-semibold text-gray-900 text-lg mb-1">
                                 {doc.file_name}
                               </h4>
-                              <div className="flex items-center gap-4 mt-1 text-sm text-gray-600 flex-wrap">
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {new Date(doc.uploaded_date).toLocaleDateString()}
-                </div>
-                                <div>
-                                  Size: {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'Unknown'}
+                              <div className="space-y-1 text-sm text-gray-600">
+                                <div className="flex items-center gap-4">
+                                  <span className="font-medium">Type:</span>
+                                  <span className="capitalize">{doc.document_type}</span>
                                 </div>
-                                <div className="capitalize">
-                                  Type: {doc.document_type}
+                                <div className="flex items-center gap-4">
+                                  <span className="font-medium">Uploaded:</span>
+                                  <span>{new Date(doc.uploaded_date).toLocaleDateString()}</span>
+                                </div>
+                                <div className="flex items-center gap-4">
+                                  <span className="font-medium">Status:</span>
+                                  <span className={`font-medium ${
+                                    doc.status === 'verified' 
+                                      ? 'text-green-600' 
+                                      : doc.status === 'pending'
+                                      ? 'text-yellow-600'
+                                      : 'text-red-600'
+                                  }`}>
+                                    {doc.status}
+                                  </span>
                                 </div>
                               </div>
                             </div>
                           </div>
                           
-                          <div className="flex items-center gap-3 ml-4 flex-shrink-0">
-                            <div className="flex items-center gap-2">
-                              {doc.status === 'verified' ? (
-                                <CheckCircle className="h-5 w-5 text-green-500" />
-                              ) : doc.status === 'pending' ? (
-                                <Clock className="h-5 w-5 text-yellow-500" />
-                              ) : (
-                                <XCircle className="h-5 w-5 text-red-500" />
-                              )}
-                              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                                doc.status === 'verified' 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : doc.status === 'pending'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-red-100 text-red-800'
-                              }`}>
-                                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                              </span>
+                          <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                            <Button 
+                              variant="outline"
+                              size="sm" 
+                              onClick={() => {
+                                setSelectedDocument(doc)
+                                setIsDocumentViewerOpen(true)
+                              }}
+                              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleDocumentDownload(doc.id)}
+                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            >
+                              <Download className="h-4 w-4 mr-1" />
+                              Download
+                            </Button>
                           </div>
-                            
-                            <div className="flex gap-2">
-                          <Button 
-                                variant="outline"
-                            size="sm" 
-                                onClick={() => {
-                                  setSelectedDocument(doc)
-                                  setIsDocumentViewerOpen(true)
-                                }}
-                                className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                              >
-                                <Eye className="h-4 w-4 mr-1" />
-                                View
-                              </Button>
-                              <Button
-                            variant="outline"
-                                size="sm"
-                                onClick={() => handleDocumentDownload(doc.id)}
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                          >
-                                <Download className="h-4 w-4 mr-1" />
-                                Download
-                          </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                Delete
-                              </Button>
-                      </div>
-                </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+
+            {/* Required Documents Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-green-500" />
+                  Required Documents
+                </CardTitle>
+                <CardDescription>Documents needed to complete your profile</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {[
+                    { name: "Professional Resume", required: true, type: "resume", description: "Professional resume or CV" },
+                    { name: "Professional License", required: true, type: "license", description: "Professional/Nursing license" },
+                    { name: "CPR Certification", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
+                    { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
+                    { name: "References", required: true, type: "references", description: "Professional references" },
+                  ].map((req, index) => {
+                    const uploadedDoc = documents.find(doc => doc.document_type === req.type)
+                    const isUploaded = !!uploadedDoc
+                    const isVerified = uploadedDoc?.status === 'verified'
+                    const isPending = uploadedDoc?.status === 'pending'
+                    
+                    return (
+                      <div key={index} className="flex items-center justify-between p-4 border rounded-lg bg-white">
+                        <div className="flex items-center space-x-4">
+                          {isVerified ? (
+                            <CheckCircle className="h-6 w-6 text-green-600" />
+                          ) : isPending ? (
+                            <Clock className="h-6 w-6 text-yellow-600" />
+                          ) : (
+                            <AlertTriangle className="h-6 w-6 text-yellow-600" />
+                          )}
+                          <div>
+                            <span className="font-medium text-gray-900">{req.name}</span>
+                            <p className="text-sm text-gray-500">{req.description}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {isUploaded ? (
+                            <Badge className="bg-green-600">Required</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-red-500 border-red-300">
+                              Not Uploaded
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -3466,175 +3291,6 @@ export default function ApplicantDashboard() {
                 </div>
               </div>
 
-              {/* My Documents Section */}
-              <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                      <FileText className="h-5 w-5 text-blue-600" />
-                    </div>
-                    <h3 className="text-xl font-semibold text-gray-900">My Documents</h3>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => {
-                        console.log('Manual refresh clicked')
-                        loadDocuments()
-                      }}
-                      variant="outline"
-                      className="text-gray-600 hover:text-gray-700"
-                    >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Refresh
-                    </Button>
-                    <Button
-                      onClick={() => {
-                        console.log('Force load documents')
-                        setDocuments([])
-                        setTimeout(() => loadDocuments(), 100)
-                      }}
-                      className="bg-green-600 hover:bg-green-700 text-white"
-                    >
-                      🔄 Force Load
-                    </Button>
-                    {documents.length > 0 && (
-                      <Button
-                        onClick={() => handleDownloadAllDocuments()}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Download All
-                      </Button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Debug Info - Always Show */}
-                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <h4 className="font-medium text-blue-800 mb-2">📊 Document Status:</h4>
-                  <p className="text-sm text-blue-700">Documents loaded: <strong>{documents.length}</strong></p>
-                  <p className="text-sm text-blue-700">Applicant ID: <strong>{applicantInfo?.id}</strong></p>
-                  {documents.length > 0 && (
-                    <div className="mt-2">
-                      <p className="text-sm text-blue-700">Your documents:</p>
-                      <ul className="text-xs text-blue-600 ml-4">
-                        {documents.map((doc, index) => (
-                          <li key={index}>• {doc.file_name} ({doc.status})</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-
-                {documents.length === 0 ? (
-                  <div className="text-center py-8">
-                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Documents Found</h3>
-                    <p className="text-gray-600 mb-4">You haven't uploaded any documents yet.</p>
-                    <Button
-                      onClick={() => setIsDocumentUploadOpen(true)}
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload Document
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {documents.map((doc) => (
-                      <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3 flex-1">
-                            <FileText className="h-8 w-8 text-blue-500" />
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-medium text-gray-900 truncate">
-                                {doc.file_name}
-                              </h4>
-                              <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {new Date(doc.uploaded_date).toLocaleDateString()}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <span>Size: {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'Unknown'}</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <span className="capitalize">{doc.document_type}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center gap-2 ml-4">
-                            <div className="flex items-center gap-1">
-                              {doc.status === 'verified' ? (
-                                <CheckCircle className="h-4 w-4 text-green-500" />
-                              ) : doc.status === 'pending' ? (
-                                <Clock className="h-4 w-4 text-yellow-500" />
-                              ) : (
-                                <XCircle className="h-4 w-4 text-red-500" />
-                              )}
-                              <span className={`px-2 py-1 rounded-full text-xs ${
-                                doc.status === 'verified' 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : doc.status === 'pending'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-red-100 text-red-800'
-                              }`}>
-                                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                              </span>
-                            </div>
-                            
-                            <div className="flex gap-1">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedDocument(doc)
-                                  setIsDocumentViewerOpen(true)
-                                }}
-                                className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                              >
-                                <Eye className="h-4 w-4 mr-1" />
-                                View
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDocumentDownload(doc.id)}
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                              >
-                                <Download className="h-4 w-4 mr-1" />
-                                Download
-                              </Button>
-                              {doc.status === 'pending' && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => handleDocumentVerification(doc.id, 'verified', 'Manually verified')}
-                                  className="text-green-600 hover:text-green-700 hover:bg-green-50"
-                                >
-                                  <CheckCircle className="h-4 w-4 mr-1" />
-                                  Verify
-                                </Button>
-                              )}
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                Delete
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
 
               {/* Documents Status */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
@@ -3644,23 +3300,7 @@ export default function ApplicantDashboard() {
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900">Document Status</h3>
                   <div className="flex gap-2">
-                    <Button
-                      onClick={() => loadDocuments()}
-                      variant="outline"
-                      className="text-gray-600 hover:text-gray-700"
-                    >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Refresh
-                    </Button>
-                    {documents.length > 0 && (
-                      <Button
-                        onClick={() => handleDownloadAllDocuments()}
-                        className="bg-blue-600 hover:bg-blue-700 text-white"
-                      >
-                        <Download className="h-4 w-4 mr-2" />
-                        Download All
-                      </Button>
-                    )}
+          
                     {documents.some(doc => doc.status === 'pending') && (
                       <Button
                         onClick={() => handleVerifyAllDocuments()}
@@ -3672,17 +3312,6 @@ export default function ApplicantDashboard() {
                     )}
                   </div>
                 </div>
-                {/* Debug Info */}
-                {process.env.NODE_ENV === 'development' && (
-                  <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                    <h4 className="font-medium text-yellow-800 mb-2">Debug Info:</h4>
-                    <p className="text-sm text-yellow-700">Documents loaded: {documents.length}</p>
-                    <p className="text-sm text-yellow-700">Applicant ID: {applicantInfo?.id}</p>
-                    <pre className="text-xs text-yellow-600 mt-2 overflow-auto">
-                      {JSON.stringify(documents, null, 2)}
-                    </pre>
-                  </div>
-                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {[
@@ -3690,10 +3319,13 @@ export default function ApplicantDashboard() {
                     { name: "Professional License", type: "license", icon: "📜" },
                     { name: "Certifications", type: "certification", icon: "🏆" },
                     { name: "Background Check", type: "background_check", icon: "🔍" },
+                    { name: "References", type: "references", icon: "👥" },
                   ].map((doc) => {
                     const uploadedDoc = documents.find(d => d.document_type === doc.type)
-                    const isUploaded = !!uploadedDoc
+                    const isUploaded = !!uploadedDoc && uploadedDoc.status !== 'rejected'
                     const isVerified = uploadedDoc?.status === 'verified'
+                    const isPending = uploadedDoc?.status === 'pending'
+                    const isRejected = uploadedDoc?.status === 'rejected'
                     
                     return (
                       <div key={doc.type} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200 hover:bg-gray-100 transition-colors">
@@ -3718,34 +3350,19 @@ export default function ApplicantDashboard() {
                                   <CheckCircle className="h-3 w-3 mr-1" />
                                   Verified
                                 </Badge>
-                              ) : (
+                              ) : isPending ? (
                                 <Badge className="bg-yellow-100 text-yellow-800 text-xs px-3 py-1">
                                   <Clock className="h-3 w-3 mr-1" />
                                   Pending
                                 </Badge>
+                              ) : (
+                                <Badge className="bg-orange-100 text-orange-800 text-xs px-3 py-1">
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  Under Review
+                                </Badge>
                               )}
                               <div className="flex gap-1">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => {
-                                    setSelectedDocument(uploadedDoc)
-                                    setIsDocumentViewerOpen(true)
-                                  }}
-                                  className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                                >
-                                  <Eye className="h-3 w-3 mr-1" />
-                                  View
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleDocumentDownload(uploadedDoc.id)}
-                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                >
-                                  <Download className="h-3 w-3 mr-1" />
-                                  Download
-                                </Button>
+                            
                                 {uploadedDoc.status === 'pending' && (
                                   <Button
                                     size="sm"
@@ -3757,21 +3374,18 @@ export default function ApplicantDashboard() {
                                     Verify
                                   </Button>
                                 )}
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleDeleteDocument(uploadedDoc.id, uploadedDoc.file_name)}
-                                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                >
-                                  <Trash2 className="h-3 w-3 mr-1" />
-                                  Delete
-                                </Button>
+                         
                               </div>
                             </>
+                          ) : isRejected ? (
+                            <Badge className="bg-red-100 text-red-800 text-xs px-3 py-1">
+                              <XCircle className="h-3 w-3 mr-1" />
+                              Rejected
+                            </Badge>
                           ) : (
                             <Badge className="bg-red-100 text-red-800 text-xs px-3 py-1">
                               <AlertTriangle className="h-3 w-3 mr-1" />
-                              Missing
+                              Not Uploaded
                             </Badge>
                           )}
                         </div>

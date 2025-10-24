@@ -69,6 +69,7 @@ export async function GET(request: NextRequest) {
           id,
           title,
           description,
+          department,
           job_type,
           salary_min,
           salary_max,

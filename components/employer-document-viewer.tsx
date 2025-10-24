@@ -16,7 +16,8 @@ import {
   Calendar,
   User,
   HardDrive,
-  AlertCircle
+  AlertCircle,
+  X
 } from "lucide-react"
 
 interface Document {
@@ -76,10 +77,16 @@ export default function EmployerDocumentViewer({
   const handleDownload = async (document: Document) => {
     setIsDownloading(document.id)
     try {
-      const response = await fetch(`/api/documents/download?document_id=${document.id}`)
+      const response = await fetch(`/api/documents/download?document_id=${document.id}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorData = await response.json()
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
       }
       
       // Get the filename from the response headers or use the document filename
@@ -93,19 +100,19 @@ export default function EmployerDocumentViewer({
       
       // Create a download link
       const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
+      const link = window.document.createElement('a')
       link.href = url
       link.download = filename
-      document.body.appendChild(link)
+      window.document.body.appendChild(link)
       link.click()
       
       // Clean up
-      document.body.removeChild(link)
+      window.document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
       
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download document. Please try again.')
+      alert(`Failed to download document: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsDownloading(null)
     }
@@ -119,10 +126,16 @@ export default function EmployerDocumentViewer({
       // Get the applicant ID from the first document
       const applicantId = documents[0].applicant_id || documents[0].id
       
-      const response = await fetch(`/api/documents/download?applicant_id=${applicantId}`)
+      const response = await fetch(`/api/documents/download-all?applicant_id=${applicantId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
       
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        const errorData = await response.json()
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
       }
       
       // Get the filename from the response headers
@@ -136,19 +149,19 @@ export default function EmployerDocumentViewer({
       
       // Create a download link
       const url = window.URL.createObjectURL(blob)
-      const link = document.createElement('a')
+      const link = window.document.createElement('a')
       link.href = url
       link.download = filename
-      document.body.appendChild(link)
+      window.document.body.appendChild(link)
       link.click()
       
       // Clean up
-      document.body.removeChild(link)
+      window.document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
       
     } catch (error) {
       console.error('Bulk download error:', error)
-      alert('Failed to download documents. Please try again.')
+      alert(`Failed to download documents: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setIsDownloadingAll(false)
     }
@@ -401,6 +414,137 @@ export default function EmployerDocumentViewer({
           </Button>
         </div>
       </DialogContent>
+
+      {/* Document Viewer Modal */}
+      {selectedDocument && (
+        <Dialog open={!!selectedDocument} onOpenChange={() => setSelectedDocument(null)}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                {selectedDocument.file_name}
+              </DialogTitle>
+              <DialogDescription>
+                Document uploaded by {applicantName}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {/* Document Info */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-600">File Name:</span>
+                    <p className="text-gray-900">{selectedDocument.file_name}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-600">File Size:</span>
+                    <p className="text-gray-900">{selectedDocument.file_size_mb} MB</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-600">Upload Date:</span>
+                    <p className="text-gray-900">{selectedDocument.uploaded_date_formatted}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-600">Document Type:</span>
+                    <p className="text-gray-900 capitalize">{selectedDocument.document_type}</p>
+                  </div>
+                  <div>
+                    <span className="font-medium text-gray-600">Status:</span>
+                    <div className="flex items-center gap-2">
+                      {getStatusIcon(selectedDocument.status)}
+                      <Badge variant={getStatusVariant(selectedDocument.status)}>
+                        {selectedDocument.status_badge.text}
+                      </Badge>
+                    </div>
+                  </div>
+                  {selectedDocument.verified_date && (
+                    <div>
+                      <span className="font-medium text-gray-600">Verified Date:</span>
+                      <p className="text-gray-900">{selectedDocument.verified_date}</p>
+                    </div>
+                  )}
+                </div>
+                {selectedDocument.notes && (
+                  <div className="mt-3">
+                    <span className="font-medium text-gray-600">Notes:</span>
+                    <p className="text-gray-900 mt-1">{selectedDocument.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Document Preview */}
+              <div className="border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Document Preview</h3>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleDownload(selectedDocument)}
+                      disabled={isDownloading === selectedDocument.id}
+                      className="text-green-600 hover:text-green-700"
+                    >
+                      {isDownloading === selectedDocument.id ? (
+                        <>
+                          <Clock className="h-4 w-4 mr-1 animate-spin" />
+                          Downloading...
+                        </>
+                      ) : (
+                        <>
+                          <Download className="h-4 w-4 mr-1" />
+                          Download
+                        </>
+                      )}
+                    </Button>
+                    <button
+                      onClick={() => setSelectedDocument(null)}
+                      className="text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-6 w-6" />
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Document Content */}
+                <div className="bg-white border rounded-lg p-6 min-h-[400px] flex items-center justify-center">
+                  {selectedDocument.file_url ? (
+                    <div className="text-center">
+                      <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                      <p className="text-gray-600 mb-4">
+                        Click download to view this document
+                      </p>
+                      <Button
+                        onClick={() => handleDownload(selectedDocument)}
+                        disabled={isDownloading === selectedDocument.id}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        {isDownloading === selectedDocument.id ? (
+                          <>
+                            <Clock className="h-4 w-4 mr-2 animate-spin" />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-4 w-4 mr-2" />
+                            Download to View
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="text-center text-gray-500">
+                      <AlertCircle className="h-12 w-12 mx-auto mb-4" />
+                      <p>Document preview not available</p>
+                      <p className="text-sm">Use the download button to access the file</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </Dialog>
   )
 }
