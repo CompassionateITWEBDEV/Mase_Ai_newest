@@ -2597,12 +2597,25 @@ export default function ApplicantDashboard() {
                   </div>
                   <div className="flex gap-2">
                     <Button
-                      onClick={() => loadDocuments()}
+                      onClick={() => {
+                        console.log('Manual refresh clicked')
+                        loadDocuments()
+                      }}
                       variant="outline"
                       className="text-gray-600 hover:text-gray-700"
                     >
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Refresh
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        console.log('Force load documents')
+                        setDocuments([])
+                        setTimeout(() => loadDocuments(), 100)
+                      }}
+                      className="bg-green-600 hover:bg-green-700 text-white"
+                    >
+                      🔄 Force Load
                     </Button>
                     {documents.length > 0 && (
                       <Button
@@ -2614,6 +2627,23 @@ export default function ApplicantDashboard() {
                       </Button>
                     )}
                   </div>
+                </div>
+
+                {/* Debug Info - Always Show */}
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <h4 className="font-medium text-blue-800 mb-2">📊 Document Status:</h4>
+                  <p className="text-sm text-blue-700">Documents loaded: <strong>{documents.length}</strong></p>
+                  <p className="text-sm text-blue-700">Applicant ID: <strong>{applicantInfo?.id}</strong></p>
+                  {documents.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-sm text-blue-700">Your documents:</p>
+                      <ul className="text-xs text-blue-600 ml-4">
+                        {documents.map((doc, index) => (
+                          <li key={index}>• {doc.file_name} ({doc.status})</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
 
                 {documents.length === 0 ? (
