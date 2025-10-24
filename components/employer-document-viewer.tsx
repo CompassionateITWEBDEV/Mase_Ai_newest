@@ -71,22 +71,86 @@ export default function EmployerDocumentViewer({
 }: EmployerDocumentViewerProps) {
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null)
   const [isDownloading, setIsDownloading] = useState<string | null>(null)
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false)
 
   const handleDownload = async (document: Document) => {
     setIsDownloading(document.id)
     try {
-      // In a real implementation, you would download the actual file
-      // For now, we'll just show a success message
-      alert(`Downloading ${document.file_name}...`)
+      const response = await fetch(`/api/documents/download?document_id=${document.id}`)
       
-      // Simulate download delay
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      // Get the filename from the response headers or use the document filename
+      const contentDisposition = response.headers.get('content-disposition')
+      const filename = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') 
+        : document.file_name
+      
+      // Create a blob from the response
+      const blob = await response.blob()
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      
+      // Clean up
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
       
     } catch (error) {
       console.error('Download error:', error)
-      alert('Failed to download document')
+      alert('Failed to download document. Please try again.')
     } finally {
       setIsDownloading(null)
+    }
+  }
+
+  const handleDownloadAll = async () => {
+    if (documents.length === 0) return
+    
+    setIsDownloadingAll(true)
+    try {
+      // Get the applicant ID from the first document
+      const applicantId = documents[0].applicant_id || documents[0].id
+      
+      const response = await fetch(`/api/documents/download?applicant_id=${applicantId}`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      // Get the filename from the response headers
+      const contentDisposition = response.headers.get('content-disposition')
+      const filename = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') 
+        : `${applicantName.replace(/\s+/g, '-')}-documents.zip`
+      
+      // Create a blob from the response
+      const blob = await response.blob()
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      
+      // Clean up
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+    } catch (error) {
+      console.error('Bulk download error:', error)
+      alert('Failed to download documents. Please try again.')
+    } finally {
+      setIsDownloadingAll(false)
     }
   }
 
@@ -140,7 +204,7 @@ export default function EmployerDocumentViewer({
         ) : (
           <div className="space-y-6">
             {/* Document Summary */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               <Card>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
@@ -177,6 +241,35 @@ export default function EmployerDocumentViewer({
                       <p className="text-sm text-gray-600">Pending</p>
                     </div>
                     <Clock className="h-8 w-8 text-yellow-500" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-blue-800">Quick Actions</p>
+                      <Button
+                        size="sm"
+                        onClick={handleDownloadAll}
+                        disabled={isDownloadingAll}
+                        className="mt-2 bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        {isDownloadingAll ? (
+                          <>
+                            <Clock className="h-3 w-3 mr-1 animate-spin" />
+                            Downloading...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-3 w-3 mr-1" />
+                            Download All
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    <Download className="h-8 w-8 text-blue-500" />
                   </div>
                 </CardContent>
               </Card>
@@ -236,24 +329,33 @@ export default function EmployerDocumentViewer({
                                   </Badge>
                                 </div>
                                 
-                                <div className="flex gap-1">
+                                <div className="flex gap-2">
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() => setSelectedDocument(doc)}
+                                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                                   >
-                                    <Eye className="h-4 w-4" />
+                                    <Eye className="h-4 w-4 mr-1" />
+                                    View
                                   </Button>
                                   <Button
                                     variant="outline"
                                     size="sm"
                                     onClick={() => handleDownload(doc)}
                                     disabled={isDownloading === doc.id}
+                                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
                                   >
                                     {isDownloading === doc.id ? (
-                                      <Clock className="h-4 w-4 animate-spin" />
+                                      <>
+                                        <Clock className="h-4 w-4 mr-1 animate-spin" />
+                                        Downloading...
+                                      </>
                                     ) : (
-                                      <Download className="h-4 w-4" />
+                                      <>
+                                        <Download className="h-4 w-4 mr-1" />
+                                        Download
+                                      </>
                                     )}
                                   </Button>
                                 </div>
@@ -271,7 +373,28 @@ export default function EmployerDocumentViewer({
         )}
 
         {/* Action Buttons */}
-        <div className="flex justify-end gap-2 pt-4 border-t">
+        <div className="flex justify-between items-center pt-4 border-t">
+          <div>
+            {documents.length > 0 && (
+              <Button
+                onClick={handleDownloadAll}
+                disabled={isDownloadingAll}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {isDownloadingAll ? (
+                  <>
+                    <Clock className="h-4 w-4 mr-2 animate-spin" />
+                    Downloading All...
+                  </>
+                ) : (
+                  <>
+                    <Download className="h-4 w-4 mr-2" />
+                    Download All Documents
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
           <Button variant="outline" onClick={onClose}>
             Close
           </Button>

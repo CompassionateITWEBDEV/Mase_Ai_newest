@@ -135,6 +135,80 @@ export default function ApplicantDashboard() {
     }
   }
 
+  // Handle document download
+  const handleDocumentDownload = async (documentId: string) => {
+    try {
+      const response = await fetch(`/api/documents/download?document_id=${documentId}`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      // Get the filename from the response headers or use a default
+      const contentDisposition = response.headers.get('content-disposition')
+      const filename = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') 
+        : `document-${documentId}.pdf`
+      
+      // Create a blob from the response
+      const blob = await response.blob()
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      
+      // Clean up
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+    } catch (error) {
+      console.error('Download error:', error)
+      alert('Failed to download document. Please try again.')
+    }
+  }
+
+  // Handle download all documents
+  const handleDownloadAllDocuments = async () => {
+    if (!applicantInfo?.id || documents.length === 0) return
+    
+    try {
+      const response = await fetch(`/api/documents/download?applicant_id=${applicantInfo.id}`)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
+      // Get the filename from the response headers
+      const contentDisposition = response.headers.get('content-disposition')
+      const filename = contentDisposition 
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') 
+        : `${applicantInfo.firstName}-${applicantInfo.lastName}-documents.zip`
+      
+      // Create a blob from the response
+      const blob = await response.blob()
+      
+      // Create a download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      
+      // Clean up
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+    } catch (error) {
+      console.error('Bulk download error:', error)
+      alert('Failed to download documents. Please try again.')
+    }
+  }
+
   // Load recent activities function
   const loadRecentActivities = async () => {
     if (!applicantInfo?.id) return
@@ -2458,6 +2532,15 @@ export default function ApplicantDashboard() {
                     <FileText className="h-5 w-5 text-amber-600" />
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900">Document Status</h3>
+                  {documents.length > 0 && (
+                    <Button
+                      onClick={() => handleDownloadAllDocuments()}
+                      className="bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      <Download className="h-4 w-4 mr-2" />
+                      Download All
+                    </Button>
+                  )}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {[
@@ -2487,17 +2570,28 @@ export default function ApplicantDashboard() {
                         </div>
                         <div className="flex items-center space-x-2">
                           {isUploaded ? (
-                            isVerified ? (
-                              <Badge className="bg-green-100 text-green-800 text-xs px-3 py-1">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                Verified
-                              </Badge>
-                            ) : (
-                              <Badge className="bg-yellow-100 text-yellow-800 text-xs px-3 py-1">
-                                <Clock className="h-3 w-3 mr-1" />
-                                Pending
-                              </Badge>
-                            )
+                            <>
+                              {isVerified ? (
+                                <Badge className="bg-green-100 text-green-800 text-xs px-3 py-1">
+                                  <CheckCircle className="h-3 w-3 mr-1" />
+                                  Verified
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-yellow-100 text-yellow-800 text-xs px-3 py-1">
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  Pending
+                                </Badge>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleDocumentDownload(uploadedDoc.id)}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              >
+                                <Download className="h-3 w-3 mr-1" />
+                                Download
+                              </Button>
+                            </>
                           ) : (
                             <Badge className="bg-red-100 text-red-800 text-xs px-3 py-1">
                               <AlertTriangle className="h-3 w-3 mr-1" />
