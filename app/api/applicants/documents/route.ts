@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
     // Get applicant documents
+    console.log('Fetching documents for applicant:', applicantId)
+    
     const { data: documents, error } = await supabase
       .from('applicant_documents')
       .select(`
@@ -39,6 +41,11 @@ export async function GET(request: NextRequest) {
       `)
       .eq('applicant_id', applicantId)
       .order('uploaded_date', { ascending: false })
+
+    console.log('Documents fetched from DB:', documents?.length || 0, 'documents')
+    if (documents) {
+      console.log('Document IDs:', documents.map(d => d.id))
+    }
 
     if (error) {
       console.error('Database error:', error)

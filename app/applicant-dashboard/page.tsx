@@ -243,9 +243,17 @@ export default function ApplicantDashboard() {
         console.log('Document deleted successfully:', data)
         
         // Immediately update local state to reflect deletion
-        setDocuments(prevDocs => prevDocs.filter(doc => doc.id !== documentId))
+        setDocuments(prevDocs => {
+          const filtered = prevDocs.filter(doc => doc.id !== documentId)
+          console.log('Filtered documents after deletion:', filtered)
+          return filtered
+        })
         
-        // Also reload documents from server to ensure sync
+        // Wait a moment for the database to process
+        await new Promise(resolve => setTimeout(resolve, 500))
+        
+        // Reload documents from server to ensure sync
+        console.log('Reloading documents from server...')
         await loadDocuments()
         
         // Reload recent activities to update the activity log
