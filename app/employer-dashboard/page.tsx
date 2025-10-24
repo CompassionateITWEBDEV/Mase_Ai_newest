@@ -560,8 +560,9 @@ export default function EmployerDashboard() {
   const sendOfferToCandidate = (candidate: any) => {
     // Create a mock application object for the offer modal
     const mockApplication = {
-      id: `candidate-${candidate.id}`,
+      id: candidate.id, // Use the actual candidate ID directly
       applicant_id: candidate.id,
+      employer_id: employerId, // Add employer ID for candidate pool offers
       applicant: {
         full_name: candidate.full_name,
         email: candidate.email,

@@ -107,7 +107,11 @@ export default function JobOfferModal({
           offerExpiryDate: formData.offerExpiryDate,
           benefits: formData.benefits,
           workSchedule: formData.workSchedule,
-          offerNotes: formData.offerNotes
+          offerNotes: formData.offerNotes,
+          isCandidatePool: application.is_candidate_pool || false,
+          candidateId: application.applicant_id,
+          employerId: application.employer_id,
+          jobTitle: application.job_posting?.title || 'Direct Offer'
         })
       })
 
