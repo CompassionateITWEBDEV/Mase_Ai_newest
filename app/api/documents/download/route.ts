@@ -56,15 +56,50 @@ export async function GET(request: NextRequest) {
     if (documentId && documents.length === 1) {
       const document = documents[0]
       
-      // In a real implementation, you would:
-      // 1. Fetch the actual file from storage (S3, Supabase Storage, etc.)
-      // 2. Stream the file content
-      // For now, we'll create a placeholder file based on document type
+      // Check if file_url is a base64 data URL
+      if (document.file_url && document.file_url.startsWith('data:')) {
+        // Extract base64 content
+        const matches = document.file_url.match(/^data:([^;]+);base64,(.+)$/)
+        if (matches) {
+          const mimeType = matches[1]
+          const base64Data = matches[2]
+          const buffer = Buffer.from(base64Data, 'base64')
+          
+          return new NextResponse(buffer, {
+            headers: {
+              'Content-Type': mimeType,
+              'Content-Disposition': `attachment; filename="${document.file_name}"`,
+              'Cache-Control': 'no-cache',
+            },
+          })
+        }
+      }
       
+      // Check if file_url is a Supabase Storage URL
+      if (document.file_url && document.file_url.includes('supabase')) {
+        try {
+          // Fetch the file from Supabase Storage
+          const response = await fetch(document.file_url)
+          if (response.ok) {
+            const blob = await response.blob()
+            const buffer = await blob.arrayBuffer()
+            
+            return new NextResponse(buffer, {
+              headers: {
+                'Content-Type': blob.type || getMimeType(getFileExtension(document.file_name)),
+                'Content-Disposition': `attachment; filename="${document.file_name}"`,
+                'Cache-Control': 'no-cache',
+              },
+            })
+          }
+        } catch (fetchError) {
+          console.error('Error fetching file from storage:', fetchError)
+        }
+      }
+      
+      // Fallback to placeholder if no real file is available
       const fileExtension = getFileExtension(document.file_name)
       const mimeType = getMimeType(fileExtension)
-      
-      // Generate placeholder content based on document type
       const content = generatePlaceholderContent(document, fileExtension)
       
       return new NextResponse(content, {
