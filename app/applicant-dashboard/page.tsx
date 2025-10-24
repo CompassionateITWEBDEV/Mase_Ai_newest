@@ -467,7 +467,7 @@ export default function ApplicantDashboard() {
   // Calculate profile completion percentage
   const calculateProfileCompletion = (user: any) => {
     let completed = 0
-    const total = 10
+    const total = 14 // 10 profile fields + 4 required documents
 
     // Basic information (4 points)
     if (user.firstName) completed++
@@ -484,13 +484,20 @@ export default function ApplicantDashboard() {
     if (user.city) completed++
     if (user.state) completed++
     
-    // Additional profile fields (1 point)
+    // Certifications field in profile (1 point)
     if (user.certifications) completed++
     
-    // Required documents (1 point) - only resume required
-    const verifiedDocuments = documents.filter(doc => doc.status === 'verified')
-    const hasResume = verifiedDocuments.some(doc => doc.document_type === 'resume')
-    if (hasResume) completed += 1
+    // Required documents (4 points total) - uploaded and not rejected
+    const requiredDocs = [
+      { type: 'resume', uploaded: documents.some(doc => doc.document_type === 'resume' && doc.status !== 'rejected') },
+      { type: 'license', uploaded: documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected') },
+      { type: 'certification', uploaded: documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected') },
+      { type: 'background_check', uploaded: documents.some(doc => doc.document_type === 'background_check' && doc.status !== 'rejected') }
+    ]
+    
+    requiredDocs.forEach(doc => {
+      if (doc.uploaded) completed++
+    })
 
     return Math.round((completed / total) * 100)
   }
@@ -1484,11 +1491,26 @@ export default function ApplicantDashboard() {
     }
   }
 
+  // Check if interview is past
+  const isInterviewPast = (interviewDate: string, interviewTime: string) => {
+    if (!interviewDate || !interviewTime) return false
+    
+    const now = new Date()
+    const interviewDateTime = new Date(interviewDate)
+    const [hours, minutes] = interviewTime.split(':')
+    interviewDateTime.setHours(parseInt(hours), parseInt(minutes), 0)
+    
+    return now > interviewDateTime
+  }
+
   // Calculate application stats from real data
   const applicationStats = {
     totalApplications: applications.length,
     pendingApplications: applications.filter(app => app.status === 'pending' || app.status === 'under_review').length,
-    interviewsScheduled: applications.filter(app => app.status === 'interview_scheduled').length,
+    interviewsScheduled: applications.filter(app => 
+      app.status === 'interview_scheduled' && 
+      !isInterviewPast(app.interview_date || '', app.interview_time || '')
+    ).length,
     offersReceived: applications.filter(app => app.status === 'offer_received').length,
     profileViews: applicantInfo?.profileViews || 0,
     savedJobs: savedJobs.length,
@@ -1958,7 +1980,9 @@ export default function ApplicantDashboard() {
               <CardContent>
                 {(() => {
                   const interviewApplications = applications.filter(app => 
-                    app.status === 'interview_scheduled' && (app.interview_date || app.interview_time)
+                    app.status === 'interview_scheduled' && 
+                    (app.interview_date || app.interview_time) &&
+                    !isInterviewPast(app.interview_date || '', app.interview_time || '')
                   )
                   
                   if (interviewApplications.length === 0) {
@@ -2046,6 +2070,105 @@ export default function ApplicantDashboard() {
                 })()}
               </CardContent>
             </Card>
+
+            {/* Past Interviews (History) */}
+            {(() => {
+              const pastInterviewApplications = applications.filter(app => 
+                app.status === 'interview_scheduled' && 
+                (app.interview_date || app.interview_time) &&
+                isInterviewPast(app.interview_date || '', app.interview_time || '')
+              )
+              
+              if (pastInterviewApplications.length > 0) {
+                return (
+                  <Card>
+                    <CardHeader>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <CardTitle className="flex items-center gap-2">
+                            <Clock className="h-5 w-5 text-gray-500" />
+                            Past Interviews
+                          </CardTitle>
+                          <CardDescription>Interview history</CardDescription>
+                        </div>
+                        <Badge variant="outline" className="text-gray-600">
+                          {pastInterviewApplications.length} past
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-4">
+                        {pastInterviewApplications.slice(0, 3).map((application) => (
+                          <div key={application.id} className="p-4 border rounded-lg bg-gray-50 border-gray-200 opacity-75">
+                            <div className="flex items-start justify-between mb-3">
+                              <div className="flex-1">
+                                <h3 className="font-semibold text-gray-700">{application.job_posting?.title || 'Unknown Position'}</h3>
+                                <p className="text-sm text-gray-600">{application.job_posting?.company_name || 'Healthcare Facility'}</p>
+                              </div>
+                              <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">
+                                Past
+                              </Badge>
+                            </div>
+                            
+                            <div className="space-y-2">
+                              {application.interview_date && (
+                                <div className="flex items-center gap-2 text-sm text-gray-600">
+                                  <Calendar className="h-4 w-4" />
+                                  <span className="font-medium">Date:</span>
+                                  <span>{new Date(application.interview_date).toLocaleDateString('en-US', { 
+                                    weekday: 'short', 
+                                    year: 'numeric', 
+                                    month: 'short', 
+                                    day: 'numeric' 
+                                  })}</span>
+                                </div>
+                              )}
+                              {application.interview_time && (
+                                <div className="flex items-center gap-2 text-sm text-gray-600">
+                                  <Clock className="h-4 w-4" />
+                                  <span className="font-medium">Time:</span>
+                                  <span>{new Date(`2000-01-01T${application.interview_time}`).toLocaleTimeString('en-US', {
+                                    hour: 'numeric',
+                                    minute: '2-digit',
+                                    hour12: true
+                                  })}</span>
+                                </div>
+                              )}
+                            </div>
+                            
+                            <div className="flex gap-2 mt-4">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="flex-1"
+                                onClick={() => {
+                                  setSelectedApplication(application)
+                                  setIsApplicationDetailsOpen(true)
+                                }}
+                              >
+                                View Details
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      {pastInterviewApplications.length > 3 && (
+                        <div className="text-center mt-4">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => setActiveTab('applications')}
+                          >
+                            View All Past Interviews ({pastInterviewApplications.length})
+                          </Button>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                )
+              }
+              return null
+            })()}
 
             {/* Recent Activity */}
             <Card>
@@ -2843,45 +2966,100 @@ export default function ApplicantDashboard() {
                     )}
                   </div>
 
-                  {/* Resume Upload */}
-                  {(() => {
-                    const hasResume = documents.some(doc => 
-                      doc.document_type === 'resume' && doc.status === 'verified'
-                    )
+                  {/* Required Documents */}
+                  {[
+                    { name: "Resume", required: true, type: "resume", description: "Professional resume or CV" },
+                    { name: "License", required: true, type: "license", description: "Professional/Nursing license" },
+                    { name: "Certifications", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
+                    { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
+                  ].map((req, index) => {
+                    const uploadedDoc = documents.find(doc => doc.document_type === req.type)
+                    const isUploaded = !!uploadedDoc
+                    const isVerified = uploadedDoc?.status === 'verified'
+                    const isPending = uploadedDoc?.status === 'pending'
+                    
                     return (
-                      <div className={`flex items-center justify-between p-3 border rounded-lg ${
-                        hasResume
-                          ? 'bg-green-50 border-green-200' 
-                          : 'bg-red-50 border-red-200'
+                      <div key={index} className={`flex items-center justify-between p-3 border rounded-lg ${
+                        isVerified 
+                          ? 'bg-green-50 border-green-200'
+                          : isPending
+                          ? 'bg-blue-50 border-blue-200'
+                          : req.required
+                          ? 'bg-red-50 border-red-200'
+                          : 'bg-gray-50 border-gray-200'
                       }`}>
                         <div className="flex items-center space-x-3">
-                          {hasResume ? (
+                          {isVerified ? (
                             <CheckCircle className="h-5 w-5 text-green-600" />
+                          ) : isPending ? (
+                            <Clock className="h-5 w-5 text-blue-600" />
+                          ) : req.required ? (
+                            <AlertTriangle className="h-5 w-5 text-red-600" />
                           ) : (
-                            <XCircle className="h-5 w-5 text-red-600" />
+                            <FileText className="h-5 w-5 text-gray-400" />
                           )}
                           <div>
-                            <span className="font-medium">Resume Upload</span>
-                            <p className="text-xs text-gray-600">Required to apply for jobs</p>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium">{req.name}</span>
+                              <Badge variant="secondary" className={`text-xs ${
+                                req.required 
+                                  ? 'bg-red-100 text-red-700 border-red-300' 
+                                  : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {req.required ? 'Required' : 'Optional'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">{req.description}</p>
+                            <p className="text-xs text-gray-600 mt-1">
+                              {isVerified 
+                                ? '✓ Verified and ready' 
+                                : isPending 
+                                ? '⏳ Uploaded, pending verification' 
+                                : req.required
+                                ? '⚠️ Required to complete profile'
+                                : 'Optional document'}
+                            </p>
                           </div>
                         </div>
-                        {hasResume ? (
-                          <Badge className="bg-green-600">Uploaded</Badge>
-                        ) : (
+                        {!isUploaded ? (
                           <Button 
                             size="sm" 
-                            className="bg-red-600 hover:bg-red-700"
+                            className={req.required ? 'bg-red-600 hover:bg-red-700' : ''}
+                            variant={req.required ? 'default' : 'outline'}
                             onClick={() => {
                               setActiveTab('documents')
                               setTimeout(() => setIsDocumentUploadOpen(true), 300)
                             }}
                           >
-                            Upload Resume
+                            <Upload className="h-4 w-4 mr-1" />
+                            Upload
                           </Button>
+                        ) : (
+                          <div className="flex gap-2">
+                            {isVerified ? (
+                              <Badge className="bg-green-600">Verified</Badge>
+                            ) : isPending ? (
+                              <Badge className="bg-blue-600">Pending</Badge>
+                            ) : (
+                              <Badge className="bg-yellow-600">Under Review</Badge>
+                            )}
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedDocument(uploadedDoc)
+                                setIsDocumentViewerOpen(true)
+                              }}
+                              className="text-purple-600 hover:text-purple-700"
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                          </div>
                         )}
                       </div>
                     )
-                  })()}
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -3072,47 +3250,78 @@ export default function ApplicantDashboard() {
               <CardContent>
                 <div className="space-y-4">
                   {[
-                    { name: "Professional Resume", required: true, type: "resume" },
-                    { name: "Professional License", required: true, type: "license" },
-                    { name: "CPR Certification", required: true, type: "certification" },
-                    { name: "Background Check", required: true, type: "background_check" },
-                    { name: "References", required: false, type: "reference" },
+                    { name: "Resume", required: true, type: "resume", description: "Professional resume or CV" },
+                    { name: "License", required: true, type: "license", description: "Professional/Nursing license" },
+                    { name: "Certifications", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
+                    { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
                   ].map((req, index) => {
                     const uploadedDoc = documents.find(doc => doc.document_type === req.type)
                     const isUploaded = !!uploadedDoc
                     const isVerified = uploadedDoc?.status === 'verified'
+                    const isPending = uploadedDoc?.status === 'pending'
                     
                     return (
-                      <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
+                      <div key={index} className={`flex items-center justify-between p-4 border rounded-lg ${
+                        isVerified 
+                          ? 'bg-green-50 border-green-200'
+                          : isPending
+                          ? 'bg-blue-50 border-blue-200'
+                          : req.required
+                          ? 'bg-red-50 border-red-200'
+                          : 'bg-gray-50 border-gray-200'
+                      }`}>
                         <div className="flex items-center space-x-4">
-                          {isUploaded ? (
-                            isVerified ? (
-                              <CheckCircle className="h-6 w-6 text-green-500" />
-                            ) : (
-                              <AlertTriangle className="h-6 w-6 text-orange-500" />
-                            )
+                          {isVerified ? (
+                            <CheckCircle className="h-6 w-6 text-green-600" />
+                          ) : isPending ? (
+                            <Clock className="h-6 w-6 text-blue-600" />
+                          ) : req.required ? (
+                            <AlertTriangle className="h-6 w-6 text-red-600" />
                           ) : (
-                            <AlertTriangle className="h-6 w-6 text-orange-500" />
+                            <FileText className="h-6 w-6 text-gray-400" />
                           )}
-                          <div className="flex items-center space-x-2">
-                            <span className="font-medium text-gray-900">{req.name}</span>
-                            <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600">
-                              {req.required ? 'Required' : 'Optional'}
-                            </Badge>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-900">{req.name}</span>
+                              <Badge variant="secondary" className={`text-xs ${
+                                req.required 
+                                  ? 'bg-red-100 text-red-700 border-red-300' 
+                                  : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {req.required ? 'Required' : 'Optional'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">{req.description}</p>
+                            <p className="text-xs text-gray-600 mt-1">
+                              {isVerified 
+                                ? '✓ Verified and ready' 
+                                : isPending 
+                                ? '⏳ Uploaded, pending verification' 
+                                : req.required
+                                ? '⚠️ Required to complete profile'
+                                : 'Optional document'}
+                            </p>
                           </div>
                         </div>
                         {!isUploaded ? (
                           <Button 
                             size="sm" 
-                            variant="outline"
+                            className={req.required ? 'bg-red-600 hover:bg-red-700' : ''}
+                            variant={req.required ? 'default' : 'outline'}
                             onClick={() => setIsDocumentUploadOpen(true)}
-                            className="border-gray-300 text-gray-700 hover:bg-gray-50"
                           >
                             <Upload className="h-4 w-4 mr-2" />
                             Upload
                           </Button>
                         ) : (
                           <div className="flex gap-2">
+                            {isVerified ? (
+                              <Badge className="bg-green-600">Verified</Badge>
+                            ) : isPending ? (
+                              <Badge className="bg-blue-600">Pending</Badge>
+                            ) : (
+                              <Badge className="bg-yellow-600">Under Review</Badge>
+                            )}
                             <Button 
                               size="sm" 
                               variant="outline"
