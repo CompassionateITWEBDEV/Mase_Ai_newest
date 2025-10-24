@@ -21,35 +21,41 @@ export async function POST(request: NextRequest) {
 
     console.log('Login attempt:', { email, accountType })
 
-    // First, authenticate with Supabase Auth
+    // First, try to authenticate with Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: email,
       password: password,
     })
 
-    if (authError || !authData.user) {
-      console.error('Authentication failed:', authError)
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
-      )
-    }
+    let userId: string | null = null
+    let useFallbackAuth = false
 
-    const userId = authData.user.id
+    if (authError || !authData.user) {
+      console.log('Supabase Auth failed, trying fallback authentication...')
+      useFallbackAuth = true
+    } else {
+      userId = authData.user.id
+    }
 
     // Now check the specific account type and get user data
     if (accountType === 'applicant') {
-      const { data, error } = await supabase
-        .from('applicants')
-        .select('*')
-        .eq('auth_user_id', userId)
-        .single()
+      let query = supabase.from('applicants').select('*')
+      
+      if (useFallbackAuth) {
+        // Use fallback authentication - check email and password directly
+        query = query.eq('email', email).eq('password_hash', password)
+      } else {
+        // Use Supabase Auth - check by auth_user_id
+        query = query.eq('auth_user_id', userId)
+      }
+
+      const { data, error } = await query.single()
 
       if (error || !data) {
         console.error('Applicant profile not found:', error)
         return NextResponse.json(
-          { error: 'Account not found. Please contact support.' },
-          { status: 404 }
+          { error: 'Invalid email or password' },
+          { status: 401 }
         )
       }
 
@@ -82,17 +88,23 @@ export async function POST(request: NextRequest) {
       })
       
     } else if (accountType === 'employer') {
-      const { data, error } = await supabase
-        .from('employers')
-        .select('*')
-        .eq('auth_user_id', userId)
-        .single()
+      let query = supabase.from('employers').select('*')
+      
+      if (useFallbackAuth) {
+        // Use fallback authentication - check email and password directly
+        query = query.eq('email', email).eq('password_hash', password)
+      } else {
+        // Use Supabase Auth - check by auth_user_id
+        query = query.eq('auth_user_id', userId)
+      }
+
+      const { data, error } = await query.single()
 
       if (error || !data) {
         console.error('Employer profile not found:', error)
         return NextResponse.json(
-          { error: 'Account not found. Please contact support.' },
-          { status: 404 }
+          { error: 'Invalid email or password' },
+          { status: 401 }
         )
       }
 

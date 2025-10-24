@@ -12,6 +12,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { Progress } from "@/components/ui/progress"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   Users,
   Building2,
@@ -33,6 +34,10 @@ export default function RegisterPage() {
   const [currentStep, setCurrentStep] = useState(1)
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [showErrorDialog, setShowErrorDialog] = useState(false)
+  const [dialogMessage, setDialogMessage] = useState("")
+  const [redirectTo, setRedirectTo] = useState("")
   const [formData, setFormData] = useState({
     // Basic Info
     firstName: "",
@@ -152,8 +157,12 @@ export default function RegisterPage() {
         throw new Error(data.error || "Registration failed")
       }
 
-      // Success! Store user data and redirect based on account type
-      alert("Account created successfully! Welcome to IrishTriplets!")
+      // Show success dialog
+      setDialogMessage(data.message || "Account created successfully! Welcome to IrishTriplets!")
+      
+      // Determine redirect URL based on account type
+      const redirectUrl = data.user.accountType === 'applicant' ? '/applicant-dashboard' : '/employer-dashboard'
+      setRedirectTo(redirectUrl)
       
       // Store user data in localStorage for dashboard access
       const userData = {
@@ -181,17 +190,26 @@ export default function RegisterPage() {
       }
       
       localStorage.setItem('currentUser', JSON.stringify(userData))
-      
-      if (accountType === "applicant") {
-        window.location.href = "/applicant-dashboard"
-      } else if (accountType === "employer") {
-        window.location.href = "/employer-dashboard"
-      }
+      setShowSuccessDialog(true)
     } catch (error: any) {
       console.error("Registration error:", error)
-      alert("Registration failed: " + (error.message || "Please try again"))
+      setDialogMessage("Registration failed: " + (error.message || "Please try again"))
+      setShowErrorDialog(true)
       setIsLoading(false)
     }
+  }
+
+  const handleSuccessDialogClose = () => {
+    setShowSuccessDialog(false)
+    // Redirect after dialog closes
+    if (redirectTo) {
+      window.location.href = redirectTo
+    }
+  }
+
+  const handleErrorDialogClose = () => {
+    setShowErrorDialog(false)
+    setDialogMessage("")
   }
 
   return (
@@ -762,6 +780,46 @@ export default function RegisterPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600">
+              <CheckCircle className="h-5 w-5" />
+              Registration Successful!
+            </DialogTitle>
+            <DialogDescription className="text-gray-600">
+              {dialogMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button onClick={handleSuccessDialogClose} className="bg-green-600 hover:bg-green-700">
+              Continue to Dashboard
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Error Dialog */}
+      <Dialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <Heart className="h-5 w-5" />
+              Registration Failed
+            </DialogTitle>
+            <DialogDescription className="text-gray-600">
+              {dialogMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button onClick={handleErrorDialogClose} variant="outline">
+              Try Again
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
