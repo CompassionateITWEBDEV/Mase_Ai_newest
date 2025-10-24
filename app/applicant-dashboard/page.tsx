@@ -505,9 +505,20 @@ export default function ApplicantDashboard() {
   // Load documents when documents tab is active
   useEffect(() => {
     if (activeTab === 'documents' && applicantInfo?.id) {
+      console.log('Loading documents for documents tab')
       loadDocuments()
     }
   }, [activeTab, applicantInfo])
+
+  // Force reload documents when switching to documents tab
+  useEffect(() => {
+    if (activeTab === 'documents') {
+      console.log('Documents tab activated, reloading documents')
+      setTimeout(() => {
+        loadDocuments()
+      }, 100)
+    }
+  }, [activeTab])
 
   // Load applications when jobs tab is active
   useEffect(() => {
