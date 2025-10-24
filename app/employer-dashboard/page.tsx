@@ -174,6 +174,42 @@ export default function EmployerDashboard() {
     }
   }, [activeTab, employerInfo])
 
+  // Auto-refresh applications every 30 seconds
+  useEffect(() => {
+    if (!employerInfo?.id) return
+    
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing applications...')
+      loadApplications()
+    }, 30000) // 30 seconds
+    
+    return () => clearInterval(interval)
+  }, [employerInfo?.id])
+
+  // Auto-refresh jobs every 45 seconds
+  useEffect(() => {
+    if (!employerInfo?.id) return
+    
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing jobs...')
+      loadJobs()
+    }, 45000) // 45 seconds
+    
+    return () => clearInterval(interval)
+  }, [employerInfo?.id])
+
+  // Auto-refresh candidates every 60 seconds
+  useEffect(() => {
+    if (!employerInfo?.id) return
+    
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing candidates...')
+      loadCandidates()
+    }, 60000) // 60 seconds
+    
+    return () => clearInterval(interval)
+  }, [employerInfo?.id])
+
   const loadJobs = async () => {
     try {
       setIsLoadingJobs(true)
@@ -307,9 +343,28 @@ export default function EmployerDashboard() {
     }
   }
 
-  const viewApplicationDetails = (application: any) => {
+  const viewApplicationDetails = async (application: any) => {
     setSelectedApplication(application)
     setIsApplicationModalOpen(true)
+    
+    // Track the profile view
+    try {
+      const applicantId = application.applicant?.id || application.applicant_id
+      if (applicantId && employerInfo) {
+        await fetch('/api/candidates/view-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            candidateId: applicantId,
+            employerId: employerInfo.id,
+            employerName: employerInfo.companyName
+          })
+        })
+        console.log('Profile view tracked for applicant:', applicantId)
+      }
+    } catch (error) {
+      console.error('Error tracking profile view:', error)
+    }
   }
 
   const viewCandidateProfile = async (candidateId: string) => {
@@ -322,11 +377,17 @@ export default function EmployerDashboard() {
       }
       
       // Track the profile view
-      await fetch('/api/candidates/view-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ candidateId })
-      })
+      if (employerInfo) {
+        await fetch('/api/candidates/view-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            candidateId,
+            employerId: employerInfo.id,
+            employerName: employerInfo.companyName
+          })
+        })
+      }
       
       console.log('View candidate profile:', candidateId)
     } catch (error) {
@@ -1354,10 +1415,7 @@ export default function EmployerDashboard() {
                     .slice(0, 3)
                     .map((application, index) => (
                     <div key={application.id} className="flex items-center justify-between p-3 border rounded-lg mb-2 hover:bg-gray-50 cursor-pointer"
-                         onClick={() => {
-                           setSelectedApplication(application)
-                           setIsApplicationModalOpen(true)
-                         }}>
+                         onClick={() => viewApplicationDetails(application)}>
                       <div className="flex items-center space-x-3">
                         <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
                           <span className="text-sm font-medium text-blue-600">

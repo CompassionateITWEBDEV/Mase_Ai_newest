@@ -10,8 +10,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import DocumentUploadModal from "@/components/document-upload-modal"
 import DocumentVerificationStatus from "@/components/document-verification-status"
+import ApplicantNotificationSystem from "@/components/applicant-notification-system"
 import {
   FileText,
   Clock,
@@ -37,6 +39,8 @@ import {
   Trash2,
   X,
   RefreshCw,
+  Key,
+  ChevronDown,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -320,7 +324,16 @@ export default function ApplicantDashboard() {
   const [selectedJob, setSelectedJob] = useState<any>(null)
   const [isJobDetailsOpen, setIsJobDetailsOpen] = useState(false)
   const [isDocumentUploadOpen, setIsDocumentUploadOpen] = useState(false)
+  const [selectedApplication, setSelectedApplication] = useState<JobApplication | null>(null)
+  const [isApplicationDetailsOpen, setIsApplicationDetailsOpen] = useState(false)
+  const [isApplyConfirmOpen, setIsApplyConfirmOpen] = useState(false)
+  const [jobToApply, setJobToApply] = useState<any>(null)
   const [documentRequirements, setDocumentRequirements] = useState<any>(null)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
 
   // Load applicant data from localStorage
   useEffect(() => {
@@ -643,92 +656,208 @@ export default function ApplicantDashboard() {
     let score = 0
     let reasons: string[] = []
 
-    // Match profession
-    if (applicantInfo.profession && job.title.toLowerCase().includes(applicantInfo.profession.toLowerCase())) {
-      score += 30
-      reasons.push('Matches your profession')
+    // 1. Match profession (highest priority - 35 points)
+    if (applicantInfo.profession && job.title) {
+      const profession = applicantInfo.profession.toLowerCase()
+      const jobTitle = job.title.toLowerCase()
+      const jobDescription = (job.description || '').toLowerCase()
+      
+      // Check for exact profession match in title
+      if (jobTitle.includes(profession)) {
+        score += 35
+        reasons.push('Matches your profession')
+      } else if (jobDescription.includes(profession)) {
+        score += 20
+        reasons.push('Related to your profession')
+      }
+
+      // Healthcare role-specific matches
+      const healthcareRoles = {
+        'nurse': ['rn', 'lpn', 'nursing', 'registered nurse'],
+        'doctor': ['physician', 'md', 'medical doctor'],
+        'therapist': ['therapy', 'pt', 'ot', 'speech'],
+        'aide': ['cna', 'assistant', 'caregiver'],
+        'technician': ['tech', 'technologist', 'lab'],
+      }
+
+      for (const [key, variants] of Object.entries(healthcareRoles)) {
+        if (profession.includes(key)) {
+          for (const variant of variants) {
+            if (jobTitle.includes(variant) && score < 35) {
+              score += 30
+              reasons.push('Matches your healthcare role')
+              break
+            }
+          }
+        }
+      }
     }
 
-    // Match experience level
+    // 2. Match location (25 points)
+    if (applicantInfo.city && applicantInfo.state) {
+      const userCity = applicantInfo.city.toLowerCase()
+      const userState = applicantInfo.state.toLowerCase()
+      const jobCity = (job.city || '').toLowerCase()
+      const jobState = (job.state || '').toLowerCase()
+      
+      if (jobCity === userCity && jobState === userState) {
+        score += 25
+        reasons.push('Same city as you')
+      } else if (jobState === userState) {
+        score += 15
+        reasons.push('Same state')
+      } else if (jobCity.includes(userCity) || userCity.includes(jobCity)) {
+        score += 10
+        reasons.push('Nearby location')
+      }
+    }
+
+    // 3. Match experience level (20 points)
     if (applicantInfo.experience) {
       const experienceLevel = applicantInfo.experience.toLowerCase()
-      if (experienceLevel.includes('senior') && job.title.toLowerCase().includes('senior')) {
-        score += 25
-        reasons.push('Matches senior experience level')
-      } else if (experienceLevel.includes('junior') && job.title.toLowerCase().includes('junior')) {
-        score += 25
-        reasons.push('Matches junior experience level')
-      } else if (experienceLevel.includes('entry') && job.title.toLowerCase().includes('entry')) {
-        score += 25
-        reasons.push('Matches entry level')
-      }
-    }
-
-    // Match location
-    if (applicantInfo.city && job.city.toLowerCase().includes(applicantInfo.city.toLowerCase())) {
-      score += 20
-      reasons.push('Same city')
-    } else if (applicantInfo.state && job.state.toLowerCase().includes(applicantInfo.state.toLowerCase())) {
-      score += 15
-      reasons.push('Same state')
-    }
-
-    // Match certifications
-    if (applicantInfo.certifications && job.requirements) {
-      const userCerts = applicantInfo.certifications.toLowerCase()
-      const jobReqs = job.requirements.toLowerCase()
+      const jobTitle = (job.title || '').toLowerCase()
+      const jobDescription = (job.description || '').toLowerCase()
+      const jobRequirements = (job.requirements || '').toLowerCase()
       
-      if (userCerts.includes('rn') && jobReqs.includes('rn')) {
-        score += 20
-        reasons.push('RN license required')
-      }
-      if (userCerts.includes('bls') && jobReqs.includes('bls')) {
-        score += 15
-        reasons.push('BLS certification required')
-      }
-      if (userCerts.includes('cpr') && jobReqs.includes('cpr')) {
-        score += 15
-        reasons.push('CPR certification required')
+      const experienceYears = parseInt(experienceLevel.match(/\d+/)?.[0] || '0')
+      
+      if (experienceLevel.includes('senior') || experienceYears >= 5) {
+        if (jobTitle.includes('senior') || jobTitle.includes('lead') || jobTitle.includes('manager')) {
+          score += 20
+          reasons.push('Senior level position')
+        } else if (jobRequirements.includes('5+ years') || jobRequirements.includes('experienced')) {
+          score += 15
+          reasons.push('Matches experience level')
+        }
+      } else if (experienceLevel.includes('junior') || experienceYears >= 1) {
+        if (jobTitle.includes('junior') || jobRequirements.includes('1-3 years')) {
+          score += 20
+          reasons.push('Junior level position')
+        }
+      } else if (experienceLevel.includes('entry') || experienceYears === 0) {
+        if (jobTitle.includes('entry') || jobTitle.includes('new grad') || jobRequirements.includes('no experience')) {
+          score += 20
+          reasons.push('Entry level position')
+        }
       }
     }
 
-    // Match department/specialty
+    // 4. Match education (15 points)
+    if (applicantInfo.education) {
+      const education = applicantInfo.education.toLowerCase()
+      const jobRequirements = (job.requirements || '').toLowerCase()
+      
+      if (education.includes('bachelor') && jobRequirements.includes('bsn')) {
+        score += 15
+        reasons.push('Education requirement met')
+      } else if (education.includes('master') && (jobRequirements.includes('msn') || jobRequirements.includes('master'))) {
+        score += 15
+        reasons.push('Advanced degree match')
+      } else if (education.includes('associate') && jobRequirements.includes('associate')) {
+        score += 15
+        reasons.push('Education requirement met')
+      }
+    }
+
+    // 5. Match certifications (20 points total)
+    if (applicantInfo.certifications) {
+      const userCerts = applicantInfo.certifications.toLowerCase()
+      const jobReqs = (job.requirements || '').toLowerCase()
+      const jobTitle = (job.title || '').toLowerCase()
+      
+      const certMatches = [
+        { cert: 'rn', keywords: ['rn', 'registered nurse'], points: 8, label: 'RN license' },
+        { cert: 'lpn', keywords: ['lpn', 'licensed practical'], points: 8, label: 'LPN license' },
+        { cert: 'cna', keywords: ['cna', 'certified nursing assistant'], points: 8, label: 'CNA certification' },
+        { cert: 'bls', keywords: ['bls', 'basic life support'], points: 6, label: 'BLS certified' },
+        { cert: 'cpr', keywords: ['cpr'], points: 6, label: 'CPR certified' },
+        { cert: 'acls', keywords: ['acls', 'advanced cardiac'], points: 8, label: 'ACLS certified' },
+        { cert: 'pals', keywords: ['pals', 'pediatric advanced'], points: 8, label: 'PALS certified' },
+      ]
+
+      for (const { cert, keywords, points, label } of certMatches) {
+        if (userCerts.includes(cert)) {
+          for (const keyword of keywords) {
+            if (jobReqs.includes(keyword) || jobTitle.includes(keyword)) {
+              score += points
+              reasons.push(label)
+              break
+            }
+          }
+        }
+      }
+    }
+
+    // 6. Match department/specialty (15 points)
     if (applicantInfo.profession) {
       const profession = applicantInfo.profession.toLowerCase()
-      if (profession.includes('icu') && job.department?.toLowerCase().includes('intensive care')) {
-        score += 25
-        reasons.push('ICU specialty match')
-      } else if (profession.includes('pediatric') && job.department?.toLowerCase().includes('pediatric')) {
-        score += 25
-        reasons.push('Pediatric specialty match')
-      } else if (profession.includes('emergency') && job.department?.toLowerCase().includes('emergency')) {
-        score += 25
-        reasons.push('Emergency specialty match')
+      const jobTitle = (job.title || '').toLowerCase()
+      const jobDepartment = (job.department || '').toLowerCase()
+      const jobDescription = (job.description || '').toLowerCase()
+      
+      const specialtyMatches = [
+        { specialty: 'icu', keywords: ['icu', 'intensive care', 'critical care'], label: 'ICU specialty' },
+        { specialty: 'er', keywords: ['er', 'emergency', 'trauma'], label: 'Emergency specialty' },
+        { specialty: 'pediatric', keywords: ['pediatric', 'peds', 'children'], label: 'Pediatric specialty' },
+        { specialty: 'surgical', keywords: ['surgical', 'surgery', 'perioperative'], label: 'Surgical specialty' },
+        { specialty: 'oncology', keywords: ['oncology', 'cancer'], label: 'Oncology specialty' },
+        { specialty: 'cardiology', keywords: ['cardiology', 'cardiac', 'heart'], label: 'Cardiology specialty' },
+        { specialty: 'home health', keywords: ['home health', 'home care'], label: 'Home health' },
+      ]
+
+      for (const { specialty, keywords, label } of specialtyMatches) {
+        if (profession.includes(specialty)) {
+          for (const keyword of keywords) {
+            if (jobTitle.includes(keyword) || jobDepartment.includes(keyword) || jobDescription.includes(keyword)) {
+              score += 15
+              reasons.push(label)
+              break
+            }
+          }
+        }
       }
     }
 
-    // Job popularity (more applications = more popular)
-    if (job.applications_count > 10) {
-      score += 10
-      reasons.push('Popular job')
-    }
-
-    // Recent posting
+    // 7. Recent posting (5 points)
     const daysSincePosted = Math.floor((new Date().getTime() - new Date(job.posted_date).getTime()) / (1000 * 60 * 60 * 24))
     if (daysSincePosted <= 7) {
-      score += 10
+      score += 5
       reasons.push('Recently posted')
+    } else if (daysSincePosted <= 14) {
+      score += 3
+      reasons.push('Posted recently')
+    }
+
+    // 8. Job activity indicators (5 points total)
+    if (job.applications_count && job.applications_count > 0) {
+      if (job.applications_count < 5) {
+        score += 5
+        reasons.push('Low competition')
+      } else if (job.applications_count > 20) {
+        score += 3
+        reasons.push('Popular position')
+      }
     }
 
     return {
       matchScore: Math.min(score, 100), // Cap at 100
-      matchReasons: reasons
+      matchReasons: reasons.slice(0, 5) // Show top 5 reasons
     }
   }
 
   // Generate recommended jobs based on applicant profile
   const generateRecommendedJobs = (allJobs: any[]) => {
-    if (!applicantInfo) return
+    if (!applicantInfo) {
+      console.log('❌ No applicant info available for recommendations')
+      return
+    }
+
+    console.log('🔍 Generating recommendations based on profile:')
+    console.log('   - Profession:', applicantInfo.profession)
+    console.log('   - Location:', `${applicantInfo.city}, ${applicantInfo.state}`)
+    console.log('   - Experience:', applicantInfo.experience)
+    console.log('   - Certifications:', applicantInfo.certifications)
+    console.log('   - Education:', applicantInfo.education)
 
     const scoredJobs = allJobs.map(job => {
       const matchData = calculateJobMatchScore(job)
@@ -740,9 +869,15 @@ export default function ApplicantDashboard() {
 
     // Sort by score and take top 6
     const recommended = scoredJobs
-      .filter(job => job.matchScore > 20) // Only show jobs with decent match
+      .filter(job => job.matchScore > 10) // Show jobs with at least 10% match
       .sort((a, b) => b.matchScore - a.matchScore)
       .slice(0, 6)
+
+    console.log(`✅ Found ${recommended.length} recommended jobs:`)
+    recommended.forEach((job, index) => {
+      console.log(`   ${index + 1}. ${job.title} - ${job.matchScore}% match`)
+      console.log(`      Reasons: ${job.matchReasons.join(', ')}`)
+    })
 
     setRecommendedJobs(recommended)
     
@@ -809,6 +944,65 @@ export default function ApplicantDashboard() {
     }
   }, [applicantInfo?.id])
 
+  // Auto-refresh applications every 30 seconds
+  useEffect(() => {
+    if (!applicantInfo?.id) return
+    
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing applications...')
+      loadApplications()
+    }, 30000) // 30 seconds
+    
+    return () => clearInterval(interval)
+  }, [applicantInfo?.id])
+
+  // Auto-refresh documents every 45 seconds
+  useEffect(() => {
+    if (!applicantInfo?.id) return
+    
+    const interval = setInterval(() => {
+      console.log('Auto-refreshing documents...')
+      loadDocuments()
+    }, 45000) // 45 seconds
+    
+    return () => clearInterval(interval)
+  }, [applicantInfo?.id])
+
+  // Auto-refresh profile views and recent activities every 60 seconds
+  useEffect(() => {
+    if (!applicantInfo?.id) return
+    
+    const interval = setInterval(async () => {
+      console.log('Auto-refreshing profile data...')
+      
+      // Refresh profile views count
+      try {
+        const response = await fetch(`/api/debug-user`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: applicantInfo.id })
+        })
+        
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.applicant) {
+            setApplicantInfo(prev => prev ? {
+              ...prev,
+              profileViews: data.applicant.profile_views || 0
+            } : null)
+          }
+        }
+      } catch (error) {
+        console.error('Error refreshing profile views:', error)
+      }
+      
+      // Refresh recent activities
+      loadRecentActivities()
+    }, 60000) // 60 seconds
+    
+    return () => clearInterval(interval)
+  }, [applicantInfo?.id])
+
   // Recalculate job match scores when applicant info changes
   useEffect(() => {
     if (applicantInfo && jobs.length > 0) {
@@ -818,7 +1012,7 @@ export default function ApplicantDashboard() {
     }
   }, [applicantInfo?.profession, applicantInfo?.experience, applicantInfo?.city, applicantInfo?.state, applicantInfo?.certifications])
 
-  // Apply for a job
+  // Apply for a job - show confirmation dialog
   const applyForJob = async (jobId: string) => {
     if (!applicantInfo?.id) return
 
@@ -830,12 +1024,24 @@ export default function ApplicantDashboard() {
       return
     }
 
+    // Find the job details
+    const job = jobs.find(j => j.id === jobId) || recommendedJobs.find(j => j.id === jobId)
+    if (job) {
+      setJobToApply(job)
+      setIsApplyConfirmOpen(true)
+    }
+  }
+
+  // Confirm and apply for job
+  const confirmApply = async () => {
+    if (!applicantInfo?.id || !jobToApply) return
+
     try {
       const response = await fetch('/api/applications/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          job_posting_id: jobId,
+          job_posting_id: jobToApply.id,
           applicant_id: applicantInfo.id,
         }),
       })
@@ -845,6 +1051,7 @@ export default function ApplicantDashboard() {
         
         // Check if it's a document requirement error
         if (errorData.error === 'Missing required documents') {
+          setIsApplyConfirmOpen(false)
           setDocumentRequirements(errorData)
           setIsDocumentUploadOpen(true)
           return
@@ -856,6 +1063,7 @@ export default function ApplicantDashboard() {
 
       const data = await response.json()
       if (data.success) {
+        setIsApplyConfirmOpen(false)
         alert('Application submitted successfully!')
         
         // Increment job posting application count
@@ -864,7 +1072,7 @@ export default function ApplicantDashboard() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              jobId: jobId,
+              jobId: jobToApply.id,
               statType: 'applications'
             })
           })
@@ -893,6 +1101,69 @@ export default function ApplicantDashboard() {
     } catch (error) {
       console.error('Error applying for job:', error)
       alert('Failed to apply for job. Please try again.')
+    }
+  }
+
+  // Handle logout
+  const handleLogout = () => {
+    // Clear localStorage
+    localStorage.removeItem('applicantInfo')
+    // Redirect to login
+    window.location.href = '/login'
+  }
+
+  // Handle change password
+  const handleChangePassword = async () => {
+    if (!applicantInfo?.id) {
+      alert('Please log in to change your password.')
+      return
+    }
+
+    // Validation
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      alert('Please fill in all password fields.')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      alert('New passwords do not match.')
+      return
+    }
+
+    if (newPassword.length < 6) {
+      alert('New password must be at least 6 characters long.')
+      return
+    }
+
+    try {
+      setIsChangingPassword(true)
+
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: applicantInfo.id,
+          currentPassword,
+          newPassword
+        })
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        alert('✅ Password changed successfully!')
+        setCurrentPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+        setIsSettingsOpen(false)
+      } else {
+        alert('❌ ' + (data.error || 'Failed to change password'))
+      }
+    } catch (error) {
+      console.error('Error changing password:', error)
+      alert('Failed to change password. Please try again.')
+    } finally {
+      setIsChangingPassword(false)
     }
   }
 
@@ -1000,6 +1271,69 @@ export default function ApplicantDashboard() {
     setIsDocumentUploadOpen(false)
     // Show success message
     alert('Resume uploaded successfully! You can now apply for jobs.')
+  }
+
+  // Add interview to calendar
+  const addToCalendar = (application: JobApplication) => {
+    if (!application.interview_date || !application.interview_time) {
+      alert('No interview date/time available')
+      return
+    }
+
+    try {
+      // Parse the interview date and time
+      const interviewDate = new Date(application.interview_date)
+      const [hours, minutes] = application.interview_time.split(':')
+      interviewDate.setHours(parseInt(hours), parseInt(minutes), 0)
+
+      // End time (1 hour after start)
+      const endDate = new Date(interviewDate)
+      endDate.setHours(endDate.getHours() + 1)
+
+      // Format dates for ICS file
+      const formatDate = (date: Date) => {
+        return date.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z'
+      }
+
+      // Create ICS file content
+      const icsContent = [
+        'BEGIN:VCALENDAR',
+        'VERSION:2.0',
+        'PRODID:-//MASE Healthcare//Interview Scheduler//EN',
+        'BEGIN:VEVENT',
+        `UID:${application.id}@mase-healthcare.com`,
+        `DTSTAMP:${formatDate(new Date())}`,
+        `DTSTART:${formatDate(interviewDate)}`,
+        `DTEND:${formatDate(endDate)}`,
+        `SUMMARY:Interview - ${application.job_posting?.title || 'Job Position'}`,
+        `DESCRIPTION:Interview for ${application.job_posting?.title || 'position'} at ${application.job_posting?.company_name || 'company'}${application.interviewer ? `\\nInterviewer: ${application.interviewer}` : ''}${application.interview_notes ? `\\nNotes: ${application.interview_notes}` : ''}`,
+        `LOCATION:${application.interview_location || 'TBD'}`,
+        'STATUS:CONFIRMED',
+        'BEGIN:VALARM',
+        'TRIGGER:-PT30M',
+        'ACTION:DISPLAY',
+        'DESCRIPTION:Interview reminder - 30 minutes before',
+        'END:VALARM',
+        'END:VEVENT',
+        'END:VCALENDAR'
+      ].join('\r\n')
+
+      // Create blob and download
+      const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `interview-${application.job_posting?.title?.replace(/\s+/g, '-') || 'job'}.ics`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+
+      alert('✅ Calendar invite downloaded! Open the file to add it to your calendar.')
+    } catch (error) {
+      console.error('Error creating calendar event:', error)
+      alert('❌ Failed to create calendar event')
+    }
   }
 
   // Load documents from database
@@ -1289,20 +1623,34 @@ export default function ApplicantDashboard() {
                   className="pl-10 w-64"
                 />
               </div>
-              <Button variant="outline" size="sm">
-                <Bell className="h-4 w-4 mr-2" />
-                Notifications
-              </Button>
-              <Button variant="outline" size="sm">
-                <Settings className="h-4 w-4 mr-2" />
-                Settings
-              </Button>
-              <Link href="/login">
-                <Button variant="outline" size="sm">
-                  <LogOut className="h-4 w-4 mr-2" />
-                  Logout
-                </Button>
-              </Link>
+              {/* Notification System */}
+              {applicantInfo?.id && (
+                <ApplicantNotificationSystem applicantId={applicantInfo.id} />
+              )}
+              
+              {/* Settings Dropdown Menu */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Settings className="h-4 w-4 mr-2" />
+                    Settings
+                    <ChevronDown className="h-4 w-4 ml-2" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuLabel>Account Settings</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setIsSettingsOpen(true)}>
+                    <Key className="h-4 w-4 mr-2" />
+                    Change Password
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleLogout} className="text-red-600">
+                    <LogOut className="h-4 w-4 mr-2" />
+                    Logout
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </div>
         </div>
@@ -1356,258 +1704,6 @@ export default function ApplicantDashboard() {
                     </Button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-
-            {/* Missing Documents */}
-            {(() => {
-              const requiredDocuments = [
-                { type: 'resume', name: 'Professional Resume', description: 'Your professional resume/CV (Required for testing)', color: 'text-blue-500', required: true },
-                { type: 'license', name: 'Professional License', description: 'Your healthcare professional license (Optional for testing)', color: 'text-green-500', required: false },
-                { type: 'certification', name: 'CPR Certification', description: 'Current CPR/BLS certification (Optional for testing)', color: 'text-red-500', required: false },
-                { type: 'background_check', name: 'Background Check', description: 'Criminal background check clearance (Optional)', color: 'text-purple-500', required: false },
-                { type: 'reference', name: 'References', description: 'Professional reference letters (Optional)', color: 'text-orange-500', required: false }
-              ]
-              
-              // Filter only required documents that are missing
-              const missingDocuments = requiredDocuments.filter(req => 
-                req.required && !documents.some(doc => doc.document_type === req.type)
-              )
-              
-              // Also check for unverified documents
-              const unverifiedDocuments = requiredDocuments.filter(req => 
-                req.required && documents.some(doc => doc.document_type === req.type && doc.status !== 'verified')
-              )
-              
-              const totalMissingOrUnverified = missingDocuments.length + unverifiedDocuments.length
-              
-              if (totalMissingOrUnverified === 0) {
-                return (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <CheckCircle className="h-5 w-5 text-green-500" />
-                        All Required Documents Uploaded & Verified
-                      </CardTitle>
-                      <CardDescription>
-                        Great! You have uploaded your resume and can now apply for jobs. Other documents are optional for testing.
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex space-x-2">
-                        <Button 
-                          onClick={() => setIsDocumentUploadOpen(true)}
-                          variant="outline"
-                        >
-                          <Upload className="h-4 w-4 mr-2" />
-                          Upload More Documents
-                        </Button>
-                        <Button 
-                          onClick={() => setActiveTab('documents')}
-                          variant="outline"
-                        >
-                          <FileText className="h-4 w-4 mr-2" />
-                          View All Documents
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )
-              }
-              
-              return (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                      Missing Resume ({totalMissingOrUnverified})
-                    </CardTitle>
-                    <CardDescription>
-                      Upload your resume to apply for jobs. Other documents are optional for testing purposes.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-3">
-                      {/* Missing Documents */}
-                      {missingDocuments.map((doc) => (
-                        <div key={doc.type} className="flex items-center justify-between p-3 border rounded-lg border-yellow-200 bg-yellow-50">
-                          <div className="flex items-center gap-3">
-                            <FileText className={`h-4 w-4 ${doc.color}`} />
-                            <div>
-                              <p className="font-medium">{doc.name}</p>
-                              <p className="text-sm text-gray-600">{doc.description}</p>
-                            </div>
-                          </div>
-                          <Badge variant="outline" className="border-yellow-300 text-yellow-700">Missing</Badge>
-                        </div>
-                      ))}
-                      
-                      {/* Unverified Documents */}
-                      {unverifiedDocuments.map((doc) => {
-                        const uploadedDoc = documents.find(d => d.document_type === doc.type)
-                        return (
-                          <div key={`unverified-${doc.type}`} className="flex items-center justify-between p-3 border rounded-lg border-orange-200 bg-orange-50">
-                            <div className="flex items-center gap-3">
-                              <FileText className={`h-4 w-4 ${doc.color}`} />
-                              <div>
-                                <p className="font-medium">{doc.name}</p>
-                                <p className="text-sm text-gray-600">{doc.description}</p>
-                                <p className="text-xs text-orange-600">Status: {uploadedDoc?.status || 'Unknown'}</p>
-                              </div>
-                            </div>
-                            <Badge variant="outline" className="border-orange-300 text-orange-700">
-                              {uploadedDoc?.status === 'pending' ? 'Pending Review' : 'Unverified'}
-                            </Badge>
-                          </div>
-                        )
-                      })}
-                    </div>
-                    
-                    <div className="mt-4">
-                      <Button 
-                        onClick={() => setIsDocumentUploadOpen(true)}
-                        className="w-full"
-                      >
-                        <Upload className="h-4 w-4 mr-2" />
-                        Upload Missing Documents
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )
-            })()}
-
-            {/* My Uploaded Documents */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="h-5 w-5 text-blue-500" />
-                      My Uploaded Documents
-                    </CardTitle>
-                    <CardDescription>View, download, and manage your uploaded documents</CardDescription>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      onClick={() => loadDocuments()}
-                      variant="outline"
-                      size="sm"
-                    >
-                      <RefreshCw className="h-4 w-4 mr-2" />
-                      Refresh
-                    </Button>
-                    <Button
-                      onClick={() => setIsDocumentUploadOpen(true)}
-                      size="sm"
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {documents.length === 0 ? (
-                  <div className="text-center py-8">
-                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Documents Uploaded Yet</h3>
-                    <p className="text-gray-600 mb-4">Upload your resume and other documents to apply for jobs</p>
-                    <Button
-                      onClick={() => setIsDocumentUploadOpen(true)}
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Upload Your First Document
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {documents.map((doc) => (
-                      <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-gray-50">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3 flex-1">
-                            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                              <FileText className="h-6 w-6 text-blue-600" />
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-gray-900 truncate text-lg">
-                                {doc.file_name}
-                              </h4>
-                              <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
-                                <div className="flex items-center gap-1">
-                                  <Calendar className="h-3 w-3" />
-                                  {new Date(doc.uploaded_date).toLocaleDateString()}
-                                </div>
-                                <div>
-                                  Size: {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'Unknown'}
-                                </div>
-                                <div className="capitalize">
-                                  Type: {doc.document_type}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex items-center gap-3 ml-4">
-                            <div className="flex items-center gap-2">
-                              {doc.status === 'verified' ? (
-                                <CheckCircle className="h-5 w-5 text-green-500" />
-                              ) : doc.status === 'pending' ? (
-                                <Clock className="h-5 w-5 text-yellow-500" />
-                              ) : (
-                                <XCircle className="h-5 w-5 text-red-500" />
-                              )}
-                              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                                doc.status === 'verified' 
-                                  ? 'bg-green-100 text-green-800' 
-                                  : doc.status === 'pending'
-                                  ? 'bg-yellow-100 text-yellow-800'
-                                  : 'bg-red-100 text-red-800'
-                              }`}>
-                                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                              </span>
-                            </div>
-                            
-                            <div className="flex gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedDocument(doc)
-                                  setIsDocumentViewerOpen(true)
-                                }}
-                                className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                              >
-                                <Eye className="h-4 w-4 mr-1" />
-                                View
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDocumentDownload(doc.id)}
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                              >
-                                <Download className="h-4 w-4 mr-1" />
-                                Download
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              >
-                                <Trash2 className="h-4 w-4 mr-1" />
-                                Delete
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </CardContent>
             </Card>
 
@@ -1697,28 +1793,35 @@ export default function ApplicantDashboard() {
                           </div>
                           <div className="flex items-center space-x-2">
                             <Badge className={
-                              application.status === 'accepted' ? 'bg-blue-100 text-blue-800' :
+                              application.status === 'interview_scheduled' ? 'bg-blue-100 text-blue-800' :
                               application.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                               application.status === 'offer_received' ? 'bg-green-100 text-green-800' :
                               'bg-red-100 text-red-800'
                             }>
-                              {application.status === 'accepted' ? 'Interview Scheduled' :
+                              {application.status === 'interview_scheduled' ? 'Interview Scheduled' :
                                application.status === 'pending' ? 'Under Review' :
                                application.status === 'offer_received' ? 'Offer Received' :
                                application.status}
                             </Badge>
-                            <Button size="sm" variant="outline">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedApplication(application)
+                                setIsApplicationDetailsOpen(true)
+                              }}
+                            >
                               View Details
                             </Button>
                           </div>
                         </div>
                         
-                        {application.status === 'accepted' && (
+                        {application.status === 'interview_scheduled' && (
                           <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
                             <div className="flex items-center space-x-2">
                               <Calendar className="h-4 w-4 text-blue-600" />
                               <span className="text-sm font-medium text-blue-800">
-                                Interview scheduled for {new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toLocaleDateString()}
+                                Interview scheduled for {application.interview_date ? new Date(application.interview_date).toLocaleDateString() : 'TBD'}
                               </span>
                             </div>
                           </div>
@@ -1750,13 +1853,16 @@ export default function ApplicantDashboard() {
                 </CardContent>
               </Card>
 
-              {/* Recommended Jobs */}
+              {/* Saved Jobs */}
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
                     <div>
-                      <CardTitle>Recommended Jobs</CardTitle>
-                      <CardDescription>Jobs matching your profile</CardDescription>
+                      <CardTitle className="flex items-center gap-2">
+                        <Star className="h-5 w-5 text-yellow-500" />
+                        Saved Jobs
+                      </CardTitle>
+                      <CardDescription>Jobs you've bookmarked for later</CardDescription>
                     </div>
                     <Button 
                       variant="outline" 
@@ -1768,49 +1874,175 @@ export default function ApplicantDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    {recommendedJobs.slice(0, 3).map((job) => (
-                      <div key={job.id} className="p-4 border rounded-lg bg-blue-50 border-blue-200">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900">{job.title}</h3>
-                            <p className="text-sm text-gray-600">{job.employer?.company_name || 'Healthcare Facility'}</p>
-                            <p className="text-xs text-gray-500">{job.city}, {job.state}</p>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <div className="flex items-center space-x-1">
-                              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                              <span className="text-xs font-medium text-green-600">
-                                {job.matchScore || 0}% match
-                              </span>
+                  {savedJobs.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Star className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-600 mb-2">No saved jobs yet</p>
+                      <p className="text-sm text-gray-500">Browse jobs and save the ones you're interested in</p>
+                      <Button 
+                        size="sm" 
+                        className="mt-4 bg-blue-600 hover:bg-blue-700"
+                        onClick={() => setActiveTab('jobs')}
+                      >
+                        <Search className="h-4 w-4 mr-2" />
+                        Browse Jobs
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {jobs.filter(job => savedJobs.includes(job.id)).slice(0, 3).map((job) => (
+                        <div key={job.id} className="p-4 border rounded-lg bg-yellow-50 border-yellow-200 hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-gray-900">{job.title}</h3>
+                              <p className="text-sm text-gray-600">{job.employer?.company_name || 'Healthcare Facility'}</p>
+                              <div className="flex items-center space-x-3 mt-1 text-xs text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" />
+                                  {job.city}, {job.state}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <DollarSign className="h-3 w-3" />
+                                  ${job.salary_min?.toLocaleString()}-${job.salary_max?.toLocaleString()}
+                                </span>
+                              </div>
                             </div>
-                            <Button size="sm" variant="outline">
-                              <Star className="h-3 w-3" />
+                            <Button 
+                              size="sm" 
+                              variant="ghost"
+                              onClick={() => toggleSaveJob(job.id)}
+                              className="text-yellow-600 hover:text-yellow-700"
+                            >
+                              <Star className="h-4 w-4 fill-yellow-500" />
                             </Button>
                           </div>
+                          <Button 
+                            size="sm" 
+                            className="w-full mt-2 bg-blue-600 hover:bg-blue-700"
+                            onClick={() => applyForJob(job.id)}
+                            disabled={applications.some(app => app.job_posting_id === job.id)}
+                          >
+                            {applications.some(app => app.job_posting_id === job.id) ? 'Applied' : 'Apply Now'}
+                          </Button>
                         </div>
-                        <div className="flex justify-between items-center text-xs text-gray-500 mb-3">
-                          <span>Posted {new Date(job.posted_date).toLocaleDateString()}</span>
-                        </div>
-                        <Button 
-                          size="sm" 
-                          className="w-full bg-red-600 hover:bg-red-700"
-                          onClick={() => applyForJob(job.id)}
-                          disabled={applications.some(app => app.job_posting_id === job.id) || (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)}
-                        >
-                          {applications.some(app => app.job_posting_id === job.id) 
-                            ? 'Applied' 
-                            : (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)
-                              ? 'Complete Profile First'
-                              : 'Apply Now'
-                          }
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
+
+            {/* Interview Schedule */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-blue-500" />
+                      Upcoming Interviews
+                    </CardTitle>
+                    <CardDescription>Your scheduled interviews</CardDescription>
+                  </div>
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={() => setActiveTab('applications')}
+                  >
+                    View All
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {(() => {
+                  const interviewApplications = applications.filter(app => 
+                    app.status === 'interview_scheduled' && (app.interview_date || app.interview_time)
+                  )
+                  
+                  if (interviewApplications.length === 0) {
+                    return (
+                      <div className="text-center py-8">
+                        <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                        <p className="text-gray-600 mb-2">No upcoming interviews</p>
+                        <p className="text-sm text-gray-500">Interviews will appear here once scheduled</p>
+                      </div>
+                    )
+                  }
+                  
+                  return (
+                    <div className="space-y-4">
+                      {interviewApplications.slice(0, 3).map((application) => (
+                        <div key={application.id} className="p-4 border rounded-lg bg-blue-50 border-blue-200 hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-gray-900">{application.job_posting?.title || 'Unknown Position'}</h3>
+                              <p className="text-sm text-gray-600">{application.job_posting?.company_name || 'Healthcare Facility'}</p>
+                            </div>
+                            <Badge className="bg-blue-100 text-blue-800">Interview Scheduled</Badge>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            {application.interview_date && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Calendar className="h-4 w-4 text-blue-600" />
+                                <span className="font-medium">Date:</span>
+                                <span>{new Date(application.interview_date).toLocaleDateString('en-US', { 
+                                  weekday: 'long', 
+                                  year: 'numeric', 
+                                  month: 'long', 
+                                  day: 'numeric' 
+                                })}</span>
+                              </div>
+                            )}
+                            {application.interview_time && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Clock className="h-4 w-4 text-blue-600" />
+                                <span className="font-medium">Time:</span>
+                                <span>{application.interview_time}</span>
+                              </div>
+                            )}
+                            {application.interview_location && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <MapPin className="h-4 w-4 text-blue-600" />
+                                <span className="font-medium">Location:</span>
+                                <span>{application.interview_location}</span>
+                              </div>
+                            )}
+                            {application.interviewer && (
+                              <div className="flex items-center gap-2 text-sm">
+                                <Users className="h-4 w-4 text-blue-600" />
+                                <span className="font-medium">Interviewer:</span>
+                                <span>{application.interviewer}</span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          <div className="flex gap-2 mt-4">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              className="flex-1"
+                              onClick={() => {
+                                setSelectedApplication(application)
+                                setIsApplicationDetailsOpen(true)
+                              }}
+                            >
+                              View Details
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              className="flex-1 bg-blue-600 hover:bg-blue-700"
+                              onClick={() => addToCalendar(application)}
+                            >
+                              Add to Calendar
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </CardContent>
+            </Card>
 
             {/* Recent Activity */}
             <Card>
@@ -2262,64 +2494,82 @@ export default function ApplicantDashboard() {
                     <p className="text-sm mt-1">Complete your profile to get personalized job recommendations.</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="space-y-4">
                     {recommendedJobs.slice(0, 6).map((job) => (
-                      <div key={job.id} className="p-4 border rounded-lg hover:shadow-md transition-shadow">
+                      <div key={job.id} className="p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => viewJobDetails(job)}>
                         <div className="flex items-start justify-between mb-3">
                           <div className="flex-1">
-                            <h3 className="font-semibold text-lg mb-1">{job.title}</h3>
-                            <p className="text-sm text-gray-600 mb-2">{job.employer?.company_name || 'Healthcare Facility'}</p>
-                            <div className="space-y-1 mb-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <h3 className="font-medium text-lg">{job.title}</h3>
+                              {job.matchScore && job.matchScore > 0 && (
+                                <Badge className={`text-xs ${getMatchColor(job.matchScore)}`}>
+                                  {job.matchScore}% Match
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-sm text-gray-600">{job.employer?.company_name || 'Healthcare Facility'}</p>
+                            <div className="flex items-center space-x-4 mt-1">
                               <div className="flex items-center space-x-1">
                                 <MapPin className="h-3 w-3 text-gray-400" />
                                 <span className="text-xs text-gray-500">{job.city}, {job.state}</span>
                               </div>
                               <div className="flex items-center space-x-1">
                                 <DollarSign className="h-3 w-3 text-gray-400" />
-                                <span className="text-xs text-gray-500">${job.salary_min?.toLocaleString()}-${job.salary_max?.toLocaleString()}</span>
+                                <span className="text-xs text-gray-500">${job.salary_min}-${job.salary_max}/{job.salary_type}</span>
                               </div>
                               <div className="flex items-center space-x-1">
                                 <Clock className="h-3 w-3 text-gray-400" />
                                 <span className="text-xs text-gray-500">{job.job_type}</span>
                               </div>
-                              <div className="flex items-center space-x-1">
-                                <Calendar className="h-3 w-3 text-gray-400" />
-                                <span className="text-xs text-gray-500">Posted {new Date(job.posted_date).toLocaleDateString()}</span>
-                              </div>
                             </div>
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center space-x-1">
-                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                                <span className="text-xs font-medium text-green-600">
-                                  {job.matchScore || 0}% match
-                                </span>
+                            <p className="text-sm text-gray-700 mt-2 line-clamp-2">{job.description}</p>
+                            {job.matchReasons && job.matchReasons.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1">
+                                {job.matchReasons.slice(0, 3).map((reason: string, idx: number) => (
+                                  <Badge key={idx} variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                                    {reason}
+                                  </Badge>
+                                ))}
                               </div>
+                            )}
+                          </div>
+                          <div className="flex flex-col items-end space-y-2">
+                            <Badge className="text-xs bg-green-100 text-green-800">Recommended</Badge>
+                            <div className="text-xs text-gray-500">
+                              Posted {new Date(job.posted_date).toLocaleDateString()}
                             </div>
                           </div>
                         </div>
-                        <div className="flex space-x-2">
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            className="flex-1"
-                            onClick={() => toggleSaveJob(job.id)}
-                          >
-                            <Star className={`h-3 w-3 mr-1 ${savedJobs.includes(job.id) ? 'fill-current' : ''}`} />
-                            {savedJobs.includes(job.id) ? 'Saved' : 'Save'}
-                          </Button>
-                          <Button 
-                            size="sm" 
-                            onClick={() => applyForJob(job.id)}
-                            disabled={applications.some(app => app.job_posting_id === job.id) || (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)}
-                            className="flex-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
-                          >
-                            {applications.some(app => app.job_posting_id === job.id) 
-                              ? 'Applied' 
-                              : (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)
-                                ? 'Complete Profile First'
-                                : 'Apply Now'
-                            }
-                          </Button>
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center space-x-2 text-xs text-gray-500">
+                            <Eye className="h-3 w-3" />
+                            <span>{job.views_count || 0} views</span>
+                            <Users className="h-3 w-3 ml-2" />
+                            <span>{job.applications_count || 0} applicants</span>
+                          </div>
+                          <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => toggleSaveJob(job.id)}
+                            >
+                              <Star className={`h-3 w-3 mr-1 ${savedJobs.includes(job.id) ? 'fill-current' : ''}`} />
+                              {savedJobs.includes(job.id) ? 'Saved' : 'Save'}
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              onClick={() => applyForJob(job.id)}
+                              disabled={applications.some(app => app.job_posting_id === job.id) || (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)}
+                              className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
+                            >
+                              {applications.some(app => app.job_posting_id === job.id) 
+                                ? 'Applied' 
+                                : (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)
+                                  ? 'Complete Profile'
+                                  : 'Apply Now'
+                              }
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -2512,42 +2762,178 @@ export default function ApplicantDashboard() {
           </TabsContent>
 
           <TabsContent value="documents" className="space-y-6">
+            {/* Document Statistics */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="bg-blue-50 border-blue-200">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <FileText className="h-8 w-8 text-blue-600" />
+                    <div>
+                      <p className="text-2xl font-bold text-blue-600">{documents.length}</p>
+                      <p className="text-sm text-gray-600">Total Documents</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-green-50 border-green-200">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="h-8 w-8 text-green-600" />
+                    <div>
+                      <p className="text-2xl font-bold text-green-600">
+                        {documents.filter(doc => doc.status === 'verified').length}
+                      </p>
+                      <p className="text-sm text-gray-600">Verified</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-yellow-50 border-yellow-200">
+                <CardContent className="p-6">
+                  <div className="flex items-center gap-3">
+                    <Clock className="h-8 w-8 text-yellow-600" />
+                    <div>
+                      <p className="text-2xl font-bold text-yellow-600">
+                        {documents.filter(doc => doc.status === 'pending').length}
+                      </p>
+                      <p className="text-sm text-gray-600">Pending Review</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
             {/* My Documents Section */}
             <Card>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>My Documents</CardTitle>
-                    <CardDescription>Manage your professional documents and certifications</CardDescription>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-blue-500" />
+                      My Uploaded Documents
+                    </CardTitle>
+                    <CardDescription>View, download, and manage your uploaded documents</CardDescription>
                   </div>
-                  <Button 
-                    onClick={() => setIsDocumentUploadOpen(true)}
-                    className="bg-red-600 hover:bg-red-700"
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Upload Document
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => loadDocuments()}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Refresh
+                    </Button>
+                    <Button 
+                      onClick={() => setIsDocumentUploadOpen(true)}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload New
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {documents.length > 0 ? (
-                    documents.map((doc) => (
-                      <DocumentVerificationStatus
-                        key={doc.id}
-                        document={doc}
-                        canVerify={false}
-                        onVerify={handleDocumentVerification}
-                      />
-                    ))
-                  ) : (
-                    <div className="text-center py-8 text-gray-500">
-                      <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                      <p>No documents uploaded yet.</p>
-                      <p className="text-sm">Upload your resume to complete your profile and apply for jobs.</p>
-                    </div>
-                  )}
-                </div>
+                {documents.length === 0 ? (
+                  <div className="text-center py-12">
+                    <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-xl font-medium text-gray-900 mb-2">No Documents Uploaded Yet</h3>
+                    <p className="text-gray-600 mb-6">Upload your resume and other documents to apply for jobs</p>
+                    <Button
+                      onClick={() => setIsDocumentUploadOpen(true)}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Your First Document
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {documents.map((doc) => (
+                      <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                              <FileText className="h-6 w-6 text-blue-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-gray-900 truncate text-lg">
+                                {doc.file_name}
+                              </h4>
+                              <div className="flex items-center gap-4 mt-1 text-sm text-gray-600 flex-wrap">
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {new Date(doc.uploaded_date).toLocaleDateString()}
+                                </div>
+                                <div>
+                                  Size: {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'Unknown'}
+                                </div>
+                                <div className="capitalize">
+                                  Type: {doc.document_type}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+                            <div className="flex items-center gap-2">
+                              {doc.status === 'verified' ? (
+                                <CheckCircle className="h-5 w-5 text-green-500" />
+                              ) : doc.status === 'pending' ? (
+                                <Clock className="h-5 w-5 text-yellow-500" />
+                              ) : (
+                                <XCircle className="h-5 w-5 text-red-500" />
+                              )}
+                              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                doc.status === 'verified' 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : doc.status === 'pending'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-red-100 text-red-800'
+                              }`}>
+                                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                              </span>
+                            </div>
+                            
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedDocument(doc)
+                                  setIsDocumentViewerOpen(true)
+                                }}
+                                className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDocumentDownload(doc.id)}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              >
+                                <Download className="h-4 w-4 mr-1" />
+                                Download
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -2585,19 +2971,35 @@ export default function ApplicantDashboard() {
                           <div className="flex items-center space-x-2">
                             <span className="font-medium text-gray-900">{req.name}</span>
                             <Badge variant="secondary" className="text-xs bg-gray-100 text-gray-600">
-                              Required
+                              {req.required ? 'Required' : 'Optional'}
                             </Badge>
                           </div>
                         </div>
-                        {!isUploaded && (
+                        {!isUploaded ? (
                           <Button 
                             size="sm" 
                             variant="outline"
                             onClick={() => setIsDocumentUploadOpen(true)}
                             className="border-gray-300 text-gray-700 hover:bg-gray-50"
                           >
+                            <Upload className="h-4 w-4 mr-2" />
                             Upload
                           </Button>
+                        ) : (
+                          <div className="flex gap-2">
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedDocument(uploadedDoc)
+                                setIsDocumentViewerOpen(true)
+                              }}
+                              className="text-purple-600 hover:text-purple-700"
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                          </div>
                         )}
                       </div>
                     )
@@ -3314,6 +3716,154 @@ export default function ApplicantDashboard() {
         />
       )}
 
+      {/* Settings Dialog */}
+      <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-gray-900">Settings</DialogTitle>
+            <DialogDescription>
+              Manage your account settings
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            <div className="space-y-4">
+              <h3 className="font-semibold text-gray-900">Change Password</h3>
+              
+              <div className="space-y-3">
+                <div>
+                  <Label htmlFor="currentPassword">Current Password</Label>
+                  <Input
+                    id="currentPassword"
+                    type="password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    placeholder="Enter current password"
+                    disabled={isChangingPassword}
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="newPassword">New Password</Label>
+                  <Input
+                    id="newPassword"
+                    type="password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Enter new password (min 6 characters)"
+                    disabled={isChangingPassword}
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="Confirm new password"
+                    disabled={isChangingPassword}
+                  />
+                </div>
+              </div>
+              
+              <Button
+                onClick={handleChangePassword}
+                disabled={isChangingPassword}
+                className="w-full bg-blue-600 hover:bg-blue-700"
+              >
+                {isChangingPassword ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Changing Password...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Change Password
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+          
+          <div className="flex justify-end pt-4 border-t">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsSettingsOpen(false)
+                setCurrentPassword('')
+                setNewPassword('')
+                setConfirmPassword('')
+              }}
+            >
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Application Confirmation Dialog */}
+      <Dialog open={isApplyConfirmOpen} onOpenChange={setIsApplyConfirmOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-gray-900">Confirm Application</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to apply for this position?
+            </DialogDescription>
+          </DialogHeader>
+          {jobToApply && (
+            <div className="space-y-4 py-4">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <h3 className="font-semibold text-lg text-gray-900 mb-2">{jobToApply.title}</h3>
+                <p className="text-sm text-gray-600 mb-3">{jobToApply.employer?.company_name || 'Healthcare Facility'}</p>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <MapPin className="h-4 w-4 text-gray-500" />
+                    <span className="text-gray-700">{jobToApply.city}, {jobToApply.state}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <DollarSign className="h-4 w-4 text-gray-500" />
+                    <span className="text-gray-700">${jobToApply.salary_min?.toLocaleString()} - ${jobToApply.salary_max?.toLocaleString()}/{jobToApply.salary_type}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-sm">
+                    <Clock className="h-4 w-4 text-gray-500" />
+                    <span className="text-gray-700">{jobToApply.job_type}</span>
+                  </div>
+                </div>
+              </div>
+              
+              <Alert className="bg-yellow-50 border-yellow-200">
+                <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                <AlertDescription className="text-sm text-gray-700">
+                  By clicking "Confirm Application", your profile and documents will be submitted to the employer.
+                </AlertDescription>
+              </Alert>
+            </div>
+          )}
+          
+          <div className="flex gap-3 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsApplyConfirmOpen(false)
+                setJobToApply(null)
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-red-600 hover:bg-red-700"
+              onClick={confirmApply}
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Confirm Application
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Document Viewer Modal */}
       {isDocumentViewerOpen && selectedDocument && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -3415,6 +3965,232 @@ export default function ApplicantDashboard() {
           </div>
         </div>
       )}
+
+      {/* Application Details Modal */}
+      {isApplicationDetailsOpen && selectedApplication && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b p-6 flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Application Details</h2>
+                <p className="text-sm text-gray-600 mt-1">{selectedApplication.job_posting?.title || 'Unknown Position'}</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsApplicationDetailsOpen(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Job Information */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <Building2 className="h-5 w-5 text-blue-600" />
+                  Job Information
+                </h3>
+                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Position</label>
+                    <p className="text-gray-900">{selectedApplication.job_posting?.title || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Company</label>
+                    <p className="text-gray-900">{selectedApplication.job_posting?.company_name || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Location</label>
+                    <p className="text-gray-900">{selectedApplication.job_posting?.location || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Salary Range</label>
+                    <p className="text-gray-900">
+                      ${selectedApplication.job_posting?.salary_min?.toLocaleString()} - ${selectedApplication.job_posting?.salary_max?.toLocaleString()} / {selectedApplication.job_posting?.salary_type || 'year'}
+                    </p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Job Type</label>
+                    <p className="text-gray-900 capitalize">{selectedApplication.job_posting?.job_type || 'N/A'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Application Status */}
+              <div>
+                <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-green-600" />
+                  Application Status
+                </h3>
+                <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-gray-600">Status</label>
+                    <Badge className={
+                      selectedApplication.status === 'interview_scheduled' ? 'bg-blue-100 text-blue-800' :
+                      selectedApplication.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                      selectedApplication.status === 'offer_received' ? 'bg-green-100 text-green-800' :
+                      'bg-red-100 text-red-800'
+                    }>
+                      {selectedApplication.status === 'interview_scheduled' ? 'Interview Scheduled' :
+                       selectedApplication.status === 'pending' ? 'Under Review' :
+                       selectedApplication.status === 'offer_received' ? 'Offer Received' :
+                       selectedApplication.status}
+                    </Badge>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Applied Date</label>
+                    <p className="text-gray-900">{new Date(selectedApplication.applied_date).toLocaleDateString('en-US', { 
+                      weekday: 'long', 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    })}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Interview Details */}
+              {selectedApplication.status === 'interview_scheduled' && (selectedApplication.interview_date || selectedApplication.interview_time) && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-purple-600" />
+                    Interview Details
+                  </h3>
+                  <div className="bg-purple-50 rounded-lg p-4 space-y-3 border border-purple-200">
+                    {selectedApplication.interview_date && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-600">Interview Date</label>
+                        <p className="text-gray-900">{new Date(selectedApplication.interview_date).toLocaleDateString('en-US', { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}</p>
+                      </div>
+                    )}
+                    {selectedApplication.interview_time && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-600">Time</label>
+                        <p className="text-gray-900">{selectedApplication.interview_time}</p>
+                      </div>
+                    )}
+                    {selectedApplication.interview_location && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-600">Location</label>
+                        <p className="text-gray-900">{selectedApplication.interview_location}</p>
+                      </div>
+                    )}
+                    {selectedApplication.interviewer && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-600">Interviewer</label>
+                        <p className="text-gray-900">{selectedApplication.interviewer}</p>
+                      </div>
+                    )}
+                    {selectedApplication.interview_notes && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-600">Notes</label>
+                        <p className="text-gray-900">{selectedApplication.interview_notes}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Offer Details */}
+              {selectedApplication.status === 'offer_received' && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    Offer Details
+                  </h3>
+                  <div className="bg-green-50 rounded-lg p-4 space-y-3 border border-green-200">
+                    {selectedApplication.offer_deadline && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-600">Offer Deadline</label>
+                        <p className="text-gray-900">{new Date(selectedApplication.offer_deadline).toLocaleDateString('en-US', { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}</p>
+                      </div>
+                    )}
+                    {(selectedApplication.offer_salary_min || selectedApplication.offer_salary_max) && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-600">Offered Salary</label>
+                        <p className="text-gray-900">
+                          ${selectedApplication.offer_salary_min?.toLocaleString()} - ${selectedApplication.offer_salary_max?.toLocaleString()} / {selectedApplication.offer_salary_type || 'year'}
+                        </p>
+                      </div>
+                    )}
+                    {selectedApplication.offer_details && (
+                      <div>
+                        <label className="text-sm font-medium text-gray-600">Details</label>
+                        <p className="text-gray-900">{selectedApplication.offer_details}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Cover Letter */}
+              {selectedApplication.cover_letter && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-orange-600" />
+                    Cover Letter
+                  </h3>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <p className="text-gray-900 whitespace-pre-wrap">{selectedApplication.cover_letter}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Resume */}
+              {selectedApplication.resume_url && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-blue-600" />
+                    Resume
+                  </h3>
+                  <div className="bg-gray-50 rounded-lg p-4">
+                    <a 
+                      href={selectedApplication.resume_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:underline flex items-center gap-2"
+                    >
+                      <Download className="h-4 w-4" />
+                      View Resume
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t bg-gray-50 flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setIsApplicationDetailsOpen(false)}
+              >
+                Close
+              </Button>
+              <Button
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => {
+                  setIsApplicationDetailsOpen(false)
+                  setActiveTab('applications')
+                }}
+              >
+                View All Applications
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

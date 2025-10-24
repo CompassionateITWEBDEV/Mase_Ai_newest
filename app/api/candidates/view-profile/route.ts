@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function POST(request: NextRequest) {
   try {
-    const { candidateId } = await request.json()
+    const { candidateId, employerId, employerName } = await request.json()
 
     if (!candidateId) {
       return NextResponse.json(
@@ -74,6 +74,28 @@ export async function POST(request: NextRequest) {
     }
 
     console.log('Profile views incremented successfully:', data)
+
+    // Create notification for applicant that their profile was viewed
+    if (employerId || employerName) {
+      try {
+        const viewerName = employerName || 'An employer'
+        await supabase
+          .from('notifications')
+          .insert({
+            applicant_id: candidateId,
+            type: 'message',
+            title: 'Profile Viewed',
+            message: `${viewerName} viewed your profile.`,
+            action_url: '/applicant-dashboard?tab=profile',
+            read: false
+          })
+
+        console.log('✅ Profile view notification created for applicant:', candidateId)
+      } catch (notifError) {
+        console.error('Error creating profile view notification:', notifError)
+        // Don't fail the request if notification creation fails
+      }
+    }
 
     return NextResponse.json({
       success: true,

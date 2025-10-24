@@ -9,24 +9,31 @@ const supabase = createClient(supabaseUrl, supabaseAnonKey)
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
-    const { notification_id, read, employer_id } = body
+    const { notification_id, read, employer_id, applicant_id } = body
 
-    if (!notification_id || read === undefined || !employer_id) {
+    if (!notification_id || read === undefined || (!employer_id && !applicant_id)) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       )
     }
 
-    // Update the notification
-    const { data: notification, error } = await supabase
+    // Build query based on user type
+    let query = supabase
       .from('notifications')
       .update({ 
         read: read,
         updated_at: new Date().toISOString()
       })
       .eq('id', notification_id)
-      .eq('employer_id', employer_id)
+
+    if (employer_id) {
+      query = query.eq('employer_id', employer_id)
+    } else if (applicant_id) {
+      query = query.eq('applicant_id', applicant_id)
+    }
+
+    const { data: notification, error } = await query
       .select()
       .single()
 
@@ -52,29 +59,35 @@ export async function PUT(request: NextRequest) {
   }
 }
 
-// PATCH - Mark all notifications as read for an employer
+// PATCH - Mark all notifications as read for an employer or applicant
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json()
-    const { employer_id } = body
+    const { employer_id, applicant_id } = body
 
-    if (!employer_id) {
+    if (!employer_id && !applicant_id) {
       return NextResponse.json(
-        { error: 'Employer ID is required' },
+        { error: 'Employer ID or Applicant ID is required' },
         { status: 400 }
       )
     }
 
-    // Update all unread notifications for this employer
-    const { data: notifications, error } = await supabase
+    // Build query based on user type
+    let query = supabase
       .from('notifications')
       .update({ 
         read: true,
         updated_at: new Date().toISOString()
       })
-      .eq('employer_id', employer_id)
       .eq('read', false)
-      .select()
+
+    if (employer_id) {
+      query = query.eq('employer_id', employer_id)
+    } else if (applicant_id) {
+      query = query.eq('applicant_id', applicant_id)
+    }
+
+    const { data: notifications, error } = await query.select()
 
     if (error) {
       console.error('Error marking all notifications as read:', error)

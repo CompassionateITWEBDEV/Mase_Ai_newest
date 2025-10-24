@@ -102,6 +102,62 @@ export async function PUT(request: NextRequest) {
 
     console.log('Application status updated successfully:', updatedApplication)
 
+    // Create notifications based on status change
+    if (updatedApplication.applicant_id) {
+      try {
+        const jobTitle = updatedApplication.job_posting?.title || 'the position'
+        const companyName = updatedApplication.job_posting?.employer?.company_name || 'the company'
+        
+        // Notify applicant when hired (status: accepted)
+        if (status === 'accepted') {
+          await supabase
+            .from('notifications')
+            .insert({
+              applicant_id: updatedApplication.applicant_id,
+              type: 'offer',
+              title: 'Congratulations! You\'re Hired!',
+              message: `Congratulations! ${companyName} has hired you for the ${jobTitle} position. Check your email for further details.`,
+              action_url: '/applicant-dashboard?tab=applications',
+              read: false
+            })
+          console.log('✅ Hired notification created for applicant:', updatedApplication.applicant_id)
+        }
+        
+        // Notify applicant when rejected
+        else if (status === 'rejected') {
+          await supabase
+            .from('notifications')
+            .insert({
+              applicant_id: updatedApplication.applicant_id,
+              type: 'application',
+              title: 'Application Update',
+              message: `Your application for ${jobTitle} at ${companyName} has been reviewed. Thank you for your interest.`,
+              action_url: '/applicant-dashboard?tab=applications',
+              read: false
+            })
+          console.log('✅ Application update notification created for applicant')
+        }
+        
+        // Notify applicant when reviewing
+        else if (status === 'reviewing') {
+          await supabase
+            .from('notifications')
+            .insert({
+              applicant_id: updatedApplication.applicant_id,
+              type: 'application',
+              title: 'Application Under Review',
+              message: `${companyName} is reviewing your application for ${jobTitle}.`,
+              action_url: '/applicant-dashboard?tab=applications',
+              read: false
+            })
+          console.log('✅ Review notification created for applicant')
+        }
+      } catch (notifError) {
+        console.error('Error creating status notification:', notifError)
+        // Don't fail the request if notification creation fails
+      }
+    }
+
     // Transform the data
     const transformedApplication = {
       ...updatedApplication,

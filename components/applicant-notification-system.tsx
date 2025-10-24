@@ -4,11 +4,11 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Bell, X, CheckCircle, Calendar, Send, FileText, UserPlus } from "lucide-react"
+import { Bell, X, CheckCircle, Calendar, Send, FileText, Briefcase, AlertCircle } from "lucide-react"
 
 interface Notification {
   id: string
-  type: 'application' | 'interview' | 'offer' | 'document' | 'candidate'
+  type: 'application' | 'interview' | 'offer' | 'document' | 'job' | 'message'
   title: string
   message: string
   timestamp: Date
@@ -16,11 +16,11 @@ interface Notification {
   actionUrl?: string
 }
 
-interface EmployerNotificationSystemProps {
-  employerId: string
+interface ApplicantNotificationSystemProps {
+  applicantId: string
 }
 
-export default function EmployerNotificationSystem({ employerId }: EmployerNotificationSystemProps) {
+export default function ApplicantNotificationSystem({ applicantId }: ApplicantNotificationSystemProps) {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [isOpen, setIsOpen] = useState(false)
   const [unreadCount, setUnreadCount] = useState(0)
@@ -28,11 +28,11 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
 
   // Load notifications from API
   const loadNotifications = async () => {
-    if (!employerId) return
+    if (!applicantId) return
 
     try {
       setIsLoading(true)
-      const response = await fetch(`/api/notifications?employer_id=${employerId}`)
+      const response = await fetch(`/api/notifications?applicant_id=${applicantId}`)
       const data = await response.json()
 
       if (data.success && data.notifications) {
@@ -58,17 +58,17 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
 
   useEffect(() => {
     loadNotifications()
-  }, [employerId])
+  }, [applicantId])
 
   // Auto-refresh notifications every 30 seconds
   useEffect(() => {
-    if (!employerId) return
+    if (!applicantId) return
     const interval = setInterval(() => {
       console.log('Auto-refreshing notifications...')
       loadNotifications()
     }, 30000) // 30 seconds
     return () => clearInterval(interval)
-  }, [employerId])
+  }, [applicantId])
 
   const markAsRead = async (notificationId: string) => {
     try {
@@ -80,7 +80,7 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
         body: JSON.stringify({
           notification_id: notificationId,
           read: true,
-          employer_id: employerId
+          applicant_id: applicantId
         })
       })
 
@@ -107,7 +107,7 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          employer_id: employerId
+          applicant_id: applicantId
         })
       })
 
@@ -132,8 +132,10 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
         return <Send className="h-4 w-4 text-purple-600" />
       case 'document':
         return <FileText className="h-4 w-4 text-orange-600" />
-      case 'candidate':
-        return <UserPlus className="h-4 w-4 text-indigo-600" />
+      case 'job':
+        return <Briefcase className="h-4 w-4 text-indigo-600" />
+      case 'message':
+        return <AlertCircle className="h-4 w-4 text-yellow-600" />
       default:
         return <Bell className="h-4 w-4 text-gray-600" />
     }
@@ -149,8 +151,10 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
         return 'bg-purple-100 text-purple-800'
       case 'document':
         return 'bg-orange-100 text-orange-800'
-      case 'candidate':
+      case 'job':
         return 'bg-indigo-100 text-indigo-800'
+      case 'message':
+        return 'bg-yellow-100 text-yellow-800'
       default:
         return 'bg-gray-100 text-gray-800'
     }
@@ -279,3 +283,4 @@ export default function EmployerNotificationSystem({ employerId }: EmployerNotif
     </div>
   )
 }
+

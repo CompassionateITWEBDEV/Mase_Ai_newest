@@ -15,7 +15,7 @@ import {
   XCircle,
   Calendar,
   User,
-  FileSize,
+  HardDrive,
   AlertCircle
 } from "lucide-react"
 
@@ -292,6 +292,7 @@ export default function EmployerDocumentViewer({
 
               {Object.entries(documentsByType).map(([type, docs]) => {
                 const typeInfo = getDocumentTypeInfo(type)
+                const IconComponent = typeInfo.icon
                 return (
                   <TabsContent key={type} value={type} className="space-y-4">
                     <div className="space-y-3">
@@ -300,7 +301,7 @@ export default function EmployerDocumentViewer({
                           <CardContent className="p-4">
                             <div className="flex items-start justify-between">
                               <div className="flex items-start gap-3 flex-1">
-                                <typeInfo.icon className={`h-5 w-5 mt-1 ${typeInfo.color}`} />
+                                <IconComponent className={`h-5 w-5 mt-1 ${typeInfo.color}`} />
                                 <div className="flex-1 min-w-0">
                                   <h4 className="font-medium text-gray-900 truncate">
                                     {doc.file_name}
@@ -311,7 +312,7 @@ export default function EmployerDocumentViewer({
                                       {doc.uploaded_date_formatted}
                                     </div>
                                     <div className="flex items-center gap-1">
-                                      <FileSize className="h-3 w-3" />
+                                      <HardDrive className="h-3 w-3" />
                                       {doc.file_size_mb} MB
                                     </div>
                                   </div>

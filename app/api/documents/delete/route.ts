@@ -17,6 +17,16 @@ export async function DELETE(request: NextRequest) {
       )
     }
 
+    // Validate UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(documentId)) {
+      console.error('Invalid UUID format:', documentId)
+      return NextResponse.json(
+        { success: false, error: 'Invalid document ID format' },
+        { status: 400 }
+      )
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     // Use service role key for delete operations to bypass RLS
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
@@ -73,30 +83,39 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Delete the document from the database using RPC or direct SQL
-    console.log('Attempting to delete with service role permissions...')
+    // Delete the document from the database
+    console.log('Attempting to delete document from database...')
     
-    // Method 1: Try direct delete with service role key
-    let deleteResult = await supabase
+    // Method 1: Try direct delete with service role key (should work with proper RLS policies)
+    const { data: deleteData, error: deleteError, status: deleteStatus } = await supabase
       .from('applicant_documents')
       .delete()
       .eq('id', documentId)
 
-    console.log('Delete attempt 1 (direct delete):', deleteResult)
+    console.log('Delete attempt 1 (direct delete):', { 
+      deleteData, 
+      deleteError, 
+      deleteStatus 
+    })
 
-    // Method 2: If that fails, try using SQL query through rpc
-    if (deleteResult.error || (!deleteResult.data && deleteResult.status !== 204)) {
-      console.log('Direct delete may have failed, trying SQL approach...')
+    // Method 2: If direct delete fails, try using RPC function as fallback
+    if (deleteError && deleteStatus !== 204) {
+      console.log('Direct delete failed, trying RPC function...')
       
-      const { data: sqlResult, error: sqlError } = await supabase.rpc('delete_document', {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc('delete_document', {
         doc_id: documentId
       })
       
-      console.log('Delete attempt 2 (SQL RPC):', { sqlResult, sqlError })
+      console.log('Delete attempt 2 (RPC):', { rpcResult, rpcError })
       
-      if (sqlError) {
-        console.error('SQL delete also failed:', sqlError)
-        // Continue anyway - we'll verify below
+      // If RPC also fails, return error
+      if (rpcError) {
+        console.error('Both delete methods failed:', { deleteError, rpcError })
+        return NextResponse.json({
+          success: false,
+          error: 'Failed to delete document. Please ensure delete policies are enabled.',
+          details: deleteError?.message || rpcError?.message
+        }, { status: 500 })
       }
     }
 
@@ -105,20 +124,21 @@ export async function DELETE(request: NextRequest) {
       .from('applicant_documents')
       .select('id')
       .eq('id', documentId)
+      .maybeSingle()
 
     console.log('Verification check after delete:', { 
-      stillExists: (checkData?.length || 0) > 0,
+      stillExists: !!checkData,
       checkData,
       checkError
     })
 
     // If document still exists, the delete actually failed
-    if (checkData && checkData.length > 0) {
-      console.error('❌ Document still exists after delete! RLS policy is blocking deletion.')
+    if (checkData) {
+      console.error('❌ Document still exists after delete! RLS policy may be blocking deletion.')
       return NextResponse.json({
         success: false,
-        error: 'Unable to delete document. Row-Level Security policy is blocking deletion. Please contact support.',
-        hint: 'The database policy needs to be updated to allow document deletion.'
+        error: 'Unable to delete document. Please run the database migration script: scripts/035-add-document-delete-policy.sql',
+        hint: 'The database needs DELETE policies to be enabled for applicant_documents table.'
       }, { status: 403 })
     }
 
@@ -128,7 +148,11 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({
       success: true,
       message: 'Document deleted successfully',
-      deletedDocument: docData
+      deletedDocument: {
+        id: docData.id,
+        file_name: docData.file_name,
+        document_type: docData.document_type
+      }
     })
 
   } catch (error: any) {

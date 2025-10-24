@@ -131,6 +131,40 @@ export async function POST(request: NextRequest) {
       } : null
     }
 
+    // Create notification for employer about new application
+    if (jobPosting?.employer_id) {
+      try {
+        // Get applicant details
+        const { data: applicant } = await supabase
+          .from('applicants')
+          .select('first_name, last_name')
+          .eq('id', applicant_id)
+          .single()
+
+        const applicantName = applicant 
+          ? `${applicant.first_name} ${applicant.last_name}` 
+          : 'An applicant'
+        
+        const jobTitle = jobPosting.title || 'a position'
+
+        await supabase
+          .from('notifications')
+          .insert({
+            employer_id: jobPosting.employer_id,
+            type: 'application',
+            title: 'New Application Received',
+            message: `${applicantName} has applied for ${jobTitle}.`,
+            action_url: '/employer-dashboard?tab=applications',
+            read: false
+          })
+
+        console.log('✅ New application notification created for employer:', jobPosting.employer_id)
+      } catch (notifError) {
+        console.error('Error creating application notification:', notifError)
+        // Don't fail the request if notification creation fails
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: 'Application submitted successfully!',
