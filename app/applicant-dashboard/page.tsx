@@ -2967,33 +2967,29 @@ export default function ApplicantDashboard() {
                             <span className="font-medium">Certifications & Licenses</span>
                             <p className="text-xs text-gray-600">
                               {isComplete 
-                                ? 'All documents uploaded'
-                                : !hasTextField 
-                                ? 'Add certification details'
-                                : !hasLicense
-                                ? 'Upload license document'
-                                : 'Upload certification document'}
+                                ? 'Text field filled • License uploaded • Certification uploaded'
+                                : hasTextField && hasLicense && !hasCertification
+                                ? 'Text field ✓ • License ✓ • Certification needed'
+                                : hasTextField && !hasLicense && hasCertification
+                                ? 'Text field ✓ • License needed • Certification ✓'
+                                : hasTextField && !hasLicense && !hasCertification
+                                ? 'Text field ✓ • License needed • Certification needed'
+                                : !hasTextField && hasLicense && hasCertification
+                                ? 'Text field needed • License ✓ • Certification ✓'
+                                : !hasTextField && hasLicense
+                                ? 'Text field needed • License ✓ • Certification needed'
+                                : !hasTextField && hasCertification
+                                ? 'Text field needed • License needed • Certification ✓'
+                                : 'Text field needed • License needed • Certification needed'}
                             </p>
                           </div>
                         </div>
                         {isComplete ? (
                           <Badge className="bg-green-600">Complete</Badge>
                         ) : (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="text-yellow-700 border-yellow-700"
-                            onClick={() => {
-                              if (!hasTextField) {
-                                setActiveTab('profile')
-                              } else {
-                                setActiveTab('documents')
-                                setTimeout(() => setIsDocumentUploadOpen(true), 300)
-                              }
-                            }}
-                          >
-                            {!hasTextField ? 'Add Details' : 'Upload'}
-                          </Button>
+                          <Badge variant="outline" className="text-yellow-700 border-yellow-700">
+                            Incomplete
+                          </Badge>
                         )}
                       </div>
                     )
@@ -3052,41 +3048,16 @@ export default function ApplicantDashboard() {
                             </p>
                           </div>
                         </div>
-                        {!isUploaded ? (
-                          <Button 
-                            size="sm" 
-                            className={req.required ? 'bg-red-600 hover:bg-red-700' : ''}
-                            variant={req.required ? 'default' : 'outline'}
-                            onClick={() => {
-                              setActiveTab('documents')
-                              setTimeout(() => setIsDocumentUploadOpen(true), 300)
-                            }}
-                          >
-                            <Upload className="h-4 w-4 mr-1" />
-                            Upload
-                          </Button>
+                        {isVerified ? (
+                          <Badge className="bg-green-600">Verified</Badge>
+                        ) : isPending ? (
+                          <Badge className="bg-blue-600">Pending</Badge>
                         ) : (
-                          <div className="flex gap-2">
-                            {isVerified ? (
-                              <Badge className="bg-green-600">Verified</Badge>
-                            ) : isPending ? (
-                              <Badge className="bg-blue-600">Pending</Badge>
-                            ) : (
-                              <Badge className="bg-yellow-600">Under Review</Badge>
-                            )}
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedDocument(uploadedDoc)
-                                setIsDocumentViewerOpen(true)
-                              }}
-                              className="text-purple-600 hover:text-purple-700"
-                            >
-                              <Eye className="h-4 w-4 mr-1" />
-                              View
-                            </Button>
-                          </div>
+                          <Badge variant="outline" className={`text-xs ${
+                            req.required ? 'text-red-700 border-red-300' : 'text-gray-600'
+                          }`}>
+                            Not Uploaded
+                          </Badge>
                         )}
                       </div>
                     )
@@ -3269,106 +3240,6 @@ export default function ApplicantDashboard() {
                     ))}
                   </div>
                 )}
-              </CardContent>
-            </Card>
-
-            {/* Required Documents Section */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Required Documents</CardTitle>
-                <CardDescription>Documents needed to complete your profile</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {[
-                    { name: "Resume", required: true, type: "resume", description: "Professional resume or CV" },
-                    { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
-                  ].map((req, index) => {
-                    const uploadedDoc = documents.find(doc => doc.document_type === req.type)
-                    const isUploaded = !!uploadedDoc
-                    const isVerified = uploadedDoc?.status === 'verified'
-                    const isPending = uploadedDoc?.status === 'pending'
-                    
-                    return (
-                      <div key={index} className={`flex items-center justify-between p-4 border rounded-lg ${
-                        isVerified 
-                          ? 'bg-green-50 border-green-200'
-                          : isPending
-                          ? 'bg-blue-50 border-blue-200'
-                          : req.required
-                          ? 'bg-red-50 border-red-200'
-                          : 'bg-gray-50 border-gray-200'
-                      }`}>
-                        <div className="flex items-center space-x-4">
-                          {isVerified ? (
-                            <CheckCircle className="h-6 w-6 text-green-600" />
-                          ) : isPending ? (
-                            <Clock className="h-6 w-6 text-blue-600" />
-                          ) : req.required ? (
-                            <AlertTriangle className="h-6 w-6 text-red-600" />
-                          ) : (
-                            <FileText className="h-6 w-6 text-gray-400" />
-                          )}
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-gray-900">{req.name}</span>
-                              <Badge variant="secondary" className={`text-xs ${
-                                req.required 
-                                  ? 'bg-red-100 text-red-700 border-red-300' 
-                                  : 'bg-gray-100 text-gray-600'
-                              }`}>
-                                {req.required ? 'Required' : 'Optional'}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-gray-500 mt-0.5">{req.description}</p>
-                            <p className="text-xs text-gray-600 mt-1">
-                              {isVerified 
-                                ? '✓ Verified and ready' 
-                                : isPending 
-                                ? '⏳ Uploaded, pending verification' 
-                                : req.required
-                                ? '⚠️ Required to complete profile'
-                                : 'Optional document'}
-                            </p>
-                          </div>
-                        </div>
-                        {!isUploaded ? (
-                          <Button 
-                            size="sm" 
-                            className={req.required ? 'bg-red-600 hover:bg-red-700' : ''}
-                            variant={req.required ? 'default' : 'outline'}
-                            onClick={() => setIsDocumentUploadOpen(true)}
-                          >
-                            <Upload className="h-4 w-4 mr-2" />
-                            Upload
-                          </Button>
-                        ) : (
-                          <div className="flex gap-2">
-                            {isVerified ? (
-                              <Badge className="bg-green-600">Verified</Badge>
-                            ) : isPending ? (
-                              <Badge className="bg-blue-600">Pending</Badge>
-                            ) : (
-                              <Badge className="bg-yellow-600">Under Review</Badge>
-                            )}
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedDocument(uploadedDoc)
-                                setIsDocumentViewerOpen(true)
-                              }}
-                              className="text-purple-600 hover:text-purple-700"
-                            >
-                              <Eye className="h-4 w-4 mr-1" />
-                              View
-                            </Button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
