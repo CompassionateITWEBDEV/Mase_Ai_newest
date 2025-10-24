@@ -78,41 +78,7 @@ export default function DocumentUploadModal({
 
       const uploadData = await response.json()
       
-      // Trigger automatic verification
-      if (uploadData.success && uploadData.document?.id) {
-        try {
-          // Read file content for verification
-          let fileContent = document.file.name
-          
-          // For testing purposes, create a more realistic content analysis
-          if (document.documentType === 'resume') {
-            // Simulate resume content analysis for better verification
-            fileContent = `
-              Professional Resume
-              Experience: Healthcare professional with 5+ years
-              Education: Bachelor's Degree in Nursing
-              Skills: Patient care, medical procedures, documentation
-              Work History: Registered Nurse at various healthcare facilities
-              Contact: email@example.com, (555) 123-4567
-              Professional Experience: Extensive background in healthcare
-            `
-          }
-          
-          await fetch('/api/documents/auto-verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              documentId: uploadData.document.id,
-              documentType: document.documentType,
-              fileName: document.file.name,
-              fileContent: fileContent
-            })
-          })
-        } catch (verifyError) {
-          console.error('Auto-verification failed:', verifyError)
-          // Don't fail the upload if verification fails
-        }
-      }
+      // Document is automatically verified on upload
 
       // Update document status to success
       setUploadedDocuments(prev => 

@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { CheckCircle, AlertTriangle, XCircle, Eye, Clock, FileText } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import VerificationTiming from './verification-timing'
 
 interface DocumentVerificationStatusProps {
   document: {
@@ -103,14 +102,6 @@ export default function DocumentVerificationStatus({
             Details
           </Button>
         </div>
-      </div>
-      
-      <div className="mt-2">
-        <VerificationTiming 
-          status={document.status}
-          uploadedAt={document.uploaded_date}
-          verifiedAt={document.verified_date}
-        />
       </div>
 
       <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
