@@ -467,7 +467,7 @@ export default function ApplicantDashboard() {
   // Calculate profile completion percentage
   const calculateProfileCompletion = (user: any) => {
     let completed = 0
-    const total = 10 // Reduced total since only resume is required for testing
+    const total = 10
 
     // Basic information (4 points)
     if (user.firstName) completed++
@@ -480,11 +480,14 @@ export default function ApplicantDashboard() {
     if (user.experience) completed++
     if (user.education) completed++
     
-    // Additional profile fields (2 points)
-    if (user.certifications) completed++
-    if (user.skills) completed++
+    // Location information (2 points)
+    if (user.city) completed++
+    if (user.state) completed++
     
-    // Required documents (1 point) - only resume required for testing
+    // Additional profile fields (1 point)
+    if (user.certifications) completed++
+    
+    // Required documents (1 point) - only resume required
     const verifiedDocuments = documents.filter(doc => doc.status === 'verified')
     const hasResume = verifiedDocuments.some(doc => doc.document_type === 'resume')
     if (hasResume) completed += 1
@@ -2724,38 +2727,161 @@ export default function ApplicantDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span>Basic Information</span>
+                  {/* Overall Progress */}
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-gray-700">Overall Progress</span>
+                      <span className="text-2xl font-bold text-blue-600">
+                        {applicantInfo ? calculateProfileCompletion(applicantInfo) : 0}%
+                      </span>
                     </div>
-                    <Badge variant="secondary">Complete</Badge>
+                    <Progress 
+                      value={applicantInfo ? calculateProfileCompletion(applicantInfo) : 0} 
+                      className="h-3"
+                    />
                   </div>
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
+
+                  {/* Basic Information */}
+                  <div className={`flex items-center justify-between p-3 border rounded-lg ${
+                    applicantInfo?.firstName && applicantInfo?.lastName && applicantInfo?.email && applicantInfo?.phone
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}>
                     <div className="flex items-center space-x-3">
-                      <CheckCircle className="h-5 w-5 text-green-500" />
-                      <span>Professional Experience</span>
+                      {applicantInfo?.firstName && applicantInfo?.lastName && applicantInfo?.email && applicantInfo?.phone ? (
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                      )}
+                      <div>
+                        <span className="font-medium">Basic Information</span>
+                        <p className="text-xs text-gray-600">Name, Email, Phone</p>
+                      </div>
                     </div>
-                    <Badge variant="secondary">Complete</Badge>
+                    {applicantInfo?.firstName && applicantInfo?.lastName && applicantInfo?.email && applicantInfo?.phone ? (
+                      <Badge className="bg-green-600">Complete</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-yellow-700 border-yellow-700">
+                        {4 - [applicantInfo?.firstName, applicantInfo?.lastName, applicantInfo?.email, applicantInfo?.phone]
+                          .filter(Boolean).length} missing
+                      </Badge>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
+
+                  {/* Professional Experience */}
+                  <div className={`flex items-center justify-between p-3 border rounded-lg ${
+                    applicantInfo?.profession && applicantInfo?.experience && applicantInfo?.education
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}>
                     <div className="flex items-center space-x-3">
-                      <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                      <span>Certifications & Licenses</span>
+                      {applicantInfo?.profession && applicantInfo?.experience && applicantInfo?.education ? (
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                      )}
+                      <div>
+                        <span className="font-medium">Professional Information</span>
+                        <p className="text-xs text-gray-600">Profession, Experience, Education</p>
+                      </div>
                     </div>
-                    <Button size="sm" variant="outline">
-                      Add Details
-                    </Button>
+                    {applicantInfo?.profession && applicantInfo?.experience && applicantInfo?.education ? (
+                      <Badge className="bg-green-600">Complete</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-yellow-700 border-yellow-700">
+                        {3 - [applicantInfo?.profession, applicantInfo?.experience, applicantInfo?.education]
+                          .filter(Boolean).length} missing
+                      </Badge>
+                    )}
                   </div>
-                  <div className="flex items-center justify-between p-3 border rounded-lg">
+
+                  {/* Location */}
+                  <div className={`flex items-center justify-between p-3 border rounded-lg ${
+                    applicantInfo?.city && applicantInfo?.state
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}>
                     <div className="flex items-center space-x-3">
-                      <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                      <span>Resume Upload</span>
+                      {applicantInfo?.city && applicantInfo?.state ? (
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                      )}
+                      <div>
+                        <span className="font-medium">Location</span>
+                        <p className="text-xs text-gray-600">City & State</p>
+                      </div>
                     </div>
-                    <Button size="sm" variant="outline">
-                      Upload Resume
-                    </Button>
+                    {applicantInfo?.city && applicantInfo?.state ? (
+                      <Badge className="bg-green-600">Complete</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-yellow-700 border-yellow-700">Incomplete</Badge>
+                    )}
                   </div>
+
+                  {/* Certifications */}
+                  <div className={`flex items-center justify-between p-3 border rounded-lg ${
+                    applicantInfo?.certifications
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}>
+                    <div className="flex items-center space-x-3">
+                      {applicantInfo?.certifications ? (
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                      )}
+                      <div>
+                        <span className="font-medium">Certifications & Licenses</span>
+                        <p className="text-xs text-gray-600">Professional certifications</p>
+                      </div>
+                    </div>
+                    {applicantInfo?.certifications ? (
+                      <Badge className="bg-green-600">Complete</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-yellow-700 border-yellow-700">Add Details</Badge>
+                    )}
+                  </div>
+
+                  {/* Resume Upload */}
+                  {(() => {
+                    const hasResume = documents.some(doc => 
+                      doc.document_type === 'resume' && doc.status === 'verified'
+                    )
+                    return (
+                      <div className={`flex items-center justify-between p-3 border rounded-lg ${
+                        hasResume
+                          ? 'bg-green-50 border-green-200' 
+                          : 'bg-red-50 border-red-200'
+                      }`}>
+                        <div className="flex items-center space-x-3">
+                          {hasResume ? (
+                            <CheckCircle className="h-5 w-5 text-green-600" />
+                          ) : (
+                            <XCircle className="h-5 w-5 text-red-600" />
+                          )}
+                          <div>
+                            <span className="font-medium">Resume Upload</span>
+                            <p className="text-xs text-gray-600">Required to apply for jobs</p>
+                          </div>
+                        </div>
+                        {hasResume ? (
+                          <Badge className="bg-green-600">Uploaded</Badge>
+                        ) : (
+                          <Button 
+                            size="sm" 
+                            className="bg-red-600 hover:bg-red-700"
+                            onClick={() => {
+                              setActiveTab('documents')
+                              setTimeout(() => setIsDocumentUploadOpen(true), 300)
+                            }}
+                          >
+                            Upload Resume
+                          </Button>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               </CardContent>
             </Card>
