@@ -48,6 +48,25 @@ export default function JobsPage() {
   const [locationFilter, setLocationFilter] = useState("all")
   const [typeFilter, setTypeFilter] = useState("all")
   const [departmentFilter, setDepartmentFilter] = useState("all")
+  const [jobRatings, setJobRatings] = useState<Record<string, number>>({})
+
+  // Load job ratings
+  const loadJobRatings = async (jobIds: string[]) => {
+    try {
+      const response = await fetch(`/api/jobs/ratings?job_ids=${jobIds.join(',')}`)
+      const data = await response.json()
+
+      if (data.success && data.ratings) {
+        setJobRatings(data.ratings)
+        console.log('✅ Loaded job ratings:', data.ratings)
+        console.log(`📊 Ratings loaded for ${Object.keys(data.ratings).length} jobs`)
+      } else {
+        console.log('⚠️ No ratings data received, using default ratings')
+      }
+    } catch (error) {
+      console.error('Error loading job ratings:', error)
+    }
+  }
 
   // Load jobs from database
   useEffect(() => {
@@ -62,6 +81,9 @@ export default function JobsPage() {
           console.log(`Loaded ${data.jobs.length} jobs from database`)
           // Track views for all loaded jobs (anonymous views)
           trackJobViews(data.jobs)
+          // Load ratings for all jobs
+          const jobIds = data.jobs.map((job: JobPosting) => job.id)
+          loadJobRatings(jobIds)
         }
       } catch (error) {
         console.error('Error loading jobs:', error)
@@ -117,7 +139,7 @@ export default function JobsPage() {
     applications: job.applications_count || 0,
     featured: job.is_featured,
     urgent: job.is_urgent,
-    companyRating: 4.5, // Default rating since we don't have this in DB yet
+    companyRating: jobRatings[job.id] || 3.0, // Use actual rating from saved jobs data
     companyLogo: "/placeholder.svg?height=60&width=60&text=" + (job.employer?.company_name?.substring(0, 2) || 'HC'),
   }))
 
@@ -136,7 +158,7 @@ export default function JobsPage() {
     applications: job.applications_count || 0,
     featured: job.is_featured,
     urgent: job.is_urgent,
-      companyRating: 4.5,
+    companyRating: jobRatings[job.id] || 3.0, // Use actual rating from saved jobs data
     companyLogo: "/placeholder.svg?height=60&width=60&text=" + (job.employer?.company_name?.substring(0, 2) || 'HC'),
   }))
 
@@ -318,7 +340,8 @@ export default function JobsPage() {
                               <span>{job.company}</span>
                               <div className="flex items-center">
                                 <Star className="h-3 w-3 text-yellow-400 fill-current mr-1" />
-                                <span className="text-xs">{job.companyRating}</span>
+                                <span className="text-xs font-medium">{job.companyRating}</span>
+                                <span className="text-xs text-gray-500 ml-1">★</span>
                               </div>
                             </CardDescription>
                           </div>
@@ -431,7 +454,8 @@ export default function JobsPage() {
                             <span className="text-gray-600">{job.company}</span>
                             <div className="flex items-center">
                               <Star className="h-3 w-3 text-yellow-400 fill-current mr-1" />
-                              <span className="text-sm text-gray-600">{job.companyRating}</span>
+                              <span className="text-sm font-medium text-gray-600">{job.companyRating}</span>
+                              <span className="text-xs text-gray-500 ml-1">★</span>
                             </div>
                           </div>
                           <p className="text-gray-700 mb-3">{job.description}</p>
