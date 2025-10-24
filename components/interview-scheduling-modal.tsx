@@ -1,174 +1,369 @@
 "use client"
 
-import { useState } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { useState, useEffect } from "react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { Calendar, Clock, MapPin, User, FileText } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Calendar, Clock, MapPin, Video, Phone, User } from "lucide-react"
 
 interface InterviewSchedulingModalProps {
   isOpen: boolean
   onClose: () => void
-  application: any
-  onScheduleSuccess: () => void
+  onSchedule: (interviewData: any) => void
+  applications?: any[]
+  jobs?: any[]
+  employerId?: string
 }
 
-export default function InterviewSchedulingModal({ 
-  isOpen, 
-  onClose, 
-  application, 
-  onScheduleSuccess 
+export default function InterviewSchedulingModal({
+  isOpen,
+  onClose,
+  onSchedule,
+  applications = [],
+  jobs = [],
+  employerId
 }: InterviewSchedulingModalProps) {
-  const [isLoading, setIsLoading] = useState(false)
   const [formData, setFormData] = useState({
-    interviewDate: '',
-    interviewTime: '',
-    location: '',
-    notes: '',
-    interviewer: ''
+    job_posting_id: '',
+    applicant_id: '',
+    interview_date: '',
+    interview_time: '',
+    interview_type: 'video',
+    interview_location: '',
+    meeting_link: '',
+    interview_notes: '',
+    duration_minutes: 60,
+    interviewer_name: '',
+    interviewer_email: ''
   })
+  const [isLoading, setIsLoading] = useState(false)
+  const [selectedJob, setSelectedJob] = useState<any>(null)
+  const [availableApplicants, setAvailableApplicants] = useState<any[]>([])
+
+  // Reset form when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setFormData({
+        job_posting_id: '',
+        applicant_id: '',
+        interview_date: '',
+        interview_time: '',
+        interview_type: 'video',
+        interview_location: '',
+        meeting_link: '',
+        interview_notes: '',
+        duration_minutes: 60,
+        interviewer_name: '',
+        interviewer_email: ''
+      })
+      setSelectedJob(null)
+      setAvailableApplicants([])
+    }
+  }, [isOpen])
+
+  // Filter applicants when job is selected
+  useEffect(() => {
+    if (formData.job_posting_id && applications.length > 0) {
+      const jobApplicants = applications.filter(app => 
+        app.job_posting_id === formData.job_posting_id
+      )
+      setAvailableApplicants(jobApplicants)
+      
+      // Find the selected job
+      const job = jobs.find(j => j.id === formData.job_posting_id)
+      setSelectedJob(job)
+    } else {
+      setAvailableApplicants([])
+      setSelectedJob(null)
+    }
+  }, [formData.job_posting_id, applications, jobs])
+
+  const handleInputChange = (field: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.interviewDate || !formData.interviewTime) {
+    
+    if (!formData.job_posting_id || !formData.applicant_id || !formData.interview_date || !formData.interview_time) {
       alert('Please fill in all required fields')
       return
     }
 
     setIsLoading(true)
+
     try {
-      const response = await fetch('/api/applications/schedule-interview', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          applicationId: application.id,
-          interviewDate: formData.interviewDate,
-          interviewTime: formData.interviewTime,
-          location: formData.location,
-          notes: formData.notes,
-          interviewer: formData.interviewer
-        })
+      // Combine date and time
+      const interviewDateTime = new Date(`${formData.interview_date}T${formData.interview_time}`)
+      
+      const interviewData = {
+        ...formData,
+        employer_id: employerId,
+        interview_date: interviewDateTime.toISOString(),
+        duration_minutes: parseInt(formData.duration_minutes.toString())
+      }
+
+      // Remove empty fields
+      Object.keys(interviewData).forEach(key => {
+        if (interviewData[key as keyof typeof interviewData] === '') {
+          delete interviewData[key as keyof typeof interviewData]
+        }
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Failed to schedule interview')
-      }
-
-      const data = await response.json()
-      if (data.success) {
-        alert('Interview scheduled successfully!')
-        onScheduleSuccess()
-        onClose()
-        setFormData({
-          interviewDate: '',
-          interviewTime: '',
-          location: '',
-          notes: '',
-          interviewer: ''
-        })
-      }
-    } catch (error: any) {
+      await onSchedule(interviewData)
+      onClose()
+    } catch (error) {
       console.error('Error scheduling interview:', error)
-      alert(`Failed to schedule interview: ${error.message}`)
+      alert('Failed to schedule interview. Please try again.')
     } finally {
       setIsLoading(false)
     }
   }
 
+  const getMinDate = () => {
+    const today = new Date()
+    today.setDate(today.getDate() + 1) // Minimum tomorrow
+    return today.toISOString().split('T')[0]
+  }
+
+  const getMinTime = () => {
+    if (formData.interview_date === new Date().toISOString().split('T')[0]) {
+      const now = new Date()
+      const hour = now.getHours() + 1 // At least 1 hour from now
+      return `${hour.toString().padStart(2, '0')}:00`
+    }
+    return '09:00'
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5" />
             Schedule Interview
           </DialogTitle>
           <DialogDescription>
-            Schedule an interview for {application?.applicant?.full_name || 'Unknown Applicant'} 
-            for the position of {application?.job_posting?.title || 'Unknown Position'}
+            Schedule an interview with a qualified applicant
           </DialogDescription>
         </DialogHeader>
-        
-        <form onSubmit={handleSubmit} className="space-y-4">
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Job Selection */}
+          <div className="space-y-2">
+            <Label htmlFor="job_posting_id">Job Posting *</Label>
+            <Select
+              value={formData.job_posting_id}
+              onValueChange={(value) => handleInputChange('job_posting_id', value)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select a job posting" />
+              </SelectTrigger>
+              <SelectContent>
+                {jobs.map((job) => (
+                  <SelectItem key={job.id} value={job.id}>
+                    {job.title} - {job.department}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Applicant Selection */}
+          <div className="space-y-2">
+            <Label htmlFor="applicant_id">Applicant *</Label>
+            <Select
+              value={formData.applicant_id}
+              onValueChange={(value) => handleInputChange('applicant_id', value)}
+              disabled={!formData.job_posting_id}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={formData.job_posting_id ? "Select an applicant" : "First select a job posting"} />
+              </SelectTrigger>
+              <SelectContent>
+                {availableApplicants.map((applicant) => (
+                  <SelectItem key={applicant.id} value={applicant.applicant_id}>
+                    {applicant.applicant?.first_name} {applicant.applicant?.last_name} - {applicant.applicant?.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {formData.job_posting_id && availableApplicants.length === 0 && (
+              <p className="text-sm text-gray-500">No applicants found for this job posting</p>
+            )}
+          </div>
+
+          {/* Date and Time */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="interviewDate" className="flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                Interview Date *
-              </Label>
+              <Label htmlFor="interview_date">Interview Date *</Label>
               <Input
-                id="interviewDate"
+                id="interview_date"
                 type="date"
-                value={formData.interviewDate}
-                onChange={(e) => setFormData(prev => ({ ...prev, interviewDate: e.target.value }))}
+                value={formData.interview_date}
+                onChange={(e) => handleInputChange('interview_date', e.target.value)}
+                min={getMinDate()}
                 required
               />
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="interviewTime" className="flex items-center gap-2">
-                <Clock className="h-4 w-4" />
-                Interview Time *
-              </Label>
+              <Label htmlFor="interview_time">Interview Time *</Label>
               <Input
-                id="interviewTime"
+                id="interview_time"
                 type="time"
-                value={formData.interviewTime}
-                onChange={(e) => setFormData(prev => ({ ...prev, interviewTime: e.target.value }))}
+                value={formData.interview_time}
+                onChange={(e) => handleInputChange('interview_time', e.target.value)}
+                min={getMinTime()}
                 required
               />
             </div>
           </div>
 
+          {/* Interview Type */}
           <div className="space-y-2">
-            <Label htmlFor="location" className="flex items-center gap-2">
-              <MapPin className="h-4 w-4" />
-              Location
-            </Label>
-            <Input
-              id="location"
-              placeholder="e.g., Main Office, Conference Room A, or Video Call Link"
-              value={formData.location}
-              onChange={(e) => setFormData(prev => ({ ...prev, location: e.target.value }))}
-            />
+            <Label htmlFor="interview_type">Interview Type *</Label>
+            <Select
+              value={formData.interview_type}
+              onValueChange={(value) => handleInputChange('interview_type', value)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="video">
+                  <div className="flex items-center gap-2">
+                    <Video className="h-4 w-4" />
+                    Video Call
+                  </div>
+                </SelectItem>
+                <SelectItem value="phone">
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-4 w-4" />
+                    Phone Call
+                  </div>
+                </SelectItem>
+                <SelectItem value="in-person">
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    In-Person
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
+          {/* Location or Meeting Link */}
+          {formData.interview_type === 'in-person' && (
+            <div className="space-y-2">
+              <Label htmlFor="interview_location">Interview Location *</Label>
+              <Input
+                id="interview_location"
+                placeholder="e.g., 123 Main St, City, State"
+                value={formData.interview_location}
+                onChange={(e) => handleInputChange('interview_location', e.target.value)}
+                required
+              />
+            </div>
+          )}
+
+          {formData.interview_type === 'video' && (
+            <div className="space-y-2">
+              <Label htmlFor="meeting_link">Meeting Link</Label>
+              <Input
+                id="meeting_link"
+                placeholder="e.g., https://meet.google.com/abc-defg-hij"
+                value={formData.meeting_link}
+                onChange={(e) => handleInputChange('meeting_link', e.target.value)}
+              />
+            </div>
+          )}
+
+          {/* Duration */}
           <div className="space-y-2">
-            <Label htmlFor="interviewer" className="flex items-center gap-2">
-              <User className="h-4 w-4" />
-              Interviewer
-            </Label>
-            <Input
-              id="interviewer"
-              placeholder="e.g., John Smith, HR Manager"
-              value={formData.interviewer}
-              onChange={(e) => setFormData(prev => ({ ...prev, interviewer: e.target.value }))}
-            />
+            <Label htmlFor="duration_minutes">Duration (minutes)</Label>
+            <Select
+              value={formData.duration_minutes.toString()}
+              onValueChange={(value) => handleInputChange('duration_minutes', value)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="30">30 minutes</SelectItem>
+                <SelectItem value="60">60 minutes</SelectItem>
+                <SelectItem value="90">90 minutes</SelectItem>
+                <SelectItem value="120">120 minutes</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
+          {/* Interviewer Information */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="interviewer_name">Interviewer Name</Label>
+              <Input
+                id="interviewer_name"
+                placeholder="e.g., John Smith"
+                value={formData.interviewer_name}
+                onChange={(e) => handleInputChange('interviewer_name', e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="interviewer_email">Interviewer Email</Label>
+              <Input
+                id="interviewer_email"
+                type="email"
+                placeholder="e.g., john@company.com"
+                value={formData.interviewer_email}
+                onChange={(e) => handleInputChange('interviewer_email', e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Notes */}
           <div className="space-y-2">
-            <Label htmlFor="notes" className="flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Additional Notes
-            </Label>
+            <Label htmlFor="interview_notes">Interview Notes</Label>
             <Textarea
-              id="notes"
-              placeholder="Any special instructions, preparation requirements, or additional information for the candidate..."
-              value={formData.notes}
-              onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+              id="interview_notes"
+              placeholder="Any special instructions or notes for the interview..."
+              value={formData.interview_notes}
+              onChange={(e) => handleInputChange('interview_notes', e.target.value)}
               rows={3}
             />
           </div>
 
-          <div className="flex justify-end space-x-2 pt-4">
-            <Button type="button" variant="outline" onClick={onClose}>
+          {/* Action Buttons */}
+          <div className="flex justify-end space-x-4 pt-4 border-t">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              disabled={isLoading}
+            >
               Cancel
             </Button>
-            <Button type="submit" disabled={isLoading} className="bg-blue-600 hover:bg-blue-700">
-              {isLoading ? 'Scheduling...' : 'Schedule Interview'}
+            <Button
+              type="submit"
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={isLoading}
+            >
+              {isLoading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Scheduling...
+                </>
+              ) : (
+                <>
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Schedule Interview
+                </>
+              )}
             </Button>
           </div>
         </form>

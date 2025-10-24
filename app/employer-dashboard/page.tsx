@@ -96,6 +96,8 @@ export default function EmployerDashboard() {
   const [isLoadingApplications, setIsLoadingApplications] = useState(false)
   const [candidates, setCandidates] = useState<any[]>([])
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(false)
+  const [interviews, setInterviews] = useState<any[]>([])
+  const [isLoadingInterviews, setIsLoadingInterviews] = useState(false)
   const [selectedApplication, setSelectedApplication] = useState<any>(null)
   const [isApplicationModalOpen, setIsApplicationModalOpen] = useState(false)
   const [selectedApplicantDocuments, setSelectedApplicantDocuments] = useState<any[]>([])
@@ -252,6 +254,13 @@ export default function EmployerDashboard() {
     }
   }, [employerInfo])
 
+  // Load interviews when employer info is available
+  useEffect(() => {
+    if (employerInfo?.id) {
+      loadInterviews()
+    }
+  }, [employerInfo])
+
   // Refresh candidates when candidate pool tab is active
   useEffect(() => {
     if (activeTab === 'candidates' && employerInfo?.id) {
@@ -263,6 +272,13 @@ export default function EmployerDashboard() {
   useEffect(() => {
     if (activeTab === 'applications' && employerInfo?.id) {
       loadApplications()
+    }
+  }, [activeTab, employerInfo])
+
+  // Refresh interviews when switching to interviews tab
+  useEffect(() => {
+    if (activeTab === 'interviews' && employerInfo?.id) {
+      loadInterviews()
     }
   }, [activeTab, employerInfo])
 
@@ -377,6 +393,30 @@ export default function EmployerDashboard() {
       console.error('Error loading candidates:', error)
     } finally {
       setIsLoadingCandidates(false)
+    }
+  }
+
+  const loadInterviews = async () => {
+    if (!employerId) {
+      console.log('❌ No employer ID available, skipping interviews load')
+      return
+    }
+    
+    try {
+      setIsLoadingInterviews(true)
+      const response = await fetch(`/api/interviews/list?employer_id=${employerId}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const data = await response.json()
+      if (data.success && data.interviews) {
+        setInterviews(data.interviews)
+        console.log(`Loaded ${data.interviews.length} interviews`)
+      }
+    } catch (error) {
+      console.error('Error loading interviews:', error)
+    } finally {
+      setIsLoadingInterviews(false)
     }
   }
 
@@ -818,6 +858,32 @@ export default function EmployerDashboard() {
     } catch (error: any) {
       console.error('Error deleting job:', error)
       alert('Failed to delete job: ' + error.message)
+    }
+  }
+
+  const handleScheduleInterview = async (interviewData: any) => {
+    try {
+      const response = await fetch('/api/interviews/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(interviewData)
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+      if (data.success) {
+        alert('Interview scheduled successfully!')
+        loadInterviews() // Refresh the interviews list
+      } else {
+        alert(data.error || 'Failed to schedule interview')
+      }
+    } catch (error: any) {
+      console.error('Error scheduling interview:', error)
+      alert(error.message || 'Failed to schedule interview. Please try again.')
     }
   }
 
@@ -1418,11 +1484,12 @@ export default function EmployerDashboard() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs defaultValue={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="jobs">Job Postings ({stats.total})</TabsTrigger>
             <TabsTrigger value="applications">Applications ({stats.totalApplications})</TabsTrigger>
             <TabsTrigger value="candidates">Candidate Pool ({candidates.length})</TabsTrigger>
+            <TabsTrigger value="interviews">Interviews ({interviews.length})</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
 
@@ -2714,6 +2781,121 @@ export default function EmployerDashboard() {
             </Card>
           </TabsContent>
 
+          {/* Interviews Tab */}
+          <TabsContent value="interviews" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <span>Interview Schedules ({interviews.length})</span>
+                  <Button 
+                    onClick={() => setIsInterviewModalOpen(true)}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Calendar className="h-4 w-4 mr-2" />
+                    Schedule Interview
+                  </Button>
+                </CardTitle>
+                <CardDescription>
+                  Manage and track interview schedules with applicants
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingInterviews ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span className="ml-2">Loading interviews...</span>
+                  </div>
+                ) : interviews.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No interviews scheduled</h3>
+                    <p className="text-gray-500 mb-4">Start by scheduling interviews with qualified applicants</p>
+                    <Button 
+                      onClick={() => setIsInterviewModalOpen(true)}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Calendar className="h-4 w-4 mr-2" />
+                      Schedule First Interview
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {interviews.map((interview) => (
+                      <Card key={interview.id} className="border-l-4 border-l-blue-500">
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <h3 className="font-semibold text-lg">{interview.applicant_name}</h3>
+                                <Badge className={interview.status_badge.color}>
+                                  {interview.status_badge.label}
+                                </Badge>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+                                <div>
+                                  <p><strong>Job:</strong> {interview.job_title}</p>
+                                  <p><strong>Company:</strong> {interview.company_name}</p>
+                                  <p><strong>Interviewer:</strong> {interview.interviewer_name || 'TBD'}</p>
+                                </div>
+                                <div>
+                                  <p><strong>Date:</strong> {interview.interview_date_formatted}</p>
+                                  <p><strong>Type:</strong> {interview.interview_type}</p>
+                                  <p><strong>Duration:</strong> {interview.duration_formatted}</p>
+                                </div>
+                              </div>
+                              {interview.interview_location && (
+                                <p className="text-sm text-gray-600 mt-2">
+                                  <strong>Location:</strong> {interview.interview_location}
+                                </p>
+                              )}
+                              {interview.meeting_link && (
+                                <p className="text-sm text-gray-600 mt-2">
+                                  <strong>Meeting Link:</strong> 
+                                  <a href={interview.meeting_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-1">
+                                    Join Meeting
+                                  </a>
+                                </p>
+                              )}
+                              {interview.interview_notes && (
+                                <p className="text-sm text-gray-600 mt-2">
+                                  <strong>Notes:</strong> {interview.interview_notes}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex space-x-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  // TODO: Implement edit interview functionality
+                                  console.log('Edit interview:', interview.id)
+                                }}
+                              >
+                                <Edit className="h-4 w-4 mr-1" />
+                                Edit
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  // TODO: Implement cancel interview functionality
+                                  console.log('Cancel interview:', interview.id)
+                                }}
+                              >
+                                <XCircle className="h-4 w-4 mr-1" />
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Analytics Tab */}
           <TabsContent value="analytics" className="space-y-6">
             {/* Analytics Header */}
@@ -3204,8 +3386,10 @@ export default function EmployerDashboard() {
       <InterviewSchedulingModal
         isOpen={isInterviewModalOpen}
         onClose={() => setIsInterviewModalOpen(false)}
-        application={selectedApplicationForAction}
-        onScheduleSuccess={handleInterviewScheduled}
+        onSchedule={handleScheduleInterview}
+        applications={applications}
+        jobs={jobs}
+        employerId={employerId}
       />
 
       {/* Job Offer Modal */}

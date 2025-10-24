@@ -103,6 +103,8 @@ export default function ApplicantDashboard() {
   const [jobs, setJobs] = useState<any[]>([])
   const [recommendedJobs, setRecommendedJobs] = useState<any[]>([])
   const [documents, setDocuments] = useState<any[]>([])
+  const [interviews, setInterviews] = useState<any[]>([])
+  const [isLoadingInterviews, setIsLoadingInterviews] = useState(false)
   const [recentActivities, setRecentActivities] = useState<any[]>([])
   const [isLoadingActivities, setIsLoadingActivities] = useState(false)
   const [savedJobs, setSavedJobs] = useState<string[]>([])
@@ -512,6 +514,7 @@ export default function ApplicantDashboard() {
   useEffect(() => {
     if (applicantInfo?.id) {
       loadApplications()
+      loadInterviews()
     }
   }, [applicantInfo?.id])
 
@@ -527,6 +530,13 @@ export default function ApplicantDashboard() {
     if (activeTab === 'documents' && applicantInfo?.id) {
       console.log('Loading documents for documents tab')
       loadDocuments()
+    }
+  }, [activeTab, applicantInfo])
+
+  useEffect(() => {
+    if (activeTab === 'interviews' && applicantInfo?.id) {
+      console.log('Loading interviews for interviews tab')
+      loadInterviews()
     }
   }, [activeTab, applicantInfo])
 
@@ -1353,6 +1363,34 @@ export default function ApplicantDashboard() {
     }
   }
 
+  const loadInterviews = async () => {
+    if (!applicantInfo?.id) {
+      console.log('No applicant ID available for loading interviews')
+      return
+    }
+
+    try {
+      setIsLoadingInterviews(true)
+      const response = await fetch(`/api/interviews/list?applicant_id=${applicantInfo.id}`)
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      const data = await response.json()
+      
+      if (data.success && data.interviews) {
+        setInterviews(data.interviews)
+        console.log(`Loaded ${data.interviews.length} interviews`)
+      } else {
+        setInterviews([])
+      }
+    } catch (error) {
+      console.error('Error loading interviews:', error)
+      setInterviews([])
+    } finally {
+      setIsLoadingInterviews(false)
+    }
+  }
+
   // Save/unsave job functionality
   const toggleSaveJob = async (jobId: string) => {
     if (!applicantInfo?.id) return
@@ -1660,9 +1698,10 @@ export default function ApplicantDashboard() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-6">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="applications">My Applications</TabsTrigger>
+            <TabsTrigger value="interviews">Interviews ({interviews.length})</TabsTrigger>
             <TabsTrigger value="jobs">Job Search</TabsTrigger>
             <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
@@ -2450,6 +2489,104 @@ export default function ApplicantDashboard() {
                     ))
                   )}
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Interviews Tab */}
+          <TabsContent value="interviews" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Calendar className="h-5 w-5" />
+                  My Interview Schedules ({interviews.length})
+                </CardTitle>
+                <CardDescription>
+                  View and manage your upcoming and past interviews
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingInterviews ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    <span className="ml-2">Loading interviews...</span>
+                  </div>
+                ) : interviews.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No interviews scheduled</h3>
+                    <p className="text-gray-500">You don't have any interviews scheduled yet. Keep applying to jobs to get interview opportunities!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {interviews.map((interview) => (
+                      <Card key={interview.id} className={`border-l-4 ${
+                        interview.status === 'scheduled' ? 'border-l-blue-500' :
+                        interview.status === 'completed' ? 'border-l-green-500' :
+                        interview.status === 'cancelled' ? 'border-l-red-500' :
+                        'border-l-yellow-500'
+                      }`}>
+                        <CardContent className="p-4">
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center space-x-3 mb-2">
+                                <h3 className="font-semibold text-lg">{interview.job_title}</h3>
+                                <Badge className={interview.status_badge.color}>
+                                  {interview.status_badge.label}
+                                </Badge>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-600">
+                                <div>
+                                  <p><strong>Company:</strong> {interview.company_name}</p>
+                                  <p><strong>Interviewer:</strong> {interview.interviewer_name || 'TBD'}</p>
+                                  <p><strong>Type:</strong> {interview.interview_type}</p>
+                                </div>
+                                <div>
+                                  <p><strong>Date:</strong> {interview.interview_date_formatted}</p>
+                                  <p><strong>Duration:</strong> {interview.duration_formatted}</p>
+                                  <p><strong>Time:</strong> {interview.interview_time}</p>
+                                </div>
+                              </div>
+                              {interview.interview_location && (
+                                <p className="text-sm text-gray-600 mt-2">
+                                  <strong>Location:</strong> {interview.interview_location}
+                                </p>
+                              )}
+                              {interview.meeting_link && (
+                                <p className="text-sm text-gray-600 mt-2">
+                                  <strong>Meeting Link:</strong> 
+                                  <a href={interview.meeting_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline ml-1">
+                                    Join Meeting
+                                  </a>
+                                </p>
+                              )}
+                              {interview.interview_notes && (
+                                <p className="text-sm text-gray-600 mt-2">
+                                  <strong>Notes:</strong> {interview.interview_notes}
+                                </p>
+                              )}
+                            </div>
+                            <div className="flex space-x-2">
+                              {interview.status === 'scheduled' && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    // TODO: Implement reschedule functionality
+                                    console.log('Reschedule interview:', interview.id)
+                                  }}
+                                >
+                                  <Calendar className="h-4 w-4 mr-1" />
+                                  Reschedule
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

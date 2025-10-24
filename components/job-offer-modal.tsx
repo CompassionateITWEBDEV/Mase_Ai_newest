@@ -1,12 +1,13 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { DollarSign, Calendar, Clock, Gift, Briefcase } from "lucide-react"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { DollarSign, Calendar, Clock, Gift, Briefcase, AlertCircle } from "lucide-react"
 
 interface JobOfferModalProps {
   isOpen: boolean
@@ -22,8 +23,10 @@ export default function JobOfferModal({
   onOfferSuccess 
 }: JobOfferModalProps) {
   const [isLoading, setIsLoading] = useState(false)
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [formData, setFormData] = useState({
     offerSalary: '',
+    salaryType: 'yearly',
     offerStartDate: '',
     offerExpiryDate: '',
     benefits: '',
@@ -31,10 +34,64 @@ export default function JobOfferModal({
     offerNotes: ''
   })
 
+  // Set default values when modal opens
+  useEffect(() => {
+    if (isOpen && application) {
+      const today = new Date()
+      const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
+      const twoWeeksFromNow = new Date(today.getTime() + 14 * 24 * 60 * 60 * 1000)
+      
+      setFormData({
+        offerSalary: application.job_posting?.salary_min ? 
+          `$${application.job_posting.salary_min.toLocaleString()} - $${application.job_posting.salary_max?.toLocaleString() || application.job_posting.salary_min.toLocaleString()}` : '',
+        salaryType: application.job_posting?.salary_type || 'yearly',
+        offerStartDate: nextWeek.toISOString().split('T')[0],
+        offerExpiryDate: twoWeeksFromNow.toISOString().split('T')[0],
+        benefits: application.job_posting?.benefits || '',
+        workSchedule: application.job_posting?.job_type === 'full-time' ? 'Monday-Friday, 9 AM - 5 PM' : 
+                     application.job_posting?.job_type === 'part-time' ? 'Part-time, flexible schedule' : '',
+        offerNotes: ''
+      })
+      setErrors({})
+    }
+  }, [isOpen, application])
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {}
+    
+    if (!formData.offerSalary.trim()) {
+      newErrors.offerSalary = 'Salary is required'
+    }
+    
+    if (!formData.offerStartDate) {
+      newErrors.offerStartDate = 'Start date is required'
+    } else {
+      const startDate = new Date(formData.offerStartDate)
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+      if (startDate < today) {
+        newErrors.offerStartDate = 'Start date cannot be in the past'
+      }
+    }
+    
+    if (!formData.offerExpiryDate) {
+      newErrors.offerExpiryDate = 'Expiry date is required'
+    } else {
+      const expiryDate = new Date(formData.offerExpiryDate)
+      const startDate = new Date(formData.offerStartDate)
+      if (expiryDate <= startDate) {
+        newErrors.offerExpiryDate = 'Expiry date must be after start date'
+      }
+    }
+    
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!formData.offerSalary || !formData.offerStartDate || !formData.offerExpiryDate) {
-      alert('Please fill in all required fields')
+    
+    if (!validateForm()) {
       return
     }
 
@@ -64,14 +121,6 @@ export default function JobOfferModal({
         alert('Job offer sent successfully!')
         onOfferSuccess()
         onClose()
-        setFormData({
-          offerSalary: '',
-          offerStartDate: '',
-          offerExpiryDate: '',
-          benefits: '',
-          workSchedule: '',
-          offerNotes: ''
-        })
       }
     } catch (error: any) {
       console.error('Error sending offer:', error)
@@ -101,13 +150,35 @@ export default function JobOfferModal({
               <DollarSign className="h-4 w-4" />
               Offer Salary *
             </Label>
-            <Input
-              id="offerSalary"
-              placeholder="e.g., $75,000 - $85,000 per year"
-              value={formData.offerSalary}
-              onChange={(e) => setFormData(prev => ({ ...prev, offerSalary: e.target.value }))}
-              required
-            />
+            <div className="flex gap-2">
+              <Input
+                id="offerSalary"
+                placeholder="e.g., $75,000 - $85,000"
+                value={formData.offerSalary}
+                onChange={(e) => setFormData(prev => ({ ...prev, offerSalary: e.target.value }))}
+                className={errors.offerSalary ? 'border-red-500' : ''}
+                required
+              />
+              <Select
+                value={formData.salaryType}
+                onValueChange={(value) => setFormData(prev => ({ ...prev, salaryType: value }))}
+              >
+                <SelectTrigger className="w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yearly">per year</SelectItem>
+                  <SelectItem value="monthly">per month</SelectItem>
+                  <SelectItem value="hourly">per hour</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {errors.offerSalary && (
+              <div className="flex items-center gap-1 text-red-500 text-sm">
+                <AlertCircle className="h-4 w-4" />
+                {errors.offerSalary}
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -121,8 +192,16 @@ export default function JobOfferModal({
                 type="date"
                 value={formData.offerStartDate}
                 onChange={(e) => setFormData(prev => ({ ...prev, offerStartDate: e.target.value }))}
+                className={errors.offerStartDate ? 'border-red-500' : ''}
+                min={new Date().toISOString().split('T')[0]}
                 required
               />
+              {errors.offerStartDate && (
+                <div className="flex items-center gap-1 text-red-500 text-sm">
+                  <AlertCircle className="h-4 w-4" />
+                  {errors.offerStartDate}
+                </div>
+              )}
             </div>
             
             <div className="space-y-2">
@@ -135,8 +214,16 @@ export default function JobOfferModal({
                 type="date"
                 value={formData.offerExpiryDate}
                 onChange={(e) => setFormData(prev => ({ ...prev, offerExpiryDate: e.target.value }))}
+                className={errors.offerExpiryDate ? 'border-red-500' : ''}
+                min={formData.offerStartDate || new Date().toISOString().split('T')[0]}
                 required
               />
+              {errors.offerExpiryDate && (
+                <div className="flex items-center gap-1 text-red-500 text-sm">
+                  <AlertCircle className="h-4 w-4" />
+                  {errors.offerExpiryDate}
+                </div>
+              )}
             </div>
           </div>
 

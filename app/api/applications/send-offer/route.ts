@@ -49,7 +49,9 @@ export async function POST(request: NextRequest) {
         ),
         job_posting:job_postings(
           title,
-          company_name
+          employer:employers(
+            company_name
+          )
         )
       `)
       .single()
