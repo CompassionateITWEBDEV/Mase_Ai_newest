@@ -467,7 +467,7 @@ export default function ApplicantDashboard() {
   // Calculate profile completion percentage
   const calculateProfileCompletion = (user: any) => {
     let completed = 0
-    const total = 14 // 10 profile fields + 4 required documents
+    const total = 12 // 10 profile fields + 2 required documents
 
     // Basic information (4 points)
     if (user.firstName) completed++
@@ -484,14 +484,12 @@ export default function ApplicantDashboard() {
     if (user.city) completed++
     if (user.state) completed++
     
-    // Certifications field in profile (1 point)
+    // Certifications field in profile (1 point) - covers licenses and certifications
     if (user.certifications) completed++
     
-    // Required documents (4 points total) - uploaded and not rejected
+    // Required documents (2 points total) - uploaded and not rejected
     const requiredDocs = [
       { type: 'resume', uploaded: documents.some(doc => doc.document_type === 'resume' && doc.status !== 'rejected') },
-      { type: 'license', uploaded: documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected') },
-      { type: 'certification', uploaded: documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected') },
       { type: 'background_check', uploaded: documents.some(doc => doc.document_type === 'background_check' && doc.status !== 'rejected') }
     ]
     
@@ -2969,8 +2967,6 @@ export default function ApplicantDashboard() {
                   {/* Required Documents */}
                   {[
                     { name: "Resume", required: true, type: "resume", description: "Professional resume or CV" },
-                    { name: "License", required: true, type: "license", description: "Professional/Nursing license" },
-                    { name: "Certifications", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
                     { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
                   ].map((req, index) => {
                     const uploadedDoc = documents.find(doc => doc.document_type === req.type)
@@ -3251,8 +3247,6 @@ export default function ApplicantDashboard() {
                 <div className="space-y-4">
                   {[
                     { name: "Resume", required: true, type: "resume", description: "Professional resume or CV" },
-                    { name: "License", required: true, type: "license", description: "Professional/Nursing license" },
-                    { name: "Certifications", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
                     { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
                   ].map((req, index) => {
                     const uploadedDoc = documents.find(doc => doc.document_type === req.type)
