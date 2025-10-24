@@ -34,6 +34,8 @@ import {
   Users,
   Upload,
   XCircle,
+  Trash2,
+  X,
 } from "lucide-react"
 import Link from "next/link"
 
