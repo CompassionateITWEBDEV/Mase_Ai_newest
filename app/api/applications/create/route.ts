@@ -22,12 +22,12 @@ export async function POST(request: NextRequest) {
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // First, validate that the applicant has all required documents
+    // For testing purposes, only require resume - other documents are optional
     const { data: documents, error: docError } = await supabase
       .from('applicant_documents')
       .select('document_type, status, file_name, uploaded_date')
       .eq('applicant_id', applicant_id)
-      .in('document_type', ['resume', 'license', 'certification'])
+      .eq('document_type', 'resume')
       .eq('status', 'verified')
 
     if (docError) {
@@ -38,26 +38,20 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Define required document types
+    // For testing: Only require resume, other documents are optional
     const requiredDocuments = [
-      { type: 'resume', name: 'Resume' },
-      { type: 'license', name: 'Professional License' },
-      { type: 'certification', name: 'CPR Certification' }
+      { type: 'resume', name: 'Resume' }
     ]
 
-    // Check which documents are missing
-    const uploadedTypes = documents?.map(doc => doc.document_type) || []
-    const missingDocuments = requiredDocuments.filter(
-      req => !uploadedTypes.includes(req.type)
-    )
+    // Check if resume is present and verified
+    const hasResume = documents && documents.length > 0
 
-    // Check if all required documents are present
-    if (missingDocuments.length > 0) {
+    if (!hasResume) {
       return NextResponse.json(
         { 
           error: 'Missing required documents',
-          missingDocuments,
-          message: `Please upload the following required documents before applying: ${missingDocuments.map(doc => doc.name).join(', ')}`
+          missingDocuments: [{ type: 'resume', name: 'Resume' }],
+          message: 'Please upload your resume before applying for jobs.'
         },
         { status: 400 }
       )

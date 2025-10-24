@@ -297,7 +297,7 @@ export default function ApplicantDashboard() {
   // Calculate profile completion percentage
   const calculateProfileCompletion = (user: any) => {
     let completed = 0
-    const total = 14 // Increased total to include all required documents
+    const total = 10 // Reduced total since only resume is required for testing
 
     // Basic information (4 points)
     if (user.firstName) completed++
@@ -314,13 +314,10 @@ export default function ApplicantDashboard() {
     if (user.certifications) completed++
     if (user.skills) completed++
     
-    // Required documents (5 points) - only count verified documents
+    // Required documents (1 point) - only resume required for testing
     const verifiedDocuments = documents.filter(doc => doc.status === 'verified')
-    const requiredDocTypes = ['resume', 'license', 'certification', 'background_check', 'reference']
-    const verifiedRequiredDocs = verifiedDocuments.filter(doc => 
-      requiredDocTypes.includes(doc.document_type)
-    )
-    completed += Math.min(verifiedRequiredDocs.length, 5) // Max 5 points for documents
+    const hasResume = verifiedDocuments.some(doc => doc.document_type === 'resume')
+    if (hasResume) completed += 1
 
     return Math.round((completed / total) * 100)
   }
@@ -851,7 +848,7 @@ export default function ApplicantDashboard() {
     // Close the modal
     setIsDocumentUploadOpen(false)
     // Show success message
-    alert('Documents uploaded successfully! You can now apply for jobs.')
+    alert('Resume uploaded successfully! You can now apply for jobs.')
   }
 
   // Load documents from database
@@ -1203,11 +1200,11 @@ export default function ApplicantDashboard() {
             {/* Missing Documents */}
             {(() => {
               const requiredDocuments = [
-                { type: 'resume', name: 'Professional Resume', description: 'Your professional resume/CV', color: 'text-blue-500', required: true },
-                { type: 'license', name: 'Professional License', description: 'Your healthcare professional license', color: 'text-green-500', required: true },
-                { type: 'certification', name: 'CPR Certification', description: 'Current CPR/BLS certification', color: 'text-red-500', required: true },
-                { type: 'background_check', name: 'Background Check', description: 'Criminal background check clearance', color: 'text-purple-500', required: true },
-                { type: 'reference', name: 'References', description: 'Professional reference letters', color: 'text-orange-500', required: false }
+                { type: 'resume', name: 'Professional Resume', description: 'Your professional resume/CV (Required for testing)', color: 'text-blue-500', required: true },
+                { type: 'license', name: 'Professional License', description: 'Your healthcare professional license (Optional for testing)', color: 'text-green-500', required: false },
+                { type: 'certification', name: 'CPR Certification', description: 'Current CPR/BLS certification (Optional for testing)', color: 'text-red-500', required: false },
+                { type: 'background_check', name: 'Background Check', description: 'Criminal background check clearance (Optional)', color: 'text-purple-500', required: false },
+                { type: 'reference', name: 'References', description: 'Professional reference letters (Optional)', color: 'text-orange-500', required: false }
               ]
               
               // Filter only required documents that are missing
@@ -1231,7 +1228,7 @@ export default function ApplicantDashboard() {
                         All Required Documents Uploaded & Verified
                       </CardTitle>
                       <CardDescription>
-                        Great! You have uploaded and verified all required documents and can apply for jobs.
+                        Great! You have uploaded your resume and can now apply for jobs. Other documents are optional for testing.
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -1261,10 +1258,10 @@ export default function ApplicantDashboard() {
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <AlertTriangle className="h-5 w-5 text-yellow-500" />
-                      Missing/Unverified Required Documents ({totalMissingOrUnverified})
+                      Missing Resume ({totalMissingOrUnverified})
                     </CardTitle>
                     <CardDescription>
-                      Upload and verify these documents to apply for jobs. All documents must be verified.
+                      Upload your resume to apply for jobs. Other documents are optional for testing purposes.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -2251,7 +2248,7 @@ export default function ApplicantDashboard() {
                     <div className="text-center py-8 text-gray-500">
                       <FileText className="h-12 w-12 mx-auto mb-4 text-gray-400" />
                       <p>No documents uploaded yet.</p>
-                      <p className="text-sm">Upload your resume and certifications to complete your profile.</p>
+                      <p className="text-sm">Upload your resume to complete your profile and apply for jobs.</p>
                     </div>
                   )}
                 </div>
