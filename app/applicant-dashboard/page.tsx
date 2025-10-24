@@ -41,6 +41,7 @@ import {
   RefreshCw,
   Key,
   ChevronDown,
+  Target,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -677,7 +678,7 @@ export default function ApplicantDashboard() {
       // Check for exact profession match in title
       if (jobTitle.includes(profession)) {
         score += 35
-        reasons.push('Matches your profession')
+      reasons.push('Matches your profession')
       } else if (jobDescription.includes(profession)) {
         score += 20
         reasons.push('Related to your profession')
@@ -716,8 +717,8 @@ export default function ApplicantDashboard() {
         score += 25
         reasons.push('Same city as you')
       } else if (jobState === userState) {
-        score += 15
-        reasons.push('Same state')
+      score += 15
+      reasons.push('Same state')
       } else if (jobCity.includes(userCity) || userCity.includes(jobCity)) {
         score += 10
         reasons.push('Nearby location')
@@ -735,10 +736,10 @@ export default function ApplicantDashboard() {
       
       if (experienceLevel.includes('senior') || experienceYears >= 5) {
         if (jobTitle.includes('senior') || jobTitle.includes('lead') || jobTitle.includes('manager')) {
-          score += 20
+        score += 20
           reasons.push('Senior level position')
         } else if (jobRequirements.includes('5+ years') || jobRequirements.includes('experienced')) {
-          score += 15
+        score += 15
           reasons.push('Matches experience level')
         }
       } else if (experienceLevel.includes('junior') || experienceYears >= 1) {
@@ -1658,11 +1659,11 @@ export default function ApplicantDashboard() {
               {/* Settings Dropdown Menu */}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <Settings className="h-4 w-4 mr-2" />
-                    Settings
+              <Button variant="outline" size="sm">
+                <Settings className="h-4 w-4 mr-2" />
+                Settings
                     <ChevronDown className="h-4 w-4 ml-2" />
-                  </Button>
+              </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
                   <DropdownMenuLabel>Account Settings</DropdownMenuLabel>
@@ -1673,8 +1674,8 @@ export default function ApplicantDashboard() {
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="text-red-600">
-                    <LogOut className="h-4 w-4 mr-2" />
-                    Logout
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Logout
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1916,13 +1917,13 @@ export default function ApplicantDashboard() {
                       </Button>
                     </div>
                   ) : (
-                    <div className="space-y-4">
+                  <div className="space-y-4">
                       {jobs.filter(job => savedJobs.includes(job.id)).slice(0, 3).map((job) => (
                         <div key={job.id} className="p-4 border rounded-lg bg-yellow-50 border-yellow-200 hover:shadow-md transition-shadow">
                           <div className="flex items-start justify-between mb-2">
-                            <div className="flex-1">
-                              <h3 className="font-semibold text-gray-900">{job.title}</h3>
-                              <p className="text-sm text-gray-600">{job.employer?.company_name || 'Healthcare Facility'}</p>
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-gray-900">{job.title}</h3>
+                            <p className="text-sm text-gray-600">{job.employer?.company_name || 'Healthcare Facility'}</p>
                               <div className="flex items-center space-x-3 mt-1 text-xs text-gray-500">
                                 <span className="flex items-center gap-1">
                                   <MapPin className="h-3 w-3" />
@@ -1931,8 +1932,8 @@ export default function ApplicantDashboard() {
                                 <span className="flex items-center gap-1">
                                   <DollarSign className="h-3 w-3" />
                                   ${job.salary_min?.toLocaleString()}-${job.salary_max?.toLocaleString()}
-                                </span>
-                              </div>
+                              </span>
+                            </div>
                             </div>
                             <Button 
                               size="sm" 
@@ -1969,10 +1970,10 @@ export default function ApplicantDashboard() {
                       Upcoming Interviews
                     </CardTitle>
                     <CardDescription>Your scheduled interviews</CardDescription>
-                  </div>
-                  <Button 
+                        </div>
+                        <Button 
                     variant="outline" 
-                    size="sm"
+                          size="sm" 
                     onClick={() => setActiveTab('applications')}
                   >
                     View All
@@ -2063,15 +2064,15 @@ export default function ApplicantDashboard() {
                               onClick={() => addToCalendar(application)}
                             >
                               Add to Calendar
-                            </Button>
+                        </Button>
                           </div>
-                        </div>
-                      ))}
-                    </div>
+                      </div>
+                    ))}
+                  </div>
                   )
                 })()}
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
             {/* Past Interviews (History) */}
             {(() => {
@@ -2110,7 +2111,7 @@ export default function ApplicantDashboard() {
                               <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">
                                 Past
                               </Badge>
-                            </div>
+            </div>
                             
                             <div className="space-y-2">
                               {application.interview_date && (
@@ -2649,7 +2650,7 @@ export default function ApplicantDashboard() {
                                 <Clock className="h-3 w-3 text-gray-400" />
                                 <span className="text-xs text-gray-500">{job.job_type}</span>
                               </div>
-                            </div>
+                              </div>
                             <p className="text-sm text-gray-700 mt-2 line-clamp-2">{job.description}</p>
                             {job.matchReasons && job.matchReasons.length > 0 && (
                               <div className="mt-2 flex flex-wrap gap-1">
@@ -2658,9 +2659,9 @@ export default function ApplicantDashboard() {
                                     {reason}
                                   </Badge>
                                 ))}
-                              </div>
+                            </div>
                             )}
-                          </div>
+                              </div>
                           <div className="flex flex-col items-end space-y-2">
                             <Badge className="text-xs bg-green-100 text-green-800">Recommended</Badge>
                             <div className="text-xs text-gray-500">
@@ -2676,27 +2677,27 @@ export default function ApplicantDashboard() {
                             <span>{job.applications_count || 0} applicants</span>
                           </div>
                           <div className="flex space-x-2" onClick={(e) => e.stopPropagation()}>
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => toggleSaveJob(job.id)}
-                            >
-                              <Star className={`h-3 w-3 mr-1 ${savedJobs.includes(job.id) ? 'fill-current' : ''}`} />
-                              {savedJobs.includes(job.id) ? 'Saved' : 'Save'}
-                            </Button>
-                            <Button 
-                              size="sm" 
-                              onClick={() => applyForJob(job.id)}
-                              disabled={applications.some(app => app.job_posting_id === job.id) || (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)}
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => toggleSaveJob(job.id)}
+                          >
+                            <Star className={`h-3 w-3 mr-1 ${savedJobs.includes(job.id) ? 'fill-current' : ''}`} />
+                            {savedJobs.includes(job.id) ? 'Saved' : 'Save'}
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            onClick={() => applyForJob(job.id)}
+                            disabled={applications.some(app => app.job_posting_id === job.id) || (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)}
                               className="bg-red-600 hover:bg-red-700 disabled:bg-gray-400"
-                            >
-                              {applications.some(app => app.job_posting_id === job.id) 
-                                ? 'Applied' 
-                                : (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)
+                          >
+                            {applications.some(app => app.job_posting_id === job.id) 
+                              ? 'Applied' 
+                              : (applicantInfo && calculateProfileCompletion(applicantInfo) < 80)
                                   ? 'Complete Profile'
-                                  : 'Apply Now'
-                              }
-                            </Button>
+                                : 'Apply Now'
+                            }
+                          </Button>
                           </div>
                         </div>
                       </div>
@@ -2881,8 +2882,8 @@ export default function ApplicantDashboard() {
                       <div>
                         <span className="font-medium">Basic Information</span>
                         <p className="text-xs text-gray-600">Name, Email, Phone</p>
-                      </div>
                     </div>
+                  </div>
                     {applicantInfo?.firstName && applicantInfo?.lastName && applicantInfo?.email && applicantInfo?.phone ? (
                       <Badge className="bg-green-600">Complete</Badge>
                     ) : (
@@ -2908,8 +2909,8 @@ export default function ApplicantDashboard() {
                       <div>
                         <span className="font-medium">Professional Information</span>
                         <p className="text-xs text-gray-600">Profession, Experience, Education</p>
-                      </div>
                     </div>
+                  </div>
                     {applicantInfo?.profession && applicantInfo?.experience && applicantInfo?.education ? (
                       <Badge className="bg-green-600">Complete</Badge>
                     ) : (
@@ -2935,8 +2936,8 @@ export default function ApplicantDashboard() {
                       <div>
                         <span className="font-medium">Location</span>
                         <p className="text-xs text-gray-600">City & State</p>
-                      </div>
                     </div>
+                  </div>
                     {applicantInfo?.city && applicantInfo?.state ? (
                       <Badge className="bg-green-600">Complete</Badge>
                     ) : (
@@ -2951,13 +2952,19 @@ export default function ApplicantDashboard() {
                     const hasTextField = applicantInfo?.certifications
                     const isComplete = hasTextField && hasLicense && hasCertification
                     
+                    // Debug: Log the actual documents
+                    console.log('Documents:', documents)
+                    console.log('License docs:', documents.filter(doc => doc.document_type === 'license'))
+                    console.log('Certification docs:', documents.filter(doc => doc.document_type === 'certification'))
+                    console.log('hasLicense:', hasLicense, 'hasCertification:', hasCertification, 'hasTextField:', hasTextField)
+                    
                     return (
                       <div className={`flex items-center justify-between p-3 border rounded-lg ${
                         isComplete
                           ? 'bg-green-50 border-green-200' 
                           : 'bg-yellow-50 border-yellow-200'
                       }`}>
-                        <div className="flex items-center space-x-3">
+                    <div className="flex items-center space-x-3">
                           {isComplete ? (
                             <CheckCircle className="h-5 w-5 text-green-600" />
                           ) : (
@@ -2982,8 +2989,8 @@ export default function ApplicantDashboard() {
                                 ? 'Text field needed • License needed • Certification ✓'
                                 : 'Text field needed • License needed • Certification needed'}
                             </p>
-                          </div>
-                        </div>
+                    </div>
+                  </div>
                         {isComplete ? (
                           <Badge className="bg-green-600">Complete</Badge>
                         ) : (
@@ -3109,6 +3116,111 @@ export default function ApplicantDashboard() {
               </Card>
             </div>
 
+            {/* Document Tracking Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <CheckCircle className="h-5 w-5 text-purple-500" />
+                  Document Tracking
+                </CardTitle>
+                <CardDescription>Track your required documents for profile completion</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {[
+                    { name: "Resume", required: true, type: "resume", description: "Professional resume or CV" },
+                    { name: "License", required: true, type: "license", description: "Professional/Nursing license" },
+                    { name: "Certification", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
+                    { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
+                  ].map((req, index) => {
+                    const uploadedDoc = documents.find(doc => doc.document_type === req.type)
+                    const isUploaded = !!uploadedDoc
+                    const isVerified = uploadedDoc?.status === 'verified'
+                    const isPending = uploadedDoc?.status === 'pending'
+                    
+                    return (
+                      <div key={index} className={`flex items-center justify-between p-4 border rounded-lg ${
+                        isVerified 
+                          ? 'bg-green-50 border-green-200'
+                          : isPending
+                          ? 'bg-blue-50 border-blue-200'
+                          : req.required
+                          ? 'bg-red-50 border-red-200'
+                          : 'bg-gray-50 border-gray-200'
+                      }`}>
+                        <div className="flex items-center space-x-4">
+                          {isVerified ? (
+                            <CheckCircle className="h-6 w-6 text-green-600" />
+                          ) : isPending ? (
+                            <Clock className="h-6 w-6 text-blue-600" />
+                          ) : req.required ? (
+                            <AlertTriangle className="h-6 w-6 text-red-600" />
+                          ) : (
+                            <FileText className="h-6 w-6 text-gray-400" />
+                          )}
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-900">{req.name}</span>
+                              <Badge variant="secondary" className={`text-xs ${
+                                req.required 
+                                  ? 'bg-red-100 text-red-700 border-red-300' 
+                                  : 'bg-gray-100 text-gray-600'
+                              }`}>
+                                {req.required ? 'Required' : 'Optional'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-0.5">{req.description}</p>
+                            <p className="text-xs text-gray-600 mt-1">
+                              {isVerified 
+                                ? '✓ Verified and ready' 
+                                : isPending 
+                                ? '⏳ Uploaded, pending verification' 
+                                : req.required
+                                ? '⚠️ Required to complete profile'
+                                : 'Optional document'}
+                            </p>
+                          </div>
+                        </div>
+                        {!isUploaded ? (
+                          <Button 
+                            size="sm" 
+                            className={req.required ? 'bg-red-600 hover:bg-red-700' : ''}
+                            variant={req.required ? 'default' : 'outline'}
+                            onClick={() => setIsDocumentUploadOpen(true)}
+                          >
+                            <Upload className="h-4 w-4 mr-2" />
+                            Upload
+                          </Button>
+                        ) : (
+                          <div className="flex gap-2">
+                            {isVerified ? (
+                              <Badge className="bg-green-600">Verified</Badge>
+                            ) : isPending ? (
+                              <Badge className="bg-blue-600">Pending</Badge>
+                            ) : (
+                              <Badge className="bg-yellow-600">Under Review</Badge>
+                            )}
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedDocument(uploadedDoc)
+                                setIsDocumentViewerOpen(true)
+                              }}
+                              className="text-purple-600 hover:text-purple-700"
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
             {/* My Documents Section */}
             <Card>
               <CardHeader>
@@ -3129,14 +3241,14 @@ export default function ApplicantDashboard() {
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Refresh
                     </Button>
-                    <Button 
-                      onClick={() => setIsDocumentUploadOpen(true)}
+                  <Button 
+                    onClick={() => setIsDocumentUploadOpen(true)}
                       size="sm"
                       className="bg-blue-600 hover:bg-blue-700"
-                    >
+                  >
                       <Upload className="h-4 w-4 mr-2" />
                       Upload New
-                    </Button>
+                  </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -3162,7 +3274,7 @@ export default function ApplicantDashboard() {
                           <div className="flex items-center gap-3 flex-1">
                             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                               <FileText className="h-6 w-6 text-blue-600" />
-                            </div>
+                    </div>
                             <div className="flex-1 min-w-0">
                               <h4 className="font-semibold text-gray-900 truncate text-lg">
                                 {doc.file_name}
@@ -3171,7 +3283,7 @@ export default function ApplicantDashboard() {
                                 <div className="flex items-center gap-1">
                                   <Calendar className="h-3 w-3" />
                                   {new Date(doc.uploaded_date).toLocaleDateString()}
-                                </div>
+                </div>
                                 <div>
                                   Size: {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'Unknown'}
                                 </div>
@@ -3200,12 +3312,12 @@ export default function ApplicantDashboard() {
                               }`}>
                                 {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
                               </span>
-                            </div>
+                          </div>
                             
                             <div className="flex gap-2">
-                              <Button
+                          <Button 
                                 variant="outline"
-                                size="sm"
+                            size="sm" 
                                 onClick={() => {
                                   setSelectedDocument(doc)
                                   setIsDocumentViewerOpen(true)
@@ -3216,14 +3328,14 @@ export default function ApplicantDashboard() {
                                 View
                               </Button>
                               <Button
-                                variant="outline"
+                            variant="outline"
                                 size="sm"
                                 onClick={() => handleDocumentDownload(doc.id)}
                                 className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                              >
+                          >
                                 <Download className="h-4 w-4 mr-1" />
                                 Download
-                              </Button>
+                          </Button>
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -3233,8 +3345,8 @@ export default function ApplicantDashboard() {
                                 <Trash2 className="h-4 w-4 mr-1" />
                                 Delete
                               </Button>
-                            </div>
-                          </div>
+                      </div>
+                </div>
                         </div>
                       </div>
                     ))}
