@@ -209,6 +209,29 @@ export default function ApplicantDashboard() {
     }
   }
 
+  // Handle manual verification of all documents
+  const handleVerifyAllDocuments = async () => {
+    try {
+      const pendingDocs = documents.filter(doc => doc.status === 'pending')
+      if (pendingDocs.length === 0) {
+        alert('No pending documents to verify.')
+        return
+      }
+
+      // Verify each pending document
+      for (const doc of pendingDocs) {
+        await handleDocumentVerification(doc.id, 'verified', 'Auto-verified by user request')
+      }
+      
+      alert(`Successfully verified ${pendingDocs.length} document(s)!`)
+      loadDocuments() // Refresh the documents list
+      
+    } catch (error) {
+      console.error('Error verifying documents:', error)
+      alert('Failed to verify documents. Please try again.')
+    }
+  }
+
   // Load recent activities function
   const loadRecentActivities = async () => {
     if (!applicantInfo?.id) return
@@ -2532,15 +2555,26 @@ export default function ApplicantDashboard() {
                     <FileText className="h-5 w-5 text-amber-600" />
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900">Document Status</h3>
-                  {documents.length > 0 && (
-                    <Button
-                      onClick={() => handleDownloadAllDocuments()}
-                      className="bg-blue-600 hover:bg-blue-700 text-white"
-                    >
-                      <Download className="h-4 w-4 mr-2" />
-                      Download All
-                    </Button>
-                  )}
+                  <div className="flex gap-2">
+                    {documents.length > 0 && (
+                      <Button
+                        onClick={() => handleDownloadAllDocuments()}
+                        className="bg-blue-600 hover:bg-blue-700 text-white"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download All
+                      </Button>
+                    )}
+                    {documents.some(doc => doc.status === 'pending') && (
+                      <Button
+                        onClick={() => handleVerifyAllDocuments()}
+                        className="bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Verify All
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {[
@@ -2582,15 +2616,28 @@ export default function ApplicantDashboard() {
                                   Pending
                                 </Badge>
                               )}
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleDocumentDownload(uploadedDoc.id)}
-                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                              >
-                                <Download className="h-3 w-3 mr-1" />
-                                Download
-                              </Button>
+                              <div className="flex gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDocumentDownload(uploadedDoc.id)}
+                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                >
+                                  <Download className="h-3 w-3 mr-1" />
+                                  Download
+                                </Button>
+                                {uploadedDoc.status === 'pending' && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleDocumentVerification(uploadedDoc.id, 'verified', 'Manually verified')}
+                                    className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                  >
+                                    <CheckCircle className="h-3 w-3 mr-1" />
+                                    Verify
+                                  </Button>
+                                )}
+                              </div>
                             </>
                           ) : (
                             <Badge className="bg-red-100 text-red-800 text-xs px-3 py-1">
