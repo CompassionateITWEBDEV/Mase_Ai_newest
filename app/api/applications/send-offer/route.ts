@@ -58,7 +58,6 @@ export async function POST(request: NextRequest) {
           offer_benefits: benefits,
           offer_work_schedule: workSchedule,
           offer_sent_date: new Date().toISOString(),
-          created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .select(`
