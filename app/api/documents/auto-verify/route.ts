@@ -95,13 +95,13 @@ function verifyResume(fileName: string, content: string): any {
   }
 
   // Check content for resume keywords
-  const resumeKeywords = ['experience', 'education', 'skills', 'objective', 'summary', 'work history']
+  const resumeKeywords = ['experience', 'education', 'skills', 'objective', 'summary', 'work history', 'professional', 'career', 'employment']
   const foundKeywords = resumeKeywords.filter(keyword => 
     content.toLowerCase().includes(keyword)
   )
   
-  if (foundKeywords.length >= 3) {
-    confidence += 30
+  if (foundKeywords.length >= 2) {  // Lowered from 3 to 2
+    confidence += 35  // Increased from 30 to 35
     reasons.push(`Contains ${foundKeywords.length} resume keywords`)
   }
 
@@ -130,9 +130,9 @@ function verifyResume(fileName: string, content: string): any {
   }
 
   let status = 'pending'
-  if (confidence >= 70) {
+  if (confidence >= 50) {  // Lowered from 70 to 50 for easier auto-verification
     status = 'verified'
-  } else if (confidence < 30) {
+  } else if (confidence < 20) {  // Lowered from 30 to 20
     status = 'rejected'
   }
 
@@ -181,9 +181,9 @@ function verifyLicense(fileName: string, content: string): any {
   }
 
   let status = 'pending'
-  if (confidence >= 70) {
+  if (confidence >= 50) {  // Lowered from 70 to 50 for easier auto-verification
     status = 'verified'
-  } else if (confidence < 30) {
+  } else if (confidence < 20) {  // Lowered from 30 to 20
     status = 'rejected'
   }
 
@@ -232,9 +232,9 @@ function verifyCertification(fileName: string, content: string): any {
   }
 
   let status = 'pending'
-  if (confidence >= 70) {
+  if (confidence >= 50) {  // Lowered from 70 to 50 for easier auto-verification
     status = 'verified'
-  } else if (confidence < 30) {
+  } else if (confidence < 20) {  // Lowered from 30 to 20
     status = 'rejected'
   }
 
@@ -283,9 +283,9 @@ function verifyBackgroundCheck(fileName: string, content: string): any {
   }
 
   let status = 'pending'
-  if (confidence >= 70) {
+  if (confidence >= 50) {  // Lowered from 70 to 50 for easier auto-verification
     status = 'verified'
-  } else if (confidence < 30) {
+  } else if (confidence < 20) {  // Lowered from 30 to 20
     status = 'rejected'
   }
 
