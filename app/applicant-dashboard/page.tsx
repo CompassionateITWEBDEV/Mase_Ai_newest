@@ -221,7 +221,8 @@ export default function ApplicantDashboard() {
     }
 
     try {
-      console.log('Deleting document:', documentId)
+      console.log('Deleting document - ID:', documentId, 'Name:', documentName)
+      console.log('Request payload:', { documentId })
       
       const response = await fetch('/api/documents/delete', {
         method: 'DELETE',
@@ -229,11 +230,15 @@ export default function ApplicantDashboard() {
         body: JSON.stringify({ documentId })
       })
 
+      console.log('Delete response status:', response.status)
+      
+      const data = await response.json()
+      console.log('Delete response data:', data)
+
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
+        throw new Error(data.error || `HTTP error! status: ${response.status}`)
       }
 
-      const data = await response.json()
       if (data.success) {
         console.log('Document deleted successfully:', data)
         
@@ -246,11 +251,13 @@ export default function ApplicantDashboard() {
         // Reload recent activities to update the activity log
         loadRecentActivities()
         
-        alert('Document deleted successfully!')
+        alert('✅ Document deleted successfully!')
+      } else {
+        throw new Error(data.error || 'Failed to delete document')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting document:', error)
-      alert('Failed to delete document. Please try again.')
+      alert('❌ Failed to delete document: ' + (error.message || 'Unknown error'))
     }
   }
 

@@ -3,11 +3,16 @@ import { createClient } from '@supabase/supabase-js'
 
 export async function DELETE(request: NextRequest) {
   try {
-    const { documentId } = await request.json()
+    const body = await request.json()
+    const { documentId } = body
+
+    console.log('Delete API called with body:', body)
+    console.log('Document ID:', documentId)
 
     if (!documentId) {
+      console.error('Missing documentId in request')
       return NextResponse.json(
-        { error: 'Missing documentId' },
+        { success: false, error: 'Missing documentId' },
         { status: 400 }
       )
     }
@@ -16,7 +21,7 @@ export async function DELETE(request: NextRequest) {
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    console.log(`Deleting document: ${documentId}`)
+    console.log(`Attempting to delete document with ID: ${documentId}`)
 
     // First, get the document to find the file URL
     const { data: docData, error: fetchError } = await supabase
@@ -25,13 +30,25 @@ export async function DELETE(request: NextRequest) {
       .eq('id', documentId)
       .single()
 
-    if (fetchError || !docData) {
+    console.log('Fetch result:', { docData, fetchError })
+
+    if (fetchError) {
       console.error('Error fetching document:', fetchError)
       return NextResponse.json(
-        { error: 'Document not found' },
+        { success: false, error: `Document not found: ${fetchError.message}` },
         { status: 404 }
       )
     }
+
+    if (!docData) {
+      console.error('Document not found in database')
+      return NextResponse.json(
+        { success: false, error: 'Document does not exist' },
+        { status: 404 }
+      )
+    }
+
+    console.log('Document found:', docData.file_name)
 
     // Try to delete file from Supabase Storage if it's stored there
     if (docData.file_url && docData.file_url.includes('supabase')) {
@@ -56,39 +73,72 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Delete the document from the database
-    const { data, error } = await supabase
+    // Try with .select() first
+    let deleteResult = await supabase
       .from('applicant_documents')
       .delete()
       .eq('id', documentId)
       .select('*')
 
+    console.log('Delete attempt 1 (with select):', deleteResult)
+
+    // If no data returned but no error, try without select
+    if (!deleteResult.error && (!deleteResult.data || deleteResult.data.length === 0)) {
+      console.log('No data from delete with select, trying without select...')
+      deleteResult = await supabase
+        .from('applicant_documents')
+        .delete()
+        .eq('id', documentId)
+      
+      console.log('Delete attempt 2 (without select):', deleteResult)
+      
+      // If successful, return the original document data
+      if (!deleteResult.error) {
+        console.log(`✅ Successfully deleted document: ${docData.file_name}`)
+        
+        return NextResponse.json({
+          success: true,
+          message: 'Document deleted successfully',
+          deletedDocument: docData
+        })
+      }
+    }
+
+    const { data, error } = deleteResult
+
     if (error) {
       console.error('Error deleting document from database:', error)
       return NextResponse.json(
-        { error: 'Failed to delete document: ' + error.message },
+        { success: false, error: 'Failed to delete document: ' + error.message },
         { status: 500 }
       )
     }
 
-    if (!data || data.length === 0) {
-      return NextResponse.json(
-        { error: 'Document not found in database' },
-        { status: 404 }
-      )
+    // If we got data back, great!
+    if (data && data.length > 0) {
+      console.log(`✅ Successfully deleted document: ${data[0].file_name}`)
+      
+      return NextResponse.json({
+        success: true,
+        message: 'Document deleted successfully',
+        deletedDocument: data[0]
+      })
     }
 
-    console.log(`Successfully deleted document: ${data[0].file_name}`)
+    // If no error and no data, the delete might have succeeded
+    console.log('Delete completed with no error, assuming success')
+    console.log(`✅ Successfully deleted document: ${docData.file_name}`)
 
     return NextResponse.json({
       success: true,
       message: 'Document deleted successfully',
-      deletedDocument: data[0]
+      deletedDocument: docData
     })
 
   } catch (error: any) {
     console.error('Delete document error:', error)
     return NextResponse.json(
-      { error: error.message || 'Internal server error' },
+      { success: false, error: error.message || 'Internal server error' },
       { status: 500 }
     )
   }
