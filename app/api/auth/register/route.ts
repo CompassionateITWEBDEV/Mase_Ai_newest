@@ -48,10 +48,25 @@ export async function POST(request: NextRequest) {
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // BYPASS AUTH - Direct insert into database without Supabase Auth
-    console.log('Bypassing auth, inserting directly into database...')
+    console.log('Creating user with Supabase Auth...')
 
-    // Check if email already exists
+    // First, create user in Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signUp({
+      email: email,
+      password: password,
+    })
+
+    if (authError || !authData.user) {
+      console.error('Auth signup error:', authError)
+      return NextResponse.json(
+        { error: authError?.message || 'Failed to create account' },
+        { status: 400 }
+      )
+    }
+
+    const userId = authData.user.id
+
+    // Check if email already exists in our tables
     if (accountType === 'applicant') {
       const { data: existing } = await supabase
         .from('applicants')
@@ -70,6 +85,7 @@ export async function POST(request: NextRequest) {
       const { data: newApplicant, error: insertError } = await supabase
         .from('applicants')
         .insert({
+          auth_user_id: userId,
           email,
           first_name: firstName,
           last_name: lastName,
@@ -98,7 +114,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: 'Applicant account created successfully!',
+        message: 'Applicant account created successfully! Please check your email to verify your account.',
         user: {
           id: newApplicant?.id || 'unknown',
           email: email,
@@ -124,6 +140,7 @@ export async function POST(request: NextRequest) {
       const { data: newEmployer, error: insertError } = await supabase
         .from('employers')
         .insert({
+          auth_user_id: userId,
           email,
           first_name: firstName,
           last_name: lastName,
@@ -151,7 +168,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         success: true,
-        message: 'Employer account created successfully!',
+        message: 'Employer account created successfully! Please check your email to verify your account.',
         user: {
           id: newEmployer?.id || 'unknown',
           email: email,

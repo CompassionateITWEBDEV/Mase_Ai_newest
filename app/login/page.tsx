@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   Users,
   Building2,
@@ -34,6 +35,10 @@ export default function StaffLogin() {
     password: "",
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [showSuccessDialog, setShowSuccessDialog] = useState(false)
+  const [showErrorDialog, setShowErrorDialog] = useState(false)
+  const [dialogMessage, setDialogMessage] = useState("")
+  const [redirectTo, setRedirectTo] = useState("")
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -69,6 +74,7 @@ export default function StaffLogin() {
     }
 
     setIsLoading(true)
+    setErrors({}) // Clear previous errors
 
     try {
       // Call login API
@@ -95,15 +101,31 @@ export default function StaffLogin() {
         localStorage.setItem('currentUser', JSON.stringify(data.user))
       }
 
-      // Success! Redirect
-      window.location.href = data.redirectTo || "/"
+      // Show success dialog
+      setDialogMessage(data.message || "Login successful!")
+      setRedirectTo(data.redirectTo || "/")
+      setShowSuccessDialog(true)
       
     } catch (error: any) {
       console.error("Login error:", error)
-      setErrors({ general: error.message || "Login failed. Please check your credentials and try again." })
+      setDialogMessage(error.message || "Login failed. Please check your credentials and try again.")
+      setShowErrorDialog(true)
     } finally {
       setIsLoading(false)
     }
+  }
+
+  const handleSuccessDialogClose = () => {
+    setShowSuccessDialog(false)
+    // Redirect after dialog closes
+    if (redirectTo) {
+      window.location.href = redirectTo
+    }
+  }
+
+  const handleErrorDialogClose = () => {
+    setShowErrorDialog(false)
+    setDialogMessage("")
   }
 
 
@@ -285,6 +307,46 @@ export default function StaffLogin() {
           </p>
         </div>
       </div>
+
+      {/* Success Dialog */}
+      <Dialog open={showSuccessDialog} onOpenChange={setShowSuccessDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600">
+              <CheckCircle className="h-5 w-5" />
+              Login Successful!
+            </DialogTitle>
+            <DialogDescription className="text-gray-600">
+              {dialogMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button onClick={handleSuccessDialogClose} className="bg-green-600 hover:bg-green-700">
+              Continue
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Error Dialog */}
+      <Dialog open={showErrorDialog} onOpenChange={setShowErrorDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertCircle className="h-5 w-5" />
+              Login Failed
+            </DialogTitle>
+            <DialogDescription className="text-gray-600">
+              {dialogMessage}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button onClick={handleErrorDialogClose} variant="outline">
+              Try Again
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

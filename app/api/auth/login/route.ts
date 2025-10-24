@@ -21,25 +21,38 @@ export async function POST(request: NextRequest) {
 
     console.log('Login attempt:', { email, accountType })
 
-    // Check based on account type
+    // First, authenticate with Supabase Auth
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+      email: email,
+      password: password,
+    })
+
+    if (authError || !authData.user) {
+      console.error('Authentication failed:', authError)
+      return NextResponse.json(
+        { error: 'Invalid email or password' },
+        { status: 401 }
+      )
+    }
+
+    const userId = authData.user.id
+
+    // Now check the specific account type and get user data
     if (accountType === 'applicant') {
       const { data, error } = await supabase
         .from('applicants')
         .select('*')
-        .eq('email', email)
+        .eq('auth_user_id', userId)
         .single()
 
       if (error || !data) {
-        console.error('Applicant not found:', error)
+        console.error('Applicant profile not found:', error)
         return NextResponse.json(
-          { error: 'Invalid email or password' },
-          { status: 401 }
+          { error: 'Account not found. Please contact support.' },
+          { status: 404 }
         )
       }
 
-      // NOTE: In real app, you should hash/verify password
-      // For now, we're just checking if user exists
-      
       // Update last login
       await supabase
         .from('applicants')
@@ -72,14 +85,14 @@ export async function POST(request: NextRequest) {
       const { data, error } = await supabase
         .from('employers')
         .select('*')
-        .eq('email', email)
+        .eq('auth_user_id', userId)
         .single()
 
       if (error || !data) {
-        console.error('Employer not found:', error)
+        console.error('Employer profile not found:', error)
         return NextResponse.json(
-          { error: 'Invalid email or password' },
-          { status: 401 }
+          { error: 'Account not found. Please contact support.' },
+          { status: 404 }
         )
       }
 
@@ -113,14 +126,14 @@ export async function POST(request: NextRequest) {
       const { data, error } = await supabase
         .from('staff')
         .select('*')
-        .eq('email', email)
+        .eq('user_id', userId)
         .single()
 
       if (error || !data) {
-        console.error('Staff not found:', error)
+        console.error('Staff profile not found:', error)
         return NextResponse.json(
-          { error: 'Invalid email or password' },
-          { status: 401 }
+          { error: 'Account not found. Please contact support.' },
+          { status: 404 }
         )
       }
 
