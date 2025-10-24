@@ -97,6 +97,14 @@ export default function JobOfferModal({
 
     setIsLoading(true)
     try {
+      console.log('Sending offer with data:', {
+        applicationId: application.id,
+        isCandidatePool: application.is_candidate_pool || false,
+        candidateId: application.applicant_id,
+        employerId: application.employer_id,
+        jobTitle: application.job_posting?.title || 'Direct Offer'
+      })
+      
       const response = await fetch('/api/applications/send-offer', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

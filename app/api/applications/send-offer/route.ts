@@ -17,6 +17,14 @@ export async function POST(request: NextRequest) {
       jobTitle = 'Direct Offer'
     } = await request.json()
 
+    console.log('Send offer API received:', {
+      applicationId,
+      isCandidatePool,
+      candidateId,
+      employerId,
+      jobTitle
+    })
+
     if (!applicationId || !offerSalary || !offerStartDate || !offerExpiryDate) {
       return NextResponse.json(
         { error: 'Missing required fields: applicationId, offerSalary, offerStartDate, offerExpiryDate' },
