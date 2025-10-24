@@ -36,6 +36,7 @@ import {
   XCircle,
   Trash2,
   X,
+  RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -496,23 +497,6 @@ export default function ApplicantDashboard() {
 
   // Load documents when applicant info is available
   useEffect(() => {
-    const loadDocuments = async () => {
-      if (applicantInfo?.id) {
-        try {
-          const response = await fetch(`/api/applicants/documents?applicant_id=${applicantInfo.id}`)
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`)
-          }
-          const data = await response.json()
-          if (data.success && data.documents) {
-            setDocuments(data.documents)
-          }
-        } catch (error) {
-          console.error('Error loading documents:', error)
-        }
-      }
-    }
-
     if (applicantInfo?.id) {
       loadDocuments()
     }
@@ -982,7 +966,12 @@ export default function ApplicantDashboard() {
 
   // Load documents from database
   const loadDocuments = async () => {
-    if (!applicantInfo?.id) return
+    if (!applicantInfo?.id) {
+      console.log('No applicant ID available for loading documents')
+      return
+    }
+    
+    console.log('Loading documents for applicant:', applicantInfo.id)
     
     try {
       const response = await fetch(`/api/applicants/documents?applicant_id=${applicantInfo.id}`)
@@ -990,12 +979,18 @@ export default function ApplicantDashboard() {
         throw new Error(`HTTP error! status: ${response.status}`)
       }
       const data = await response.json()
+      console.log('Documents API response:', data)
+      
       if (data.success && data.documents) {
+        console.log(`Setting ${data.documents.length} documents:`, data.documents)
         setDocuments(data.documents)
-        console.log(`Loaded ${data.documents.length} documents`)
+      } else {
+        console.log('No documents found or API error:', data)
+        setDocuments([])
       }
     } catch (error) {
       console.error('Error loading documents:', error)
+      setDocuments([])
     }
   }
 
@@ -2588,6 +2583,14 @@ export default function ApplicantDashboard() {
                   </div>
                   <h3 className="text-xl font-semibold text-gray-900">Document Status</h3>
                   <div className="flex gap-2">
+                    <Button
+                      onClick={() => loadDocuments()}
+                      variant="outline"
+                      className="text-gray-600 hover:text-gray-700"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Refresh
+                    </Button>
                     {documents.length > 0 && (
                       <Button
                         onClick={() => handleDownloadAllDocuments()}
@@ -2608,6 +2611,18 @@ export default function ApplicantDashboard() {
                     )}
                   </div>
                 </div>
+                {/* Debug Info */}
+                {process.env.NODE_ENV === 'development' && (
+                  <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <h4 className="font-medium text-yellow-800 mb-2">Debug Info:</h4>
+                    <p className="text-sm text-yellow-700">Documents loaded: {documents.length}</p>
+                    <p className="text-sm text-yellow-700">Applicant ID: {applicantInfo?.id}</p>
+                    <pre className="text-xs text-yellow-600 mt-2 overflow-auto">
+                      {JSON.stringify(documents, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {[
                     { name: "Resume", type: "resume", icon: "📄" },
