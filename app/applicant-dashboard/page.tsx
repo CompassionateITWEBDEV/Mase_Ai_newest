@@ -1450,6 +1450,140 @@ export default function ApplicantDashboard() {
               )
             })()}
 
+            {/* My Uploaded Documents */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="h-5 w-5 text-blue-500" />
+                      My Uploaded Documents
+                    </CardTitle>
+                    <CardDescription>View, download, and manage your uploaded documents</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => loadDocuments()}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Refresh
+                    </Button>
+                    <Button
+                      onClick={() => setIsDocumentUploadOpen(true)}
+                      size="sm"
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {documents.length === 0 ? (
+                  <div className="text-center py-8">
+                    <FileText className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No Documents Uploaded Yet</h3>
+                    <p className="text-gray-600 mb-4">Upload your resume and other documents to apply for jobs</p>
+                    <Button
+                      onClick={() => setIsDocumentUploadOpen(true)}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Upload Your First Document
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {documents.map((doc) => (
+                      <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3 flex-1">
+                            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                              <FileText className="h-6 w-6 text-blue-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-gray-900 truncate text-lg">
+                                {doc.file_name}
+                              </h4>
+                              <div className="flex items-center gap-4 mt-1 text-sm text-gray-600">
+                                <div className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {new Date(doc.uploaded_date).toLocaleDateString()}
+                                </div>
+                                <div>
+                                  Size: {doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : 'Unknown'}
+                                </div>
+                                <div className="capitalize">
+                                  Type: {doc.document_type}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-3 ml-4">
+                            <div className="flex items-center gap-2">
+                              {doc.status === 'verified' ? (
+                                <CheckCircle className="h-5 w-5 text-green-500" />
+                              ) : doc.status === 'pending' ? (
+                                <Clock className="h-5 w-5 text-yellow-500" />
+                              ) : (
+                                <XCircle className="h-5 w-5 text-red-500" />
+                              )}
+                              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                                doc.status === 'verified' 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : doc.status === 'pending'
+                                  ? 'bg-yellow-100 text-yellow-800'
+                                  : 'bg-red-100 text-red-800'
+                              }`}>
+                                {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                              </span>
+                            </div>
+                            
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedDocument(doc)
+                                  setIsDocumentViewerOpen(true)
+                                }}
+                                className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDocumentDownload(doc.id)}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                              >
+                                <Download className="h-4 w-4 mr-1" />
+                                Download
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDeleteDocument(doc.id, doc.file_name)}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                <Trash2 className="h-4 w-4 mr-1" />
+                                Delete
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* Application Stats */}
             <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <Card className="bg-blue-50 border-blue-200">
