@@ -326,6 +326,12 @@ export default function ApplicantDashboard() {
   const [isJobDetailsOpen, setIsJobDetailsOpen] = useState(false)
   const [isDocumentUploadOpen, setIsDocumentUploadOpen] = useState(false)
   const [selectedApplication, setSelectedApplication] = useState<JobApplication | null>(null)
+
+  // Function to open upload modal with specific document type
+  const openUploadModal = (documentType: string) => {
+    setUploadDocumentType(documentType)
+    setIsDocumentUploadOpen(true)
+  }
   const [isApplicationDetailsOpen, setIsApplicationDetailsOpen] = useState(false)
   const [isApplyConfirmOpen, setIsApplyConfirmOpen] = useState(false)
   const [jobToApply, setJobToApply] = useState<any>(null)
@@ -485,16 +491,11 @@ export default function ApplicantDashboard() {
     if (user.city) completed++
     if (user.state) completed++
     
-    // Certifications & Licenses (3 points) - requires text field + 2 document uploads
-    const hasLicense = documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected')
-    const hasCertification = documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected')
-    if (user.certifications) completed++ // Text field
-    if (hasLicense) completed++ // License document
-    if (hasCertification) completed++ // Certification document
-    
-    // Required documents (2 points total) - uploaded and not rejected
+    // Required documents (4 points total) - uploaded and not rejected
     const requiredDocs = [
       { type: 'resume', uploaded: documents.some(doc => doc.document_type === 'resume' && doc.status !== 'rejected') },
+      { type: 'license', uploaded: documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected') },
+      { type: 'certification', uploaded: documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected') },
       { type: 'background_check', uploaded: documents.some(doc => doc.document_type === 'background_check' && doc.status !== 'rejected') }
     ]
     
@@ -2946,65 +2947,34 @@ export default function ApplicantDashboard() {
                   </div>
 
                   {/* Certifications & Licenses */}
-                  {(() => {
-                    const hasLicense = documents.some(doc => doc.document_type === 'license' && doc.status !== 'rejected')
-                    const hasCertification = documents.some(doc => doc.document_type === 'certification' && doc.status !== 'rejected')
-                    const hasTextField = applicantInfo?.certifications
-                    const isComplete = hasTextField && hasLicense && hasCertification
-                    
-                    // Debug: Log the actual documents
-                    console.log('Documents:', documents)
-                    console.log('License docs:', documents.filter(doc => doc.document_type === 'license'))
-                    console.log('Certification docs:', documents.filter(doc => doc.document_type === 'certification'))
-                    console.log('hasLicense:', hasLicense, 'hasCertification:', hasCertification, 'hasTextField:', hasTextField)
-                    
-                    return (
-                      <div className={`flex items-center justify-between p-3 border rounded-lg ${
-                        isComplete
-                          ? 'bg-green-50 border-green-200' 
-                          : 'bg-yellow-50 border-yellow-200'
-                      }`}>
+                  <div className={`flex items-center justify-between p-3 border rounded-lg ${
+                    applicantInfo?.certifications
+                      ? 'bg-green-50 border-green-200' 
+                      : 'bg-yellow-50 border-yellow-200'
+                  }`}>
                     <div className="flex items-center space-x-3">
-                          {isComplete ? (
-                            <CheckCircle className="h-5 w-5 text-green-600" />
-                          ) : (
-                            <AlertTriangle className="h-5 w-5 text-yellow-600" />
-                          )}
-                          <div>
-                            <span className="font-medium">Certifications & Licenses</span>
-                            <p className="text-xs text-gray-600">
-                              {isComplete 
-                                ? 'Text field filled • License uploaded • Certification uploaded'
-                                : hasTextField && hasLicense && !hasCertification
-                                ? 'Text field ✓ • License ✓ • Certification needed'
-                                : hasTextField && !hasLicense && hasCertification
-                                ? 'Text field ✓ • License needed • Certification ✓'
-                                : hasTextField && !hasLicense && !hasCertification
-                                ? 'Text field ✓ • License needed • Certification needed'
-                                : !hasTextField && hasLicense && hasCertification
-                                ? 'Text field needed • License ✓ • Certification ✓'
-                                : !hasTextField && hasLicense
-                                ? 'Text field needed • License ✓ • Certification needed'
-                                : !hasTextField && hasCertification
-                                ? 'Text field needed • License needed • Certification ✓'
-                                : 'Text field needed • License needed • Certification needed'}
-                            </p>
-                    </div>
-                  </div>
-                        {isComplete ? (
-                          <Badge className="bg-green-600">Complete</Badge>
-                        ) : (
-                          <Badge variant="outline" className="text-yellow-700 border-yellow-700">
-                            Incomplete
-                          </Badge>
-                        )}
+                      {applicantInfo?.certifications ? (
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                      ) : (
+                        <AlertTriangle className="h-5 w-5 text-yellow-600" />
+                      )}
+                      <div>
+                        <span className="font-medium">Certifications & Licenses</span>
+                        <p className="text-xs text-gray-600">Professional certifications</p>
                       </div>
-                    )
-                  })()}
+                    </div>
+                    {applicantInfo?.certifications ? (
+                      <Badge className="bg-green-600">Complete</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-yellow-700 border-yellow-700">Add Details</Badge>
+                    )}
+                  </div>
 
                   {/* Required Documents */}
                   {[
                     { name: "Resume", required: true, type: "resume", description: "Professional resume or CV" },
+                    { name: "License", required: true, type: "license", description: "Professional/Nursing license" },
+                    { name: "Certification", required: true, type: "certification", description: "CPR, BLS, ACLS, etc." },
                     { name: "Background Check", required: true, type: "background_check", description: "Criminal background check" },
                   ].map((req, index) => {
                     const uploadedDoc = documents.find(doc => doc.document_type === req.type)
@@ -3186,7 +3156,7 @@ export default function ApplicantDashboard() {
                             size="sm" 
                             className={req.required ? 'bg-red-600 hover:bg-red-700' : ''}
                             variant={req.required ? 'default' : 'outline'}
-                            onClick={() => setIsDocumentUploadOpen(true)}
+                            onClick={() => openUploadModal(req.type)}
                           >
                             <Upload className="h-4 w-4 mr-2" />
                             Upload
