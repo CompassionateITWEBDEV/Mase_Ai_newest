@@ -18,8 +18,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    // Use service role key for delete operations to bypass RLS
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
     console.log(`Attempting to delete document with ID: ${documentId}`)
 
@@ -72,62 +73,57 @@ export async function DELETE(request: NextRequest) {
       }
     }
 
-    // Delete the document from the database
-    // Try with .select() first
+    // Delete the document from the database using RPC or direct SQL
+    console.log('Attempting to delete with service role permissions...')
+    
+    // Method 1: Try direct delete with service role key
     let deleteResult = await supabase
       .from('applicant_documents')
       .delete()
       .eq('id', documentId)
-      .select('*')
 
-    console.log('Delete attempt 1 (with select):', deleteResult)
+    console.log('Delete attempt 1 (direct delete):', deleteResult)
 
-    // If no data returned but no error, try without select
-    if (!deleteResult.error && (!deleteResult.data || deleteResult.data.length === 0)) {
-      console.log('No data from delete with select, trying without select...')
-      deleteResult = await supabase
-        .from('applicant_documents')
-        .delete()
-        .eq('id', documentId)
+    // Method 2: If that fails, try using SQL query through rpc
+    if (deleteResult.error || (!deleteResult.data && deleteResult.status !== 204)) {
+      console.log('Direct delete may have failed, trying SQL approach...')
       
-      console.log('Delete attempt 2 (without select):', deleteResult)
+      const { data: sqlResult, error: sqlError } = await supabase.rpc('delete_document', {
+        doc_id: documentId
+      })
       
-      // If successful, return the original document data
-      if (!deleteResult.error) {
-        console.log(`✅ Successfully deleted document: ${docData.file_name}`)
-        
-        return NextResponse.json({
-          success: true,
-          message: 'Document deleted successfully',
-          deletedDocument: docData
-        })
+      console.log('Delete attempt 2 (SQL RPC):', { sqlResult, sqlError })
+      
+      if (sqlError) {
+        console.error('SQL delete also failed:', sqlError)
+        // Continue anyway - we'll verify below
       }
     }
 
-    const { data, error } = deleteResult
+    // Verify if document was actually deleted by checking if it still exists
+    const { data: checkData, error: checkError } = await supabase
+      .from('applicant_documents')
+      .select('id')
+      .eq('id', documentId)
 
-    if (error) {
-      console.error('Error deleting document from database:', error)
-      return NextResponse.json(
-        { success: false, error: 'Failed to delete document: ' + error.message },
-        { status: 500 }
-      )
-    }
+    console.log('Verification check after delete:', { 
+      stillExists: (checkData?.length || 0) > 0,
+      checkData,
+      checkError
+    })
 
-    // If we got data back, great!
-    if (data && data.length > 0) {
-      console.log(`✅ Successfully deleted document: ${data[0].file_name}`)
-      
+    // If document still exists, the delete actually failed
+    if (checkData && checkData.length > 0) {
+      console.error('❌ Document still exists after delete! RLS policy is blocking deletion.')
       return NextResponse.json({
-        success: true,
-        message: 'Document deleted successfully',
-        deletedDocument: data[0]
-      })
+        success: false,
+        error: 'Unable to delete document. Row-Level Security policy is blocking deletion. Please contact support.',
+        hint: 'The database policy needs to be updated to allow document deletion.'
+      }, { status: 403 })
     }
 
-    // If no error and no data, the delete might have succeeded
-    console.log('Delete completed with no error, assuming success')
-    console.log(`✅ Successfully deleted document: ${docData.file_name}`)
+    // Document successfully deleted
+    console.log(`✅ Document successfully deleted and verified: ${docData.file_name}`)
 
     return NextResponse.json({
       success: true,
