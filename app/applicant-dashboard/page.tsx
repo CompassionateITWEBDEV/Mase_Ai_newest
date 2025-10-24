@@ -221,6 +221,8 @@ export default function ApplicantDashboard() {
     }
 
     try {
+      console.log('Deleting document:', documentId)
+      
       const response = await fetch('/api/documents/delete', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
@@ -233,8 +235,18 @@ export default function ApplicantDashboard() {
 
       const data = await response.json()
       if (data.success) {
+        console.log('Document deleted successfully:', data)
+        
+        // Immediately update local state to reflect deletion
+        setDocuments(prevDocs => prevDocs.filter(doc => doc.id !== documentId))
+        
+        // Also reload documents from server to ensure sync
+        await loadDocuments()
+        
+        // Reload recent activities to update the activity log
+        loadRecentActivities()
+        
         alert('Document deleted successfully!')
-        loadDocuments() // Refresh the documents list
       }
     } catch (error) {
       console.error('Error deleting document:', error)
