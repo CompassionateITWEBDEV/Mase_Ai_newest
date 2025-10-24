@@ -7,6 +7,8 @@ export async function POST(request: NextRequest) {
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+    console.log('Fixing pending documents...')
+
     // Find all pending documents
     const { data: pendingDocs, error: fetchError } = await supabase
       .from('applicant_documents')
@@ -16,10 +18,12 @@ export async function POST(request: NextRequest) {
     if (fetchError) {
       console.error('Error fetching pending documents:', fetchError)
       return NextResponse.json(
-        { error: 'Failed to fetch pending documents' },
+        { error: 'Failed to fetch pending documents: ' + fetchError.message },
         { status: 500 }
       )
     }
+
+    console.log(`Found ${pendingDocs?.length || 0} pending documents`)
 
     if (!pendingDocs || pendingDocs.length === 0) {
       return NextResponse.json({
@@ -45,10 +49,12 @@ export async function POST(request: NextRequest) {
     if (updateError) {
       console.error('Error updating documents:', updateError)
       return NextResponse.json(
-        { error: 'Failed to update documents' },
+        { error: 'Failed to update documents: ' + updateError.message },
         { status: 500 }
       )
     }
+
+    console.log(`Successfully verified ${updatedDocs?.length || 0} documents`)
 
     return NextResponse.json({
       success: true,
@@ -58,7 +64,7 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error: any) {
-    console.error('Fix pending documents error:', error)
+    console.error('Fix resume error:', error)
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }
@@ -66,24 +72,16 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint to check pending documents
+// GET endpoint to check status
 export async function GET(request: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // Get all documents with their status
     const { data: documents, error } = await supabase
       .from('applicant_documents')
-      .select(`
-        *,
-        applicant:applicants(
-          first_name,
-          last_name,
-          email
-        )
-      `)
+      .select('*')
       .order('uploaded_date', { ascending: false })
 
     if (error) {
