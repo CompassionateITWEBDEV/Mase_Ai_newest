@@ -564,16 +564,8 @@ export default function JobsPage() {
         <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
           <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle className="text-2xl font-bold flex items-center justify-between">
-                <span>{selectedJob?.title}</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setIsDetailsOpen(false)}
-                  className="h-8 w-8 p-0"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
+              <DialogTitle className="text-2xl font-bold">
+                {selectedJob?.title}
               </DialogTitle>
               <DialogDescription className="text-lg">
                 {selectedJob?.company} • {selectedJob?.location}

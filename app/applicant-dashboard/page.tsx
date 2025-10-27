@@ -3153,14 +3153,14 @@ export default function ApplicantDashboard() {
                       <RefreshCw className="h-4 w-4 mr-2" />
                       Refresh
                     </Button>
-                    <Button 
-                      onClick={() => setIsDocumentUploadOpen(true)}
+                  <Button 
+                    onClick={() => setIsDocumentUploadOpen(true)}
                       size="sm"
                       className="bg-red-600 hover:bg-red-700"
-                    >
+                  >
                       <Upload className="h-4 w-4 mr-2" />
                       + Upload Document
-                    </Button>
+                  </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -3179,7 +3179,7 @@ export default function ApplicantDashboard() {
                           <div className="flex items-center gap-4 flex-1">
                             <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
                               <FileText className="h-6 w-6 text-blue-600" />
-                            </div>
+                    </div>
                             <div className="flex-1 min-w-0">
                               <h4 className="font-semibold text-gray-900 text-lg mb-1">
                                 {doc.file_name}
@@ -3188,7 +3188,7 @@ export default function ApplicantDashboard() {
                                 <div className="flex items-center gap-4">
                                   <span className="font-medium">Type:</span>
                                   <span className="capitalize">{doc.document_type}</span>
-                                </div>
+                </div>
                                 <div className="flex items-center gap-4">
                                   <span className="font-medium">Uploaded:</span>
                                   <span>{new Date(doc.uploaded_date).toLocaleDateString()}</span>
@@ -3196,42 +3196,42 @@ export default function ApplicantDashboard() {
                                 <div className="flex items-center gap-4">
                                   <span className="font-medium">Status:</span>
                                   <span className={`font-medium ${
-                                    doc.status === 'verified' 
+                                doc.status === 'verified' 
                                       ? 'text-green-600' 
-                                      : doc.status === 'pending'
+                                  : doc.status === 'pending'
                                       ? 'text-yellow-600'
                                       : 'text-red-600'
-                                  }`}>
+                              }`}>
                                     {doc.status}
-                                  </span>
+                              </span>
                                 </div>
                               </div>
                             </div>
                           </div>
-                          
+                            
                           <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-                            <Button 
-                              variant="outline"
-                              size="sm" 
-                              onClick={() => {
-                                setSelectedDocument(doc)
-                                setIsDocumentViewerOpen(true)
-                              }}
-                              className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
-                            >
-                              <Eye className="h-4 w-4 mr-1" />
-                              View
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleDocumentDownload(doc.id)}
-                              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                            >
-                              <Download className="h-4 w-4 mr-1" />
-                              Download
-                            </Button>
-                          </div>
+                          <Button 
+                                variant="outline"
+                            size="sm" 
+                                onClick={() => {
+                                  setSelectedDocument(doc)
+                                  setIsDocumentViewerOpen(true)
+                                }}
+                                className="text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
+                              <Button
+                            variant="outline"
+                                size="sm"
+                                onClick={() => handleDocumentDownload(doc.id)}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                          >
+                                <Download className="h-4 w-4 mr-1" />
+                                Download
+                              </Button>
+                </div>
                         </div>
                       </div>
                     ))}
