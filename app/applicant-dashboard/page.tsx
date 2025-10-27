@@ -115,6 +115,13 @@ export default function ApplicantDashboard() {
   const [profileData, setProfileData] = useState<Partial<ApplicantInfo>>({})
   const [selectedDocument, setSelectedDocument] = useState<any>(null)
   const [isDocumentViewerOpen, setIsDocumentViewerOpen] = useState(false)
+  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false)
+  const [selectedInterview, setSelectedInterview] = useState<any>(null)
+  const [rescheduleFormData, setRescheduleFormData] = useState({
+    newDate: '',
+    newTime: '',
+    reason: ''
+  })
 
   // Handle document verification
   const handleDocumentVerification = async (documentId: string, action: 'verified' | 'rejected', notes?: string) => {
@@ -1318,6 +1325,55 @@ export default function ApplicantDashboard() {
     }
   }
 
+  // Handle reschedule interview request
+  const handleRescheduleRequest = (interview: any) => {
+    setSelectedInterview(interview)
+    setIsRescheduleModalOpen(true)
+  }
+
+  // Submit reschedule request
+  const submitRescheduleRequest = async () => {
+    if (!rescheduleFormData.newDate || !rescheduleFormData.newTime || !rescheduleFormData.reason) {
+      alert('Please fill in all fields including reason for rescheduling')
+      return
+    }
+
+    if (!selectedInterview || !applicantInfo?.id) {
+      alert('Missing interview or applicant information')
+      return
+    }
+
+    try {
+      const response = await fetch('/api/interviews/reschedule-request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interviewId: selectedInterview.id,
+          applicationId: selectedInterview.application_id || selectedInterview.job_posting_id,
+          applicantId: applicantInfo.id,
+          employerId: selectedInterview.employer_id,
+          currentDate: selectedInterview.interview_date,
+          newDate: rescheduleFormData.newDate,
+          newTime: rescheduleFormData.newTime,
+          reason: rescheduleFormData.reason
+        })
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert('Reschedule request sent successfully! The employer will review your request.')
+        setIsRescheduleModalOpen(false)
+        setRescheduleFormData({ newDate: '', newTime: '', reason: '' })
+        loadInterviews() // Refresh interviews
+      } else {
+        alert('Failed to send reschedule request: ' + (data.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error sending reschedule request:', error)
+      alert('Failed to send reschedule request. Please try again.')
+    }
+  }
+
   // Handle offer decline
   const handleDeclineOffer = async (application: JobApplication) => {
     if (!confirm('Are you sure you want to decline this job offer?')) {
@@ -1934,12 +1990,14 @@ export default function ApplicantDashboard() {
                             application.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
                             application.status === 'offer_received' ? 'bg-green-100 text-green-800 border-green-300' :
                             application.status === 'offer_accepted' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                            application.status === 'accepted' ? 'bg-green-100 text-green-800 border-green-300' :
                             'bg-red-100 text-red-800 border-red-300'
                           }>
                             {application.status === 'interview_scheduled' ? 'Interview Scheduled' :
                              application.status === 'pending' ? 'Under Review' :
                              application.status === 'offer_received' ? 'Offer Received' :
                              application.status === 'offer_accepted' ? 'Offer Accepted' :
+                             application.status === 'accepted' ? 'Hired!' :
                              application.status}
                           </Badge>
                           {application.status === 'interview_scheduled' && application.interview_date && (
@@ -2877,10 +2935,7 @@ export default function ApplicantDashboard() {
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  onClick={() => {
-                                    // TODO: Implement reschedule functionality
-                                    console.log('Reschedule interview:', interview.id)
-                                  }}
+                                  onClick={() => handleRescheduleRequest(interview)}
                                 >
                                   <Calendar className="h-4 w-4 mr-1" />
                                   Reschedule
@@ -4678,6 +4733,89 @@ export default function ApplicantDashboard() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Reschedule Interview Modal */}
+      {selectedInterview && (
+        <Dialog open={isRescheduleModalOpen} onOpenChange={setIsRescheduleModalOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Request Interview Reschedule</DialogTitle>
+              <DialogDescription>
+                Please provide a new date, time, and reason for rescheduling
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {/* Current Schedule Info */}
+              <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <h4 className="font-semibold text-blue-900 mb-2">Current Schedule</h4>
+                <p className="text-sm text-blue-800">
+                  <strong>Date:</strong> {selectedInterview.interview_date ? new Date(selectedInterview.interview_date).toLocaleDateString() : 'N/A'}
+                </p>
+                <p className="text-sm text-blue-800">
+                  <strong>Time:</strong> {selectedInterview.interview_time || 'N/A'}
+                </p>
+              </div>
+
+              {/* New Date */}
+              <div>
+                <Label htmlFor="newDate" className="text-gray-700">New Interview Date</Label>
+                <Input
+                  id="newDate"
+                  type="date"
+                  value={rescheduleFormData.newDate}
+                  onChange={(e) => setRescheduleFormData({...rescheduleFormData, newDate: e.target.value})}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="mt-1"
+                />
+              </div>
+
+              {/* New Time */}
+              <div>
+                <Label htmlFor="newTime" className="text-gray-700">New Interview Time</Label>
+                <Input
+                  id="newTime"
+                  type="time"
+                  value={rescheduleFormData.newTime}
+                  onChange={(e) => setRescheduleFormData({...rescheduleFormData, newTime: e.target.value})}
+                  className="mt-1"
+                />
+              </div>
+
+              {/* Reason */}
+              <div>
+                <Label htmlFor="reason" className="text-gray-700">Reason for Rescheduling *</Label>
+                <textarea
+                  id="reason"
+                  rows={4}
+                  value={rescheduleFormData.reason}
+                  onChange={(e) => setRescheduleFormData({...rescheduleFormData, reason: e.target.value})}
+                  placeholder="Please explain why you need to reschedule the interview..."
+                  className="mt-1 w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+
+              <div className="flex space-x-3 pt-4">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setIsRescheduleModalOpen(false)
+                    setRescheduleFormData({ newDate: '', newTime: '', reason: '' })
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  onClick={submitRescheduleRequest}
+                >
+                  Submit Request
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       )}
 
     </div>
