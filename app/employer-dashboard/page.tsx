@@ -437,22 +437,32 @@ export default function EmployerDashboard() {
   }
 
   const loadRescheduleRequests = async () => {
-    if (!employerId) return
+    if (!employerId) {
+      console.log('No employer ID, skipping reschedule requests load')
+      return
+    }
     
     try {
       setIsLoadingRescheduleRequests(true)
-      const response = await fetch(`/api/interviews/reschedule-list?employer_id=${employerId}&status=pending`)
+      console.log('🔍 Loading reschedule requests for employer:', employerId)
       
+      const response = await fetch(`/api/interviews/reschedule-list?employer_id=${employerId}&status=pending`)
       const data = await response.json()
+      
+      console.log('📥 Reschedule requests response:', data)
       
       if (data.success && data.rescheduleRequests) {
         setRescheduleRequests(data.rescheduleRequests)
         console.log(`✅ Loaded ${data.rescheduleRequests.length} reschedule requests`)
+      } else if (data.error) {
+        console.error('❌ API returned error:', data.error)
+        setRescheduleRequests([])
       } else {
+        console.log('⚠️ No reschedule requests found or unknown response')
         setRescheduleRequests([])
       }
     } catch (error) {
-      console.error('Error loading reschedule requests:', error)
+      console.error('❌ Error loading reschedule requests:', error)
       setRescheduleRequests([])
     } finally {
       setIsLoadingRescheduleRequests(false)
