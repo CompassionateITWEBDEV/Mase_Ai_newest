@@ -70,8 +70,8 @@ export async function POST(request: NextRequest) {
       const { error: interviewUpdateError } = await supabase
         .from('interview_schedules')
         .update({
-          interview_date: rescheduleRequest.new_date,
-          interview_time: rescheduleRequest.new_time,
+          interview_date: rescheduleRequest.proposed_date,
+          interview_time: rescheduleRequest.proposed_time,
           updated_at: new Date().toISOString()
         })
         .eq('id', rescheduleRequest.interview_id)
@@ -85,8 +85,8 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('job_applications')
         .update({
-          interview_date: rescheduleRequest.new_date,
-          interview_time: rescheduleRequest.new_time,
+          interview_date: rescheduleRequest.proposed_date,
+          interview_time: rescheduleRequest.proposed_time,
           updated_at: new Date().toISOString()
         })
         .eq('id', rescheduleRequest.application_id)
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
         type: 'interview',
         title: action === 'approved' ? 'Interview Rescheduled' : 'Reschedule Request Declined',
         message: action === 'approved' 
-          ? `Your interview reschedule request has been approved. New date: ${new Date(rescheduleRequest.new_date).toLocaleDateString()} at ${rescheduleRequest.new_time}`
+          ? `Your interview reschedule request has been approved. New date: ${new Date(rescheduleRequest.proposed_date).toLocaleDateString()} at ${rescheduleRequest.proposed_time}`
           : `Your interview reschedule request has been declined. The interview will proceed as originally scheduled.`,
         action_url: '/applicant-dashboard?tab=interviews',
         read: false
