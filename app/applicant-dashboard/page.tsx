@@ -1783,11 +1783,12 @@ export default function ApplicantDashboard() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className="grid w-full grid-cols-7">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="applications">My Applications</TabsTrigger>
             <TabsTrigger value="interviews">Interviews ({interviews.length})</TabsTrigger>
             <TabsTrigger value="jobs">Job Search</TabsTrigger>
+            <TabsTrigger value="saved-jobs">Saved Jobs ({savedJobs.length})</TabsTrigger>
             <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
           </TabsList>
@@ -1998,7 +1999,7 @@ export default function ApplicantDashboard() {
                     <Button 
                       variant="outline" 
                       size="sm"
-                      onClick={() => setActiveTab('jobs')}
+                      onClick={() => setActiveTab('saved-jobs')}
                     >
                       View All
                     </Button>
@@ -2889,6 +2890,112 @@ export default function ApplicantDashboard() {
                           </div>
                         </CardContent>
                       </Card>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Saved Jobs Tab */}
+          <TabsContent value="saved-jobs" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Star className="h-5 w-5 text-yellow-500" />
+                      My Saved Jobs ({savedJobs.length})
+                    </CardTitle>
+                    <CardDescription>Jobs you've bookmarked for later</CardDescription>
+                  </div>
+                  {savedJobs.length > 0 && (
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setActiveTab('jobs')}
+                    >
+                      <Search className="h-4 w-4 mr-2" />
+                      Browse More Jobs
+                    </Button>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {savedJobs.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Star className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold text-gray-900 mb-2">No saved jobs yet</h3>
+                    <p className="text-gray-600 mb-6">Start browsing jobs and save the ones that interest you</p>
+                    <Button 
+                      size="lg" 
+                      className="bg-blue-600 hover:bg-blue-700"
+                      onClick={() => setActiveTab('jobs')}
+                    >
+                      <Search className="h-5 w-5 mr-2" />
+                      Browse Jobs
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {jobs.filter(job => savedJobs.includes(job.id)).map((job) => (
+                      <div key={job.id} className="p-6 border rounded-lg bg-yellow-50 border-yellow-200 hover:shadow-lg transition-shadow">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h3 className="font-semibold text-lg text-gray-900 mb-1">{job.title}</h3>
+                            <p className="text-sm text-gray-600 mb-2">{job.employer?.company_name || 'Healthcare Facility'}</p>
+                          </div>
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
+                            onClick={() => toggleSaveJob(job.id)}
+                            className="text-yellow-600 hover:text-yellow-700"
+                          >
+                            <Star className="h-5 w-5 fill-yellow-500" />
+                          </Button>
+                        </div>
+                        
+                        <div className="space-y-2 mb-4">
+                          <div className="flex items-center space-x-3 text-sm text-gray-600">
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-4 w-4" />
+                              {job.city}, {job.state}
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-3 text-sm text-gray-600">
+                            <span className="flex items-center gap-1">
+                              <DollarSign className="h-4 w-4" />
+                              ${job.salary_min?.toLocaleString()}-${job.salary_max?.toLocaleString()}/{job.salary_type}
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-3 text-sm text-gray-600">
+                            <span className="flex items-center gap-1">
+                              <Building2 className="h-4 w-4" />
+                              {job.job_type}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="border-t pt-4 space-y-2">
+                          <Button 
+                            size="sm" 
+                            className="w-full bg-blue-600 hover:bg-blue-700"
+                            onClick={() => applyForJob(job.id)}
+                            disabled={applications.some(app => app.job_posting_id === job.id)}
+                          >
+                            {applications.some(app => app.job_posting_id === job.id) ? 'Applied' : 'Apply Now'}
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="w-full border-yellow-300 text-yellow-700 hover:bg-yellow-100"
+                            onClick={() => toggleSaveJob(job.id)}
+                          >
+                            <Star className="h-4 w-4 mr-2 fill-yellow-500" />
+                            Remove from Saved
+                          </Button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}
