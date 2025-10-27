@@ -236,7 +236,17 @@ export default function ReferralManagementPage() {
         },
       }))
 
-      setReferrals((prev) => [...convertedReferrals, ...prev])
+      // Save to database
+      for (const convertedReferral of convertedReferrals) {
+        await fetch("/api/referrals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(convertedReferral),
+        })
+      }
+      
+      // Refetch all referrals from database
+      await fetchReferrals()
       setExtendedCareStatus("connected")
       setLastSyncTime(new Date().toLocaleString())
     } catch (error) {
@@ -274,25 +284,55 @@ export default function ReferralManagementPage() {
     }
   }
 
-  const handleApprove = (id: string) => {
-    setReferrals((prev) =>
-      prev.map((r) => {
-        if (r.id === id) {
-          const socDueDate = new Date()
-          socDueDate.setDate(socDueDate.getDate() + 5) // Set SOC due in 5 days
-          return { ...r, status: "Approved", socDueDate: socDueDate.toISOString().split("T")[0] }
-        }
-        return r
-      }),
-    )
+  const handleApprove = async (id: string) => {
+    try {
+      const socDueDate = new Date()
+      socDueDate.setDate(socDueDate.getDate() + 5) // Set SOC due in 5 days
+      
+      const response = await fetch(`/api/referrals/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Approved", socDueDate: socDueDate.toISOString().split("T")[0] }),
+      })
+
+      if (response.ok) {
+        await fetchReferrals()
+      }
+    } catch (error) {
+      console.error("Failed to approve referral:", error)
+    }
   }
 
-  const handleDeny = (id: string) => {
-    setReferrals((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Denied" } : r)))
+  const handleDeny = async (id: string) => {
+    try {
+      const response = await fetch(`/api/referrals/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Denied" }),
+      })
+
+      if (response.ok) {
+        await fetchReferrals()
+      }
+    } catch (error) {
+      console.error("Failed to deny referral:", error)
+    }
   }
 
-  const handleRequestAuth = (id: string) => {
-    setReferrals((prev) => prev.map((r) => (r.id === id ? { ...r, status: "Pending Auth" } : r)))
+  const handleRequestAuth = async (id: string) => {
+    try {
+      const response = await fetch(`/api/referrals/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "Pending Auth" }),
+      })
+
+      if (response.ok) {
+        await fetchReferrals()
+      }
+    } catch (error) {
+      console.error("Failed to request auth:", error)
+    }
   }
 
   const getStatusColor = (status: string) => {

@@ -1300,13 +1300,13 @@ export default function ApplicantDashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           applicationId: application.id,
-          status: 'accepted'
+          status: 'offer_accepted'
         })
       })
 
       const data = await response.json()
       if (data.success) {
-        alert('Offer accepted successfully!')
+        alert('Offer accepted successfully! Waiting for employer confirmation.')
         loadApplications() // Refresh applications
         setIsApplicationDetailsOpen(false) // Close modal if open
       } else {
@@ -1611,6 +1611,7 @@ export default function ApplicantDashboard() {
       !isInterviewPast(app.interview_date || '', app.interview_time || '')
     ).length,
     offersReceived: applications.filter(app => app.status === 'offer_received').length,
+    offersAccepted: applications.filter(app => app.status === 'offer_accepted').length,
     profileViews: applicantInfo?.profileViews || 0,
     savedJobs: savedJobs.length,
   }
@@ -1931,11 +1932,13 @@ export default function ApplicantDashboard() {
                             application.status === 'interview_scheduled' ? 'bg-blue-100 text-blue-800 border-blue-300' :
                             application.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
                             application.status === 'offer_received' ? 'bg-green-100 text-green-800 border-green-300' :
+                            application.status === 'offer_accepted' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
                             'bg-red-100 text-red-800 border-red-300'
                           }>
                             {application.status === 'interview_scheduled' ? 'Interview Scheduled' :
                              application.status === 'pending' ? 'Under Review' :
                              application.status === 'offer_received' ? 'Offer Received' :
+                             application.status === 'offer_accepted' ? 'Offer Accepted' :
                              application.status}
                           </Badge>
                           {application.status === 'interview_scheduled' && application.interview_date && (
@@ -2505,6 +2508,7 @@ export default function ApplicantDashboard() {
                         application.status === 'interview_scheduled' ? 'bg-blue-50 border-blue-200' :
                         application.status === 'pending' ? 'bg-white border-gray-200' :
                         application.status === 'offer_received' ? 'bg-green-50 border-green-200' :
+                        application.status === 'offer_accepted' ? 'bg-emerald-50 border-emerald-200' :
                         application.status === 'accepted' ? 'bg-purple-50 border-purple-200' :
                         application.status === 'rejected' ? 'bg-red-50 border-red-200' :
                         'bg-white border-gray-200'
@@ -2646,12 +2650,32 @@ export default function ApplicantDashboard() {
                           <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
                             <div className="flex items-center space-x-2">
                               <CheckCircle className="h-4 w-4 text-green-600" />
-                              <span className="text-sm font-medium text-green-800">Application Accepted</span>
+                              <span className="text-sm font-medium text-green-800">Hired! Welcome to the team!</span>
                             </div>
                             <Button 
                               size="sm" 
                               variant="outline" 
                               className="text-green-600 border-green-300"
+                              onClick={() => {
+                                setSelectedApplication(application)
+                                setIsApplicationDetailsOpen(true)
+                              }}
+                            >
+                              View Details
+                            </Button>
+                          </div>
+                        )}
+
+                        {application.status === 'offer_accepted' && (
+                          <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                            <div className="flex items-center space-x-2">
+                              <CheckCircle className="h-4 w-4 text-emerald-600" />
+                              <span className="text-sm font-medium text-emerald-800">Offer Accepted - Pending Employment</span>
+                            </div>
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="text-emerald-600 border-emerald-300"
                               onClick={() => {
                                 setSelectedApplication(application)
                                 setIsApplicationDetailsOpen(true)
@@ -4387,11 +4411,13 @@ export default function ApplicantDashboard() {
                       selectedApplication.status === 'interview_scheduled' ? 'bg-blue-100 text-blue-800' :
                       selectedApplication.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
                       selectedApplication.status === 'offer_received' ? 'bg-green-100 text-green-800' :
+                      selectedApplication.status === 'offer_accepted' ? 'bg-emerald-100 text-emerald-800' :
                       'bg-red-100 text-red-800'
                     }>
                       {selectedApplication.status === 'interview_scheduled' ? 'Interview Scheduled' :
                        selectedApplication.status === 'pending' ? 'Under Review' :
                        selectedApplication.status === 'offer_received' ? 'Offer Received' :
+                       selectedApplication.status === 'offer_accepted' ? 'Offer Accepted' :
                        selectedApplication.status}
                     </Badge>
                   </div>

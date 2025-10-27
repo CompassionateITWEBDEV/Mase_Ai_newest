@@ -89,6 +89,7 @@ export async function PUT(request: NextRequest) {
           salary_type,
           city,
           state,
+          employer_id,
           employer:employers(
             company_name
           )
@@ -126,6 +127,21 @@ export async function PUT(request: NextRequest) {
             })
           console.log('✅ Hired notification created for applicant:', updatedApplication.applicant_id)
         }
+
+        // Notify applicant when offer accepted (pending employment)
+        else if (status === 'offer_accepted') {
+          await supabase
+            .from('notifications')
+            .insert({
+              applicant_id: updatedApplication.applicant_id,
+              type: 'offer',
+              title: 'Offer Accepted',
+              message: `You have accepted the job offer for ${jobTitle} at ${companyName}. Waiting for employer confirmation.`,
+              action_url: '/applicant-dashboard?tab=applications',
+              read: false
+            })
+          console.log('✅ Offer accepted notification created for applicant:', updatedApplication.applicant_id)
+        }
         
         // Notify applicant when rejected
         else if (status === 'rejected') {
@@ -157,7 +173,33 @@ export async function PUT(request: NextRequest) {
           console.log('✅ Application accepted for review notification created for applicant')
         }
       } catch (notifError) {
-        console.error('Error creating status notification:', notifError)
+        console.error('Error creating applicant status notification:', notifError)
+        // Don't fail the request if notification creation fails
+      }
+    }
+
+    // Create employer notification when applicant accepts offer
+    if (status === 'offer_accepted' && updatedApplication.job_posting?.employer_id) {
+      try {
+        const jobTitle = updatedApplication.job_posting?.title || 'the position'
+        const applicantName = updatedApplication.applicant 
+          ? `${updatedApplication.applicant.first_name} ${updatedApplication.applicant.last_name}` 
+          : 'An applicant'
+        
+        await supabase
+          .from('notifications')
+          .insert({
+            employer_id: updatedApplication.job_posting.employer_id,
+            type: 'offer',
+            title: 'Offer Accepted',
+            message: `${applicantName} has accepted the job offer for ${jobTitle}. Ready to mark as hired.`,
+            action_url: '/employer-dashboard?tab=applications',
+            read: false
+          })
+        
+        console.log('✅ Offer accepted notification created for employer:', updatedApplication.job_posting.employer_id)
+      } catch (notifError) {
+        console.error('Error creating employer notification:', notifError)
         // Don't fail the request if notification creation fails
       }
     }
