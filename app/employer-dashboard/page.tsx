@@ -279,10 +279,11 @@ export default function EmployerDashboard() {
     }
   }, [activeTab, employerInfo])
 
-  // Refresh interviews when switching to interviews tab
+  // Refresh interviews and reschedule requests when switching to interviews tab
   useEffect(() => {
     if (activeTab === 'interviews' && employerInfo?.id) {
       loadInterviews()
+      loadRescheduleRequests()
     }
   }, [activeTab, employerInfo])
 
@@ -432,6 +433,57 @@ export default function EmployerDashboard() {
       setInterviews([])
     } finally {
       setIsLoadingInterviews(false)
+    }
+  }
+
+  const loadRescheduleRequests = async () => {
+    if (!employerId) return
+    
+    try {
+      setIsLoadingRescheduleRequests(true)
+      const response = await fetch(`/api/interviews/reschedule-list?employer_id=${employerId}&status=pending`)
+      
+      const data = await response.json()
+      
+      if (data.success && data.rescheduleRequests) {
+        setRescheduleRequests(data.rescheduleRequests)
+        console.log(`✅ Loaded ${data.rescheduleRequests.length} reschedule requests`)
+      } else {
+        setRescheduleRequests([])
+      }
+    } catch (error) {
+      console.error('Error loading reschedule requests:', error)
+      setRescheduleRequests([])
+    } finally {
+      setIsLoadingRescheduleRequests(false)
+    }
+  }
+
+  const respondToRescheduleRequest = async (requestId: string, action: 'approved' | 'rejected') => {
+    try {
+      const response = await fetch('/api/interviews/reschedule-response', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId,
+          action,
+          employerId
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        // Reload reschedule requests and interviews
+        await loadRescheduleRequests()
+        await loadInterviews()
+        alert(action === 'approved' ? '✅ Reschedule request approved!' : '❌ Reschedule request rejected')
+      } else {
+        alert('Failed to respond to request: ' + data.error)
+      }
+    } catch (error) {
+      console.error('Error responding to reschedule request:', error)
+      alert('Failed to respond to request')
     }
   }
 
@@ -3098,6 +3150,89 @@ export default function EmployerDashboard() {
 
           {/* Interviews Tab */}
           <TabsContent value="interviews" className="space-y-6">
+            {/* Reschedule Requests Section */}
+            {rescheduleRequests.length > 0 && (
+              <Card className="border-orange-300">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-orange-600">
+                    <AlertTriangle className="h-5 w-5" />
+                    Pending Reschedule Requests ({rescheduleRequests.length})
+                  </CardTitle>
+                  <CardDescription>
+                    Review and respond to interview reschedule requests from applicants
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {rescheduleRequests.map((request) => (
+                      <Card key={request.id} className="border-orange-200 bg-orange-50">
+                        <CardContent className="pt-6">
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-3 mb-3">
+                                <h4 className="font-semibold text-lg">
+                                  {request.applicant?.first_name} {request.applicant?.last_name}
+                                </h4>
+                                <Badge variant="outline" className="bg-white">
+                                  {request.job_posting?.title || 'Job Position'}
+                                </Badge>
+                              </div>
+                              
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                                <div className="bg-white p-3 rounded border">
+                                  <p className="text-sm text-gray-600 mb-1">Current Schedule:</p>
+                                  <p className="font-medium text-gray-900">
+                                    {request.original_date ? new Date(request.original_date).toLocaleDateString() : 'N/A'}
+                                    {request.interview?.interview_time && ` ${request.interview.interview_time}`}
+                                  </p>
+                                </div>
+                                <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                                  <p className="text-sm text-gray-600 mb-1">Proposed New Schedule:</p>
+                                  <p className="font-medium text-blue-600">
+                                    {request.proposed_date ? new Date(request.proposed_date).toLocaleDateString() : 'N/A'}
+                                    {request.proposed_time && ` at ${request.proposed_time}`}
+                                  </p>
+                                </div>
+                              </div>
+                              
+                              {request.reason && (
+                                <div className="bg-white p-3 rounded border mb-3">
+                                  <p className="text-sm text-gray-600 mb-1">Reason for Reschedule:</p>
+                                  <p className="text-sm">{request.reason}</p>
+                                </div>
+                              )}
+                              
+                              <p className="text-xs text-gray-500">
+                                Requested: {new Date(request.created_at).toLocaleString()}
+                              </p>
+                            </div>
+                            
+                            <div className="flex flex-col gap-2">
+                              <Button
+                                onClick={() => respondToRescheduleRequest(request.id, 'approved')}
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Approve
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => respondToRescheduleRequest(request.id, 'rejected')}
+                                className="border-red-300 text-red-600 hover:bg-red-50"
+                              >
+                                <XCircle className="h-4 w-4 mr-2" />
+                                Reject
+                              </Button>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
