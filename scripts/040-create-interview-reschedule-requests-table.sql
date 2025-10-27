@@ -1,17 +1,17 @@
 -- Create interview reschedule requests table
 CREATE TABLE IF NOT EXISTS interview_reschedule_requests (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  interview_id UUID REFERENCES interview_schedules(id) ON DELETE CASCADE,
-  application_id UUID REFERENCES job_applications(id) ON DELETE CASCADE,
-  applicant_id UUID REFERENCES applicants(id) ON DELETE CASCADE,
-  employer_id UUID REFERENCES employers(id) ON DELETE CASCADE,
+  interview_id UUID,
+  application_id UUID,
+  applicant_id UUID,
+  employer_id UUID,
   original_date TIMESTAMP WITH TIME ZONE,
   new_date DATE NOT NULL,
   new_time TIME NOT NULL,
   reason TEXT NOT NULL,
   status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
   reviewed_at TIMESTAMP WITH TIME ZONE,
-  reviewed_by UUID REFERENCES employers(id),
+  reviewed_by UUID,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
