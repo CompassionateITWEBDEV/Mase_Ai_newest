@@ -57,16 +57,69 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(`Found ${applications?.length || 0} applications`)
+    
+    // Fetch interview details from interview_schedules for applications with interview_scheduled status
+    const transformedApplications = await Promise.all((applications || []).map(async (app: any) => {
+      // If application has interview_scheduled status, fetch from interview_schedules table
+      if (app.status === 'interview_scheduled' && app.job_posting_id) {
+        try {
+          const { data: interview, error: interviewError } = await supabase
+            .from('interview_schedules')
+            .select('*')
+            .eq('job_posting_id', app.job_posting_id)
+            .eq('applicant_id', app.applicant_id)
+            .eq('status', 'scheduled')
+            .order('interview_date', { ascending: true })
+            .limit(1)
+            .single()
 
-    // Transform the data to include company name in job_posting
-    const transformedApplications = applications?.map(app => ({
-      ...app,
-      job_posting: app.job_posting ? {
-        ...app.job_posting,
-        company_name: app.job_posting.employer?.company_name || 'Unknown Company',
-        location: `${app.job_posting.city}, ${app.job_posting.state}`
-      } : null
-    })) || []
+          if (!interviewError && interview) {
+            console.log('✅ Found interview data for application:', app.id, {
+              interview_date: interview.interview_date,
+              interview_location: interview.interview_location,
+              interviewer_name: interview.interviewer_name
+            })
+            
+            // Merge interview data into application
+            app.interview_date = interview.interview_date
+            app.interview_time = interview.interview_date ? new Date(interview.interview_date).toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: true
+            }) : null
+            app.interview_location = interview.interview_location || interview.meeting_link
+            app.interviewer = interview.interviewer_name
+            app.interview_notes = interview.interview_notes
+            app.meeting_link = interview.meeting_link
+          } else if (interviewError) {
+            console.log('⚠️ No interview data found in interview_schedules for application:', app.id)
+          }
+        } catch (err) {
+          console.error('Error fetching interview data:', err)
+        }
+      }
+
+      return {
+        ...app,
+        job_posting: app.job_posting ? {
+          ...app.job_posting,
+          company_name: app.job_posting.employer?.company_name || 'Unknown Company',
+          location: `${app.job_posting.city}, ${app.job_posting.state}`
+        } : null
+      }
+    }))
+
+    // Log sample application to check interview fields
+    if (transformedApplications && transformedApplications.length > 0) {
+      console.log('📋 Transformed application (first one):', {
+        id: transformedApplications[0].id,
+        status: transformedApplications[0].status,
+        interview_date: transformedApplications[0].interview_date,
+        interview_time: transformedApplications[0].interview_time,
+        interview_location: transformedApplications[0].interview_location,
+        interviewer: transformedApplications[0].interviewer
+      })
+    }
 
     return NextResponse.json({
       success: true,

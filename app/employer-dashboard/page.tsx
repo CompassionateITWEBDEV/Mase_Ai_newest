@@ -104,6 +104,8 @@ export default function EmployerDashboard() {
   const [isDocumentViewerOpen, setIsDocumentViewerOpen] = useState(false)
   const [selectedApplicantName, setSelectedApplicantName] = useState('')
   const [isInterviewModalOpen, setIsInterviewModalOpen] = useState(false)
+  const [selectedInterview, setSelectedInterview] = useState<any>(null)
+  const [isEditInterviewOpen, setIsEditInterviewOpen] = useState(false)
   const [isOfferModalOpen, setIsOfferModalOpen] = useState(false)
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null)
   const [isCandidateModalOpen, setIsCandidateModalOpen] = useState(false)
@@ -404,17 +406,28 @@ export default function EmployerDashboard() {
     
     try {
       setIsLoadingInterviews(true)
+      console.log('🔄 Loading interviews for employer:', employerId)
       const response = await fetch(`/api/interviews/list?employer_id=${employerId}`)
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
+      
       const data = await response.json()
+      console.log('📋 Interviews API response:', data)
+      
+      if (!response.ok) {
+        console.error('❌ Error response from API:', data)
+        throw new Error(data.error || `HTTP error! status: ${response.status}`)
+      }
+      
       if (data.success && data.interviews) {
         setInterviews(data.interviews)
-        console.log(`Loaded ${data.interviews.length} interviews`)
+        console.log(`✅ Loaded ${data.interviews.length} interviews`)
+      } else {
+        console.log('⚠️ No interviews found or API error:', data.error)
+        setInterviews([])
       }
-    } catch (error) {
-      console.error('Error loading interviews:', error)
+    } catch (error: any) {
+      console.error('❌ Error loading interviews:', error)
+      // Don't show alert, just log the error and set empty array
+      setInterviews([])
     } finally {
       setIsLoadingInterviews(false)
     }
@@ -465,13 +478,46 @@ export default function EmployerDashboard() {
               : app
           )
         )
-        console.log(`Application ${status} successfully`)
+        console.log(`✅ Application ${status} successfully`, { applicationId, status, notes })
+        
+        // Reload applications to ensure UI updates properly
+        loadApplications()
       } else {
         throw new Error(data.error || 'Failed to update application')
       }
     } catch (error) {
       console.error('Error updating application status:', error)
       alert('Failed to update application status. Please try again.')
+    }
+  }
+
+  const handleAcceptApplication = async (applicationId: string) => {
+    try {
+      const response = await fetch('/api/applications/update-status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId,
+          status: 'pending',
+          is_accepted: true,
+          notes: 'Application accepted for interview scheduling'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const data = await response.json()
+      if (data.success) {
+        console.log('✅ Application accepted successfully')
+        loadApplications()
+      } else {
+        throw new Error(data.error || 'Failed to accept application')
+      }
+    } catch (error) {
+      console.error('Error accepting application:', error)
+      alert('Failed to accept application. Please try again.')
     }
   }
 
@@ -864,27 +910,111 @@ export default function EmployerDashboard() {
 
   const handleScheduleInterview = async (interviewData: any) => {
     try {
+      console.log('🚀 Scheduling interview with data:', interviewData)
+      
       const response = await fetch('/api/interviews/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(interviewData)
       })
 
+      const data = await response.json()
+      
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+        console.error('❌ API Error Response:', data)
+        throw new Error(data.error || `HTTP error! status: ${response.status}`)
       }
 
-      const data = await response.json()
       if (data.success) {
+        console.log('✅ Interview scheduled successfully:', data.interview)
         alert('Interview scheduled successfully!')
+        loadApplications() // Refresh applications to update status
         loadInterviews() // Refresh the interviews list
       } else {
-        alert(data.error || 'Failed to schedule interview')
+        throw new Error(data.error || 'Failed to schedule interview')
       }
     } catch (error: any) {
-      console.error('Error scheduling interview:', error)
+      console.error('❌ Error scheduling interview:', error)
       alert(error.message || 'Failed to schedule interview. Please try again.')
+      throw error // Re-throw so modal can handle it
+    }
+  }
+
+  const handleEditInterview = (interview: any) => {
+    setSelectedInterview(interview)
+    setIsEditInterviewOpen(true)
+  }
+
+  const handleUpdateInterview = async (interviewData: any) => {
+    try {
+      console.log('🚀 Updating interview with data:', interviewData)
+      
+      const response = await fetch('/api/interviews/update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(interviewData)
+      })
+
+      const data = await response.json()
+      
+      if (!response.ok) {
+        console.error('❌ API Error Response:', data)
+        throw new Error(data.error || `HTTP error! status: ${response.status}`)
+      }
+
+      if (data.success) {
+        console.log('✅ Interview updated successfully:', data.interview)
+        alert('Interview updated successfully!')
+        loadInterviews() // Refresh the interviews list
+        setIsEditInterviewOpen(false)
+        setSelectedInterview(null)
+      } else {
+        throw new Error(data.error || 'Failed to update interview')
+      }
+    } catch (error: any) {
+      console.error('❌ Error updating interview:', error)
+      alert(error.message || 'Failed to update interview. Please try again.')
+      throw error
+    }
+  }
+
+  const handleCancelInterview = async (interviewId: string) => {
+    // Show confirmation dialog
+    const confirmed = confirm('Are you sure you want to cancel this interview? This action cannot be undone.')
+    
+    if (!confirmed) {
+      return
+    }
+
+    try {
+      console.log('🚀 Canceling interview:', interviewId)
+      
+      const response = await fetch('/api/interviews/update', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interview_id: interviewId,
+          status: 'cancelled'
+        })
+      })
+
+      const data = await response.json()
+      
+      if (!response.ok) {
+        console.error('❌ API Error Response:', data)
+        throw new Error(data.error || `HTTP error! status: ${response.status}`)
+      }
+
+      if (data.success) {
+        console.log('✅ Interview cancelled successfully:', data.interview)
+        alert('Interview cancelled successfully!')
+        loadInterviews() // Refresh the interviews list
+      } else {
+        throw new Error(data.error || 'Failed to cancel interview')
+      }
+    } catch (error: any) {
+      console.error('❌ Error cancelling interview:', error)
+      alert(error.message || 'Failed to cancel interview. Please try again.')
     }
   }
 
@@ -907,15 +1037,46 @@ export default function EmployerDashboard() {
 
   // Analytics data for charts
   const analyticsData = {
-    // Monthly trends data (last 6 months)
-    monthlyTrends: [
-      { month: 'Jan', applications: 12, views: 245, hired: 3 },
-      { month: 'Feb', applications: 18, views: 312, hired: 5 },
-      { month: 'Mar', applications: 24, views: 389, hired: 7 },
-      { month: 'Apr', applications: 31, views: 456, hired: 9 },
-      { month: 'May', applications: 28, views: 423, hired: 6 },
-      { month: 'Jun', applications: 35, views: 512, hired: 11 }
-    ],
+    // Monthly trends data (last 6 months) - calculated from actual data
+    monthlyTrends: (() => {
+      const months = []
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+      
+      // Get last 6 months
+      for (let i = 5; i >= 0; i--) {
+        const date = new Date()
+        date.setMonth(date.getMonth() - i)
+        const monthKey = date.toISOString().slice(0, 7) // YYYY-MM format
+        const monthName = monthNames[date.getMonth()]
+        
+        // Count applications for this month
+        const monthApps = applications.filter(app => {
+          const appDate = new Date(app.applied_date || app.created_at)
+          return appDate.toISOString().slice(0, 7) === monthKey
+        })
+        
+        // Count views for this month (job views)
+        const monthViews = jobs.reduce((sum, job) => {
+          const jobDate = new Date(job.posted_date || job.created_at)
+          if (jobDate.toISOString().slice(0, 7) === monthKey) {
+            return sum + (job.views_count || 0)
+          }
+          return sum
+        }, 0)
+        
+        // Count hired for this month
+        const monthHired = monthApps.filter(app => app.status === 'accepted' || app.status === 'hired').length
+        
+        months.push({
+          month: monthName,
+          applications: monthApps.length,
+          views: monthViews,
+          hired: monthHired
+        })
+      }
+      
+      return months
+    })(),
     
     // Application status distribution
     applicationStatusData: [
@@ -932,16 +1093,43 @@ export default function EmployerDashboard() {
       conversionRate: job.views_count > 0 ? ((job.applications_count || 0) / job.views_count * 100).toFixed(1) : 0
     })),
     
-    // Weekly activity data
-    weeklyActivity: [
-      { day: 'Mon', applications: 5, views: 89 },
-      { day: 'Tue', applications: 8, views: 112 },
-      { day: 'Wed', applications: 12, views: 145 },
-      { day: 'Thu', applications: 9, views: 98 },
-      { day: 'Fri', applications: 6, views: 76 },
-      { day: 'Sat', applications: 2, views: 34 },
-      { day: 'Sun', applications: 1, views: 23 }
-    ],
+    // Weekly activity data - calculated from actual data
+    weeklyActivity: (() => {
+      const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+      const weekData = []
+      
+      // Get data for last 7 days
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date()
+        date.setDate(date.getDate() - i)
+        const dateKey = date.toISOString().slice(0, 10) // YYYY-MM-DD format
+        const dayName = dayNames[date.getDay()]
+        
+        // Count applications for this day
+        const dayApps = applications.filter(app => {
+          const appDate = new Date(app.applied_date || app.created_at)
+          return appDate.toISOString().slice(0, 10) === dateKey
+        })
+        
+        // Count views for this day (approximate - using job posted date)
+        // Note: This is an approximation since we don't have per-day view tracking
+        const dayViews = jobs.reduce((sum, job) => {
+          const jobDate = new Date(job.posted_date || job.created_at)
+          if (jobDate.toISOString().slice(0, 10) === dateKey) {
+            return sum + Math.floor((job.views_count || 0) / 30) // Average daily views
+          }
+          return sum
+        }, 0)
+        
+        weekData.push({
+          day: dayName,
+          applications: dayApps.length,
+          views: dayViews
+        })
+      }
+      
+      return weekData
+    })(),
     
     // Department performance - more accurate calculation
     departmentPerformance: (() => {
@@ -2453,12 +2641,17 @@ export default function EmployerDashboard() {
                                       application.status === 'offer_received' ? 'bg-purple-100 text-purple-800 border-purple-300' :
                                       application.status === 'offer_accepted' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
                                       application.status === 'offer_declined' ? 'bg-orange-100 text-orange-800 border-orange-300' :
+                                      (application.status === 'pending' && application.is_accepted) ? 'bg-green-50 text-green-700 border-green-300' :
                                       'bg-gray-100 text-gray-800 border-gray-300'
                                     }
                                   >
                                     {application.status === 'accepted' ? 'Hired' : 
                                      application.status === 'hired' ? 'Hired' :
-                                     application.status === 'interview_scheduled' ? 'Pending (Interview Scheduled)' :
+                                     application.status === 'interview_scheduled' ? 'Interview Scheduled' :
+                                     application.status === 'offer_received' ? 'Offer Received' :
+                                     application.status === 'offer_accepted' ? 'Offer Accepted' :
+                                     application.status === 'offer_declined' ? 'Offer Declined' :
+                                     (application.status === 'pending' && application.is_accepted) ? 'Accepted' :
                                      application.status.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
                                   </Badge>
                                 </div>
@@ -2582,7 +2775,16 @@ export default function EmployerDashboard() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => scheduleInterview(application)}
-                                disabled={application.status === 'interview_scheduled' || application.status === 'offer_received' || application.status === 'offer_accepted' || application.status === 'accepted' || application.status === 'hired'}
+                                disabled={
+                                  // Disable if pending and not accepted yet
+                                  (application.status === 'pending' && !application.is_accepted) ||
+                                  // Disable if already in these statuses
+                                  application.status === 'interview_scheduled' ||
+                                  application.status === 'offer_received' ||
+                                  application.status === 'offer_accepted' ||
+                                  application.status === 'accepted' ||
+                                  application.status === 'hired'
+                                }
                                 className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 disabled:opacity-50"
                               >
                                 <Calendar className="h-4 w-4 mr-2" />
@@ -2593,34 +2795,144 @@ export default function EmployerDashboard() {
                                 size="sm"
                                 variant="outline"
                                 onClick={() => sendJobOffer(application)}
-                                disabled={application.status === 'offer_received' || application.status === 'offer_accepted' || application.status === 'offer_declined' || application.status === 'accepted' || application.status === 'hired'}
+                                disabled={
+                                  // Disable if not accepted yet
+                                  (application.status === 'pending' && !application.is_accepted) ||
+                                  // Disable if already in these statuses
+                                  application.status === 'offer_received' || 
+                                  application.status === 'offer_accepted' || 
+                                  application.status === 'offer_declined' || 
+                                  application.status === 'accepted' || 
+                                  application.status === 'hired'
+                                }
                                 className="text-purple-600 hover:text-purple-700 hover:bg-purple-50 disabled:opacity-50"
                               >
                                 <Send className="h-4 w-4 mr-2" />
                                 Send Offer
                               </Button>
                               
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => updateApplicationStatus(application.id, 'accepted')}
-                                disabled={application.status === 'accepted'}
-                                className="text-green-600 hover:text-green-700 hover:bg-green-50 disabled:opacity-50"
-                              >
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Accept
-                              </Button>
+                              {/* Accept Application - stays pending, disables reject */}
+                              {application.status === 'pending' && !application.is_accepted && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    const applicantName = `${application.applicant?.first_name || ''} ${application.applicant?.last_name || ''}`.trim() || 'this candidate'
+                                    if (confirm(`Accept the application from ${applicantName}? This will allow you to schedule an interview.`)) {
+                                      handleAcceptApplication(application.id)
+                                    }
+                                  }}
+                                  className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  Accept Application
+                                </Button>
+                              )}
                               
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => updateApplicationStatus(application.id, 'rejected')}
-                                disabled={application.status === 'rejected' || application.status === 'accepted' || application.status === 'hired'}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50 disabled:opacity-50"
-                              >
-                                <XCircle className="h-4 w-4 mr-2" />
-                                Reject
-                              </Button>
+                              {/* Show accepted badge once accepted */}
+                              {application.status === 'pending' && application.is_accepted && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  disabled
+                                  className="text-green-600 bg-green-50 border-green-300"
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  Accepted
+                                </Button>
+                              )}
+                              
+                              {/* Hire Now - After Interview Date Passed (Fast Hire, No Offer Needed) */}
+                              {application.status === 'interview_scheduled' && (() => {
+                                // Find the interview for this application
+                                const relatedInterview = interviews.find(int => 
+                                  int.applicant_id === application.applicant_id && 
+                                  int.job_posting_id === application.job_posting_id
+                                )
+                                
+                                // Check if interview date/time has passed
+                                const interviewHasPassed = relatedInterview?.interview_date 
+                                  ? new Date(relatedInterview.interview_date) < new Date()
+                                  : false
+                                
+                                // Show both Hire and Reject buttons if interview date has passed
+                                return interviewHasPassed ? (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        const applicantName = `${application.applicant?.first_name || ''} ${application.applicant?.last_name || ''}`.trim() || 'this candidate'
+                                        if (confirm(`Are you sure you want to hire ${applicantName} after the interview? This will mark them as hired immediately.`)) {
+                                          updateApplicationStatus(application.id, 'accepted')
+                                        }
+                                      }}
+                                      className="text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-300"
+                                    >
+                                      <CheckCircle className="h-4 w-4 mr-2" />
+                                      Hire Now
+                                    </Button>
+                                    
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => {
+                                        const applicantName = `${application.applicant?.first_name || ''} ${application.applicant?.last_name || ''}`.trim() || 'this candidate'
+                                        if (confirm(`Are you sure you want to reject ${applicantName} after the interview? This action cannot be undone.`)) {
+                                          updateApplicationStatus(application.id, 'rejected')
+                                        }
+                                      }}
+                                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                    >
+                                      <XCircle className="h-4 w-4 mr-2" />
+                                      Reject
+                                    </Button>
+                                  </>
+                                ) : null
+                              })()}
+                              
+                              {/* Mark as Hired - Highest Status (Offer Accepted Phase) */}
+                              {application.status === 'offer_accepted' && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => updateApplicationStatus(application.id, 'accepted')}
+                                  disabled={application.status === 'accepted'}
+                                  className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 border-emerald-300"
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  Mark as Hired
+                                </Button>
+                              )}
+                              
+                              {/* Hide reject button if application is accepted */}
+                              {(() => {
+                                // Debug logging to console
+                                console.log('🔍 Reject Button Check:', {
+                                  id: application.id,
+                                  status: application.status,
+                                  is_accepted: application.is_accepted,
+                                  name: application.applicant?.full_name
+                                })
+                                
+                                const shouldHide = 
+                                  application.is_accepted ||  // ← HIDE if accepted (for ANY status)
+                                  application.status === 'rejected' ||
+                                  application.status === 'accepted' ||
+                                  application.status === 'hired'
+                                
+                                return !shouldHide ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => updateApplicationStatus(application.id, 'rejected')}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  >
+                                    <XCircle className="h-4 w-4 mr-2" />
+                                    Reject
+                                  </Button>
+                                ) : null
+                              })()}
                             </div>
                           </div>
                         </CardContent>
@@ -2864,28 +3176,38 @@ export default function EmployerDashboard() {
                               )}
                             </div>
                             <div className="flex space-x-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  // TODO: Implement edit interview functionality
-                                  console.log('Edit interview:', interview.id)
-                                }}
-                              >
-                                <Edit className="h-4 w-4 mr-1" />
-                                Edit
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => {
-                                  // TODO: Implement cancel interview functionality
-                                  console.log('Cancel interview:', interview.id)
-                                }}
-                              >
-                                <XCircle className="h-4 w-4 mr-1" />
-                                Cancel
-                              </Button>
+                              {interview.status === 'scheduled' && (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleEditInterview(interview)}
+                                    className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  >
+                                    <Edit className="h-4 w-4 mr-1" />
+                                    Edit
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleCancelInterview(interview.id)}
+                                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  >
+                                    <XCircle className="h-4 w-4 mr-1" />
+                                    Cancel
+                                  </Button>
+                                </>
+                              )}
+                              {interview.status === 'cancelled' && (
+                                <Badge className="bg-red-100 text-red-800">
+                                  Cancelled
+                                </Badge>
+                              )}
+                              {interview.status === 'completed' && (
+                                <Badge className="bg-green-100 text-green-800">
+                                  Completed
+                                </Badge>
+                              )}
                             </div>
                           </div>
                         </CardContent>
@@ -3339,35 +3661,130 @@ export default function EmployerDashboard() {
                 <div>
                   <p className="text-sm text-gray-600 mb-1">Current Status:</p>
                   <Badge 
-                    variant={selectedApplication.status === 'pending' ? 'default' : 
-                            selectedApplication.status === 'accepted' ? 'default' : 'secondary'}
-                    className={selectedApplication.status === 'accepted' ? 'bg-green-100 text-green-800' : 
-                              selectedApplication.status === 'rejected' ? 'bg-red-100 text-red-800' : ''}
+                    variant="outline"
+                    className={selectedApplication.status === 'accepted' ? 'bg-green-100 text-green-800 border-green-300' : 
+                              selectedApplication.status === 'rejected' ? 'bg-red-100 text-red-800 border-red-300' :
+                              selectedApplication.status === 'interview_scheduled' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                              selectedApplication.status === 'offer_received' ? 'bg-purple-100 text-purple-800 border-purple-300' :
+                              selectedApplication.status === 'offer_accepted' ? 'bg-emerald-100 text-emerald-800 border-emerald-300' :
+                              (selectedApplication.status === 'pending' && selectedApplication.is_accepted) ? 'bg-green-50 text-green-700 border-green-300' :
+                              'bg-gray-100 text-gray-800 border-gray-300'}
                   >
-                    {selectedApplication.status}
+                    {selectedApplication.status === 'accepted' ? 'Hired' : 
+                     selectedApplication.status === 'hired' ? 'Hired' :
+                     selectedApplication.status === 'interview_scheduled' ? 'Interview Scheduled' :
+                     selectedApplication.status === 'offer_received' ? 'Offer Received' :
+                     selectedApplication.status === 'offer_accepted' ? 'Offer Accepted' :
+                     selectedApplication.status === 'offer_declined' ? 'Offer Declined' :
+                     (selectedApplication.status === 'pending' && selectedApplication.is_accepted) ? 'Accepted' :
+                     selectedApplication.status.replace('_', ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
                   </Badge>
                 </div>
                 
                 <div className="flex space-x-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => updateApplicationStatus(selectedApplication.id, 'accepted')}
-                    disabled={selectedApplication.status === 'accepted' || selectedApplication.status === 'hired'}
-                    className="text-green-600 hover:text-green-700"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-1" />
-                    Accept Application
-                  </Button>
+                  {/* Accept Application - stays pending with confirmation */}
+                  {selectedApplication.status === 'pending' && !selectedApplication.is_accepted && (
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        const applicantName = `${selectedApplication.applicant?.first_name || ''} ${selectedApplication.applicant?.last_name || ''}`.trim() || 'this candidate'
+                        if (confirm(`Accept the application from ${applicantName}? This will allow you to schedule an interview.`)) {
+                          handleAcceptApplication(selectedApplication.id)
+                        }
+                      }}
+                      className="text-green-600 hover:text-green-700"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Accept Application
+                    </Button>
+                  )}
                   
-                  <Button
-                    variant="outline"
-                    onClick={() => updateApplicationStatus(selectedApplication.id, 'rejected')}
-                    disabled={selectedApplication.status === 'rejected' || selectedApplication.status === 'accepted' || selectedApplication.status === 'hired'}
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    <XCircle className="h-4 w-4 mr-1" />
-                    Reject Application
-                  </Button>
+                  {/* Show accepted badge */}
+                  {selectedApplication.status === 'pending' && selectedApplication.is_accepted && (
+                    <Button
+                      variant="outline"
+                      disabled
+                      className="text-green-600 bg-green-50 border-green-300"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Accepted
+                    </Button>
+                  )}
+                  
+                  {/* Hire Now - After Interview Date Passed */}
+                  {selectedApplication.status === 'interview_scheduled' && (() => {
+                    // Find the interview for this application
+                    const relatedInterview = interviews.find(int => 
+                      int.applicant_id === selectedApplication.applicant_id && 
+                      int.job_posting_id === selectedApplication.job_posting_id
+                    )
+                    
+                    // Check if interview date/time has passed
+                    const interviewHasPassed = relatedInterview?.interview_date 
+                      ? new Date(relatedInterview.interview_date) < new Date()
+                      : false
+                    
+                    // Show both Hire and Reject buttons if interview date has passed
+                    return interviewHasPassed ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            const applicantName = `${selectedApplication.applicant?.first_name || ''} ${selectedApplication.applicant?.last_name || ''}`.trim() || 'this candidate'
+                            if (confirm(`Are you sure you want to hire ${applicantName} after the interview? This will mark them as hired immediately.`)) {
+                              updateApplicationStatus(selectedApplication.id, 'accepted')
+                            }
+                          }}
+                          className="text-indigo-600 hover:text-indigo-700 border-indigo-300"
+                        >
+                          <CheckCircle className="h-4 w-4 mr-1" />
+                          Hire Now
+                        </Button>
+                        
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            const applicantName = `${selectedApplication.applicant?.first_name || ''} ${selectedApplication.applicant?.last_name || ''}`.trim() || 'this candidate'
+                            if (confirm(`Are you sure you want to reject ${applicantName} after the interview? This action cannot be undone.`)) {
+                              updateApplicationStatus(selectedApplication.id, 'rejected')
+                            }
+                          }}
+                          className="text-red-600 hover:text-red-700"
+                        >
+                          <XCircle className="h-4 w-4 mr-1" />
+                          Reject
+                        </Button>
+                      </>
+                    ) : null
+                  })()}
+                  
+                  {/* Mark as Hired - Highest Status (Offer Accepted Phase) */}
+                  {selectedApplication.status === 'offer_accepted' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => updateApplicationStatus(selectedApplication.id, 'accepted')}
+                      disabled={selectedApplication.status === 'accepted' || selectedApplication.status === 'hired'}
+                      className="text-emerald-600 hover:text-emerald-700 border-emerald-300"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-1" />
+                      Mark as Hired
+                    </Button>
+                  )}
+                  
+                  {/* Hide reject button if application is accepted */}
+                  {!selectedApplication.is_accepted && 
+                   selectedApplication.status !== 'rejected' && 
+                   selectedApplication.status !== 'accepted' && 
+                   selectedApplication.status !== 'hired' && (
+                    <Button
+                      variant="outline"
+                      onClick={() => updateApplicationStatus(selectedApplication.id, 'rejected')}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <XCircle className="h-4 w-4 mr-1" />
+                      Reject Application
+                    </Button>
+                  )}
                 </div>
               </div>
             </div>
@@ -3392,6 +3809,23 @@ export default function EmployerDashboard() {
         jobs={jobs}
         employerId={employerId}
       />
+
+      {/* Edit Interview Modal */}
+      {selectedInterview && (
+        <InterviewSchedulingModal
+          isOpen={isEditInterviewOpen}
+          onClose={() => {
+            setIsEditInterviewOpen(false)
+            setSelectedInterview(null)
+          }}
+          onSchedule={handleUpdateInterview}
+          applications={applications}
+          jobs={jobs}
+          employerId={employerId}
+          editMode={true}
+          initialData={selectedInterview}
+        />
+      )}
 
       {/* Job Offer Modal */}
       <JobOfferModal

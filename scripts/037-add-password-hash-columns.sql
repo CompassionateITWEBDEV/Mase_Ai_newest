@@ -21,3 +21,4 @@ COMMENT ON COLUMN public.staff.password_hash IS 'Stored password hash for fallba
 -- Note: In production, these passwords should be properly hashed using bcrypt or similar
 -- For development purposes, we're storing plain text passwords
 -- TODO: Implement proper password hashing in the registration API
+

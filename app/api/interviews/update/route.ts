@@ -49,34 +49,7 @@ export async function PUT(request: NextRequest) {
       .from('interview_schedules')
       .update(updateData)
       .eq('id', interview_id)
-      .select(`
-        id,
-        interview_date,
-        interview_type,
-        interview_location,
-        meeting_link,
-        interview_notes,
-        duration_minutes,
-        interviewer_name,
-        interviewer_email,
-        status,
-        updated_at,
-        job_posting:job_postings(
-          id,
-          title,
-          department
-        ),
-        applicant:applicants(
-          id,
-          first_name,
-          last_name,
-          email
-        ),
-        employer:employers(
-          id,
-          company_name
-        )
-      `)
+      .select('*')
       .single()
 
     if (updateError) {
@@ -96,9 +69,29 @@ export async function PUT(request: NextRequest) {
 
     console.log('✅ Interview schedule updated successfully:', updatedInterview.id)
 
+    // Fetch related data separately
+    const [jobData, applicantData, employerData] = await Promise.all([
+      updatedInterview.job_posting_id 
+        ? supabase.from('job_postings').select('id, title, department').eq('id', updatedInterview.job_posting_id).single().then(r => r.data)
+        : null,
+      updatedInterview.applicant_id
+        ? supabase.from('applicants').select('id, first_name, last_name, email').eq('id', updatedInterview.applicant_id).single().then(r => r.data)
+        : null,
+      updatedInterview.employer_id
+        ? supabase.from('employers').select('id, company_name').eq('id', updatedInterview.employer_id).single().then(r => r.data)
+        : null
+    ])
+
+    const interviewWithRelations = {
+      ...updatedInterview,
+      job_posting: jobData,
+      applicant: applicantData,
+      employer: employerData
+    }
+
     return NextResponse.json({
       success: true,
-      interview: updatedInterview,
+      interview: interviewWithRelations,
       message: 'Interview schedule updated successfully!'
     })
 
@@ -110,3 +103,4 @@ export async function PUT(request: NextRequest) {
     )
   }
 }
+

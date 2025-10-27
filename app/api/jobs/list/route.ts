@@ -7,12 +7,13 @@ export async function GET(request: NextRequest) {
     const employerId = searchParams.get('employer_id')
     const status = searchParams.get('status')
     const limit = parseInt(searchParams.get('limit') || '50')
+    const search = searchParams.get('search')
     
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    console.log('Fetching job postings...', { employerId, status })
+    console.log('Fetching job postings...', { employerId, status, search })
 
     let query = supabase
       .from('job_postings')
@@ -28,6 +29,8 @@ export async function GET(request: NextRequest) {
       `)
       .order('posted_date', { ascending: false })
       .limit(limit)
+    
+    // Make sure views_count is included (it should be with *)
 
     // Filter by employer if specified
     if (employerId) {
@@ -37,6 +40,11 @@ export async function GET(request: NextRequest) {
     // Filter by status if specified
     if (status) {
       query = query.eq('status', status)
+    }
+
+    // Add search filter
+    if (search && search.trim()) {
+      query = query.or(`title.ilike.%${search}%,description.ilike.%${search}%,department.ilike.%${search}%`)
     }
 
     const { data: jobs, error } = await query
@@ -50,6 +58,16 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(`Found ${jobs?.length || 0} job postings`)
+    
+    // Log first job to check if views_count is included
+    if (jobs && jobs.length > 0) {
+      console.log('Sample job data:', {
+        id: jobs[0].id,
+        title: jobs[0].title,
+        views_count: jobs[0].views_count,
+        applications_count: jobs[0].applications_count
+      })
+    }
 
     return NextResponse.json({
       success: true,

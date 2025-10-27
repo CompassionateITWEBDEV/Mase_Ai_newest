@@ -78,6 +78,7 @@ interface JobApplication {
   interview_location?: string
   interviewer?: string
   interview_notes?: string
+  meeting_link?: string
   // Offer details
   offer_deadline?: string
   offer_details?: string
@@ -485,6 +486,19 @@ export default function ApplicantDashboard() {
         }
         const data = await response.json()
         if (data.success && data.applications) {
+          console.log('📋 Applications loaded:', data.applications.length)
+          // Log interview data for each application
+          data.applications.forEach((app: any) => {
+            if (app.status === 'interview_scheduled') {
+              console.log('🎯 Interview data for application:', {
+                id: app.id,
+                interview_date: app.interview_date,
+                interview_time: app.interview_time,
+                interview_location: app.interview_location,
+                interviewer: app.interviewer
+              })
+            }
+          })
           setApplications(data.applications)
         }
       } catch (error) {
@@ -902,8 +916,12 @@ export default function ApplicantDashboard() {
 
   // Load recommended jobs when switching to overview tab
   useEffect(() => {
-    if (activeTab === 'overview' && applicantInfo && jobs.length === 0) {
-      loadJobs() // This will also generate recommended jobs
+    if (activeTab === 'overview' && applicantInfo) {
+      if (jobs.length === 0) {
+        loadJobs() // This will also generate recommended jobs
+      } else if (recommendedJobs.length === 0) {
+        loadRecommendedJobs() // Load recommended jobs specifically
+      }
     }
   }, [activeTab, applicantInfo])
 
@@ -1270,6 +1288,66 @@ export default function ApplicantDashboard() {
     alert('Resume uploaded successfully! You can now apply for jobs.')
   }
 
+  // Handle offer acceptance
+  const handleAcceptOffer = async (application: JobApplication) => {
+    if (!confirm('Are you sure you want to accept this job offer?')) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/applications/update-status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId: application.id,
+          status: 'accepted'
+        })
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert('Offer accepted successfully!')
+        loadApplications() // Refresh applications
+        setIsApplicationDetailsOpen(false) // Close modal if open
+      } else {
+        alert('Failed to accept offer: ' + (data.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error accepting offer:', error)
+      alert('Failed to accept offer. Please try again.')
+    }
+  }
+
+  // Handle offer decline
+  const handleDeclineOffer = async (application: JobApplication) => {
+    if (!confirm('Are you sure you want to decline this job offer?')) {
+      return
+    }
+
+    try {
+      const response = await fetch('/api/applications/update-status', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          applicationId: application.id,
+          status: 'declined'
+        })
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert('Offer declined.')
+        loadApplications() // Refresh applications
+        setIsApplicationDetailsOpen(false) // Close modal if open
+      } else {
+        alert('Failed to decline offer: ' + (data.error || 'Unknown error'))
+      }
+    } catch (error) {
+      console.error('Error declining offer:', error)
+      alert('Failed to decline offer. Please try again.')
+    }
+  }
+
   // Add interview to calendar
   const addToCalendar = (application: JobApplication) => {
     if (!application.interview_date || !application.interview_time) {
@@ -1521,7 +1599,13 @@ export default function ApplicantDashboard() {
   // Calculate application stats from real data
   const applicationStats = {
     totalApplications: applications.length,
-    pendingApplications: applications.filter(app => app.status === 'pending' || app.status === 'under_review').length,
+    pendingApplications: applications.filter(app => 
+      app.status === 'pending' || 
+      app.status === 'under_review' || 
+      app.status === 'interview_scheduled' || 
+      app.status === 'offer_received' ||
+      app.status === 'offer_accepted'
+    ).length,
     interviewsScheduled: applications.filter(app => 
       app.status === 'interview_scheduled' && 
       !isInterviewPast(app.interview_date || '', app.interview_time || '')
@@ -1800,7 +1884,7 @@ export default function ApplicantDashboard() {
             </div>
 
             {/* Main Content Grid */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Recent Applications */}
               <Card>
                 <CardHeader>
@@ -1819,54 +1903,48 @@ export default function ApplicantDashboard() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {applications.slice(0, 3).map((application) => (
-                      <div key={application.id} className="p-4 border rounded-lg bg-blue-50 border-blue-200">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900">{application.job_posting?.title || 'Unknown Position'}</h3>
-                            <p className="text-sm text-gray-600">{application.job_posting?.company_name || 'Healthcare Facility'}</p>
-                            <div className="flex items-center space-x-4 mt-1 text-xs text-gray-500">
-                              <span>{application.job_posting?.location || 'Unknown Location'}</span>
-                              <span>${application.job_posting?.salary_min?.toLocaleString()}-${application.job_posting?.salary_max?.toLocaleString()}</span>
-                              <span>Applied: {new Date(application.applied_date).toLocaleDateString()}</span>
-                            </div>
+                      <div key={application.id} className="p-3 border rounded-lg bg-white hover:shadow-md transition-all cursor-pointer"
+                           onClick={() => {
+                             setSelectedApplication(application)
+                             setIsApplicationDetailsOpen(true)
+                           }}>
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{application.job_posting?.title || 'Unknown Position'}</h3>
+                          <p className="text-sm text-gray-600 mb-2">{application.job_posting?.company_name || 'Healthcare Facility'}</p>
+                          <div className="flex items-center space-x-3 text-xs text-gray-500 mb-2">
+                            <span className="flex items-center gap-1">
+                              <MapPin className="h-3 w-3" />
+                              {application.job_posting?.location || 'Unknown Location'}
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <DollarSign className="h-3 w-3" />
+                              ${application.job_posting?.salary_min?.toLocaleString()}-${application.job_posting?.salary_max?.toLocaleString()}
+                            </span>
                           </div>
-                          <div className="flex items-center space-x-2">
-                            <Badge className={
-                              application.status === 'interview_scheduled' ? 'bg-blue-100 text-blue-800' :
-                              application.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                              application.status === 'offer_received' ? 'bg-green-100 text-green-800' :
-                              'bg-red-100 text-red-800'
-                            }>
-                              {application.status === 'interview_scheduled' ? 'Interview Scheduled' :
-                               application.status === 'pending' ? 'Under Review' :
-                               application.status === 'offer_received' ? 'Offer Received' :
-                               application.status}
-                            </Badge>
-                            <Button 
-                              size="sm" 
-                              variant="outline"
-                              onClick={() => {
-                                setSelectedApplication(application)
-                                setIsApplicationDetailsOpen(true)
-                              }}
-                            >
-                              View Details
-                            </Button>
-                          </div>
+                          <p className="text-xs text-gray-400 mb-2">Applied: {new Date(application.applied_date).toLocaleDateString()}</p>
                         </div>
                         
-                        {application.status === 'interview_scheduled' && (
-                          <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
-                            <div className="flex items-center space-x-2">
-                              <Calendar className="h-4 w-4 text-blue-600" />
-                              <span className="text-sm font-medium text-blue-800">
-                                Interview scheduled for {application.interview_date ? new Date(application.interview_date).toLocaleDateString() : 'TBD'}
-                              </span>
+                        <div className="flex items-center justify-between pt-2 mt-2 border-t">
+                          <Badge className={
+                            application.status === 'interview_scheduled' ? 'bg-blue-100 text-blue-800 border-blue-300' :
+                            application.status === 'pending' ? 'bg-yellow-100 text-yellow-800 border-yellow-300' :
+                            application.status === 'offer_received' ? 'bg-green-100 text-green-800 border-green-300' :
+                            'bg-red-100 text-red-800 border-red-300'
+                          }>
+                            {application.status === 'interview_scheduled' ? 'Interview Scheduled' :
+                             application.status === 'pending' ? 'Under Review' :
+                             application.status === 'offer_received' ? 'Offer Received' :
+                             application.status}
+                          </Badge>
+                          {application.status === 'interview_scheduled' && application.interview_date && (
+                            <div className="flex items-center space-x-1 text-xs text-blue-700">
+                              <Calendar className="h-3 w-3" />
+                              <span>{new Date(application.interview_date).toLocaleDateString()}</span>
                             </div>
-                          </div>
-                        )}
+                          )}
+                        </div>
                         
                         {application.status === 'offer_received' && (
                           <div className="space-y-3">
@@ -1879,10 +1957,19 @@ export default function ApplicantDashboard() {
                               </div>
                             </div>
                             <div className="flex space-x-2">
-                              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white flex-1">
+                              <Button 
+                                size="sm" 
+                                className="bg-green-600 hover:bg-green-700 text-white flex-1"
+                                onClick={() => handleAcceptOffer(application)}
+                              >
                                 Accept Offer
                               </Button>
-                              <Button size="sm" variant="outline" className="flex-1 border-green-300 text-green-700">
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                className="flex-1 border-green-300 text-green-700"
+                                onClick={() => handleDeclineOffer(application)}
+                              >
                                 Decline Offer
                               </Button>
                             </div>
@@ -1930,7 +2017,7 @@ export default function ApplicantDashboard() {
                       </Button>
                     </div>
                   ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                       {jobs.filter(job => savedJobs.includes(job.id)).slice(0, 3).map((job) => (
                         <div key={job.id} className="p-4 border rounded-lg bg-yellow-50 border-yellow-200 hover:shadow-md transition-shadow">
                           <div className="flex items-start justify-between mb-2">
@@ -1965,6 +2052,105 @@ export default function ApplicantDashboard() {
                           >
                             {applications.some(app => app.job_posting_id === job.id) ? 'Applied' : 'Apply Now'}
                           </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Recommended Jobs */}
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        <Target className="h-5 w-5 text-green-500" />
+                        Recommended Jobs
+                      </CardTitle>
+                      <CardDescription>Jobs matching your profile</CardDescription>
+                    </div>
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => setActiveTab('jobs')}
+                    >
+                      View All
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {isLoadingJobs ? (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                      <p className="text-gray-600">Loading recommendations...</p>
+                    </div>
+                  ) : recommendedJobs.length === 0 ? (
+                    <div className="text-center py-8">
+                      <Target className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                      <p className="text-gray-600 mb-2">No recommendations yet</p>
+                      <p className="text-sm text-gray-500">Complete your profile to get personalized job recommendations</p>
+                      <Button 
+                        size="sm" 
+                        className="mt-4 bg-blue-600 hover:bg-blue-700"
+                        onClick={() => setActiveTab('profile')}
+                      >
+                        Complete Profile
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {recommendedJobs.slice(0, 3).map((job) => (
+                        <div key={job.id} className="p-4 border rounded-lg bg-green-50 border-green-200 hover:shadow-md transition-shadow">
+                          <div className="flex items-start justify-between mb-2">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="font-semibold text-gray-900">{job.title}</h3>
+                                {job.matchScore && job.matchScore > 0 && (
+                                  <Badge className="text-xs bg-green-100 text-green-800">
+                                    {job.matchScore}% Match
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-600">{job.employer?.company_name || 'Healthcare Facility'}</p>
+                              <div className="flex items-center space-x-3 mt-1 text-xs text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3 w-3" />
+                                  {job.city}, {job.state}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <DollarSign className="h-3 w-3" />
+                                  ${job.salary_min?.toLocaleString()}-${job.salary_max?.toLocaleString()}
+                                </span>
+                              </div>
+                              {job.matchReasons && job.matchReasons.length > 0 && (
+                                <div className="mt-2">
+                                  <p className="text-xs text-green-700 font-medium">
+                                    ✓ {job.matchReasons[0]}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex space-x-2 mt-2">
+                            <Button 
+                              size="sm" 
+                              variant="ghost"
+                              onClick={() => toggleSaveJob(job.id)}
+                              className="flex-1 text-yellow-600 hover:text-yellow-700"
+                            >
+                              <Star className={`h-3 w-3 mr-1 ${savedJobs.includes(job.id) ? 'fill-current' : ''}`} />
+                              {savedJobs.includes(job.id) ? 'Saved' : 'Save'}
+                            </Button>
+                            <Button 
+                              size="sm" 
+                              className="flex-1 bg-blue-600 hover:bg-blue-700"
+                              onClick={() => applyForJob(job.id)}
+                              disabled={applications.some(app => app.job_posting_id === job.id)}
+                            >
+                              {applications.some(app => app.job_posting_id === job.id) ? 'Applied' : 'Apply Now'}
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2012,7 +2198,7 @@ export default function ApplicantDashboard() {
                   }
                   
                   return (
-                    <div className="space-y-4">
+                    <div className="space-y-3">
                       {interviewApplications.slice(0, 3).map((application) => (
                         <div key={application.id} className="p-4 border rounded-lg bg-blue-50 border-blue-200 hover:shadow-md transition-shadow">
                           <div className="flex items-start justify-between mb-3">
@@ -2113,7 +2299,7 @@ export default function ApplicantDashboard() {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      <div className="space-y-4">
+                      <div className="space-y-3">
                         {pastInterviewApplications.slice(0, 3).map((application) => (
                           <div key={application.id} className="p-4 border rounded-lg bg-gray-50 border-gray-200 opacity-75">
                             <div className="flex items-start justify-between mb-3">
@@ -2315,8 +2501,20 @@ export default function ApplicantDashboard() {
                     </div>
                   ) : (
                     applications.map((application) => (
-                      <div key={application.id} className="p-6 bg-blue-50 rounded-lg border border-blue-200">
-                        <div className="flex items-start justify-between mb-4">
+                      <div key={application.id} className={`p-6 rounded-lg border-2 ${
+                        application.status === 'interview_scheduled' ? 'bg-blue-50 border-blue-200' :
+                        application.status === 'pending' ? 'bg-white border-gray-200' :
+                        application.status === 'offer_received' ? 'bg-green-50 border-green-200' :
+                        application.status === 'accepted' ? 'bg-purple-50 border-purple-200' :
+                        application.status === 'rejected' ? 'bg-red-50 border-red-200' :
+                        'bg-white border-gray-200'
+                      }`}>
+                        <div className="flex items-start gap-4 mb-4">
+                          {/* Document Icon */}
+                          <div className="flex-shrink-0 mt-1">
+                            <FileText className="h-8 w-8 text-blue-500" />
+                          </div>
+                          
                           <div className="flex-1">
                             <h3 className="text-lg font-semibold text-gray-900 mb-1">
                               {application.job_posting?.title || 'Unknown Position'}
@@ -2324,20 +2522,21 @@ export default function ApplicantDashboard() {
                             <p className="text-sm text-gray-600 mb-2">
                               {application.job_posting?.company_name || 'Healthcare Facility'}
                             </p>
-                            <div className="flex items-center space-x-4 text-xs text-gray-500 mb-3">
-                              <span>Applied: {new Date(application.applied_date).toLocaleDateString()}</span>
-                              <span>{application.job_posting?.location || 'Unknown Location'}</span>
+                            <div className="flex items-center space-x-4 text-xs text-gray-500 mb-3 flex-wrap gap-2">
+                              <span className="flex items-center gap-1">
+                                <Calendar className="h-3 w-3" />
+                                Applied: {new Date(application.applied_date).toLocaleDateString()}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3 w-3" />
+                                {application.job_posting?.location || 'Unknown Location'}
+                              </span>
                               <span>{application.job_posting?.job_type || 'Unknown Type'}</span>
-                              <span>
+                              <span className="flex items-center gap-1">
+                                <DollarSign className="h-3 w-3" />
                                 ${application.job_posting?.salary_min?.toLocaleString()}-${application.job_posting?.salary_max?.toLocaleString()}
                               </span>
                             </div>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <Button size="sm" variant="outline">
-                              <Eye className="h-4 w-4 mr-1" />
-                              View
-                            </Button>
                           </div>
                         </div>
                         
@@ -2348,6 +2547,17 @@ export default function ApplicantDashboard() {
                               <Clock className="h-4 w-4 text-yellow-600" />
                               <span className="text-sm font-medium text-yellow-800">Under Review</span>
                             </div>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedApplication(application)
+                                setIsApplicationDetailsOpen(true)
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
                           </div>
                         )}
                         
@@ -2356,8 +2566,21 @@ export default function ApplicantDashboard() {
                             <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
                               <div className="flex items-center space-x-2">
                                 <Calendar className="h-4 w-4 text-blue-600" />
-                                <span className="text-sm font-medium text-blue-800">Interview Scheduled</span>
+                                <span className="text-sm font-medium text-blue-800">
+                                  Interview scheduled for {application.interview_date ? new Date(application.interview_date).toLocaleDateString() : 'a future date'}
+                                </span>
                               </div>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedApplication(application)
+                                  setIsApplicationDetailsOpen(true)
+                                }}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
+                              </Button>
                             </div>
                             <div className="bg-white p-4 rounded-lg border border-blue-200">
                               <h4 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
@@ -2379,18 +2602,26 @@ export default function ApplicantDashboard() {
                                 <div>
                                   <span className="text-gray-600 font-medium">Time:</span>
                                   <span className="ml-2 text-gray-900">
-                                    {application.interview_time ? new Date(`2000-01-01T${application.interview_time}`).toLocaleTimeString('en-US', { 
-                                      hour: 'numeric', 
-                                      minute: '2-digit',
-                                      hour12: true 
-                                    }) : 'Not specified'}
+                                    {application.interview_time || 'Not specified'}
                                   </span>
                                 </div>
                                 <div className="md:col-span-2">
                                   <span className="text-gray-600 font-medium">Location:</span>
                                   <span className="ml-2 text-gray-900">
-                                    {application.interview_location || 'Not specified'}
+                                    {application.interview_location || application.meeting_link || 'Not specified'}
                                   </span>
+                                  {application.meeting_link && (
+                                    <div className="mt-2">
+                                      <a 
+                                        href={application.meeting_link} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:text-blue-800 underline text-sm"
+                                      >
+                                        Join Video Call
+                                      </a>
+                                    </div>
+                                  )}
                                 </div>
                                 {application.interviewer && (
                                   <div className="md:col-span-2">
@@ -2417,7 +2648,15 @@ export default function ApplicantDashboard() {
                               <CheckCircle className="h-4 w-4 text-green-600" />
                               <span className="text-sm font-medium text-green-800">Application Accepted</span>
                             </div>
-                            <Button size="sm" variant="outline" className="text-green-600 border-green-300">
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              className="text-green-600 border-green-300"
+                              onClick={() => {
+                                setSelectedApplication(application)
+                                setIsApplicationDetailsOpen(true)
+                              }}
+                            >
                               View Details
                             </Button>
                           </div>
@@ -2428,7 +2667,9 @@ export default function ApplicantDashboard() {
                             <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
                               <div className="flex items-center space-x-2">
                                 <CheckCircle className="h-4 w-4 text-green-600" />
-                                <span className="text-sm font-medium text-green-800">Job Offer Received</span>
+                                <span className="text-sm font-medium text-green-800">
+                                  Offer expires on {application.offer_deadline ? new Date(application.offer_deadline).toLocaleDateString() : 'a future date'}
+                                </span>
                               </div>
                             </div>
                             <div className="bg-white p-4 rounded-lg border border-green-200">
@@ -2466,12 +2707,41 @@ export default function ApplicantDashboard() {
                                 </div>
                               </div>
                             </div>
-                            <div className="flex space-x-2">
-                              <Button size="sm" className="bg-green-600 hover:bg-green-700 text-white flex-1">
-                                Accept Offer
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedApplication(application)
+                                  setIsApplicationDetailsOpen(true)
+                                }}
+                              >
+                                <Eye className="h-4 w-4 mr-1" />
+                                View
                               </Button>
-                              <Button size="sm" variant="outline" className="flex-1">
-                                Decline Offer
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                onClick={() => {
+                                  setSelectedApplication(application)
+                                  setIsApplicationDetailsOpen(true)
+                                }}
+                              >
+                                Respond to Offer
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                className="bg-green-600 hover:bg-green-700 text-white"
+                                onClick={() => handleAcceptOffer(application)}
+                              >
+                                Accept
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="outline" 
+                                onClick={() => handleDeclineOffer(application)}
+                              >
+                                Decline
                               </Button>
                             </div>
                           </div>
@@ -2483,6 +2753,17 @@ export default function ApplicantDashboard() {
                               <XCircle className="h-4 w-4 text-red-600" />
                               <span className="text-sm font-medium text-red-800">Rejected</span>
                             </div>
+                            <Button 
+                              size="sm" 
+                              variant="outline"
+                              onClick={() => {
+                                setSelectedApplication(application)
+                                setIsApplicationDetailsOpen(true)
+                              }}
+                            >
+                              <Eye className="h-4 w-4 mr-1" />
+                              View
+                            </Button>
                           </div>
                         )}
                       </div>
@@ -2518,7 +2799,7 @@ export default function ApplicantDashboard() {
                     <p className="text-gray-500">You don't have any interviews scheduled yet. Keep applying to jobs to get interview opportunities!</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {interviews.map((interview) => (
                       <Card key={interview.id} className={`border-l-4 ${
                         interview.status === 'scheduled' ? 'border-l-blue-500' :
@@ -2634,7 +2915,7 @@ export default function ApplicantDashboard() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {jobs.map((job) => (
                       <div key={job.id} className="p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => viewJobDetails(job)}>
                         <div className="flex items-start justify-between mb-3">
@@ -2734,7 +3015,7 @@ export default function ApplicantDashboard() {
                     <p className="text-sm mt-1">Complete your profile to get personalized job recommendations.</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {recommendedJobs.slice(0, 6).map((job) => (
                       <div key={job.id} className="p-4 border rounded-lg cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => viewJobDetails(job)}>
                         <div className="flex items-start justify-between mb-3">
@@ -2828,7 +3109,7 @@ export default function ApplicantDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div>
                       <Label htmlFor="firstName">First Name</Label>
                       <Input 
@@ -2872,7 +3153,7 @@ export default function ApplicantDashboard() {
                       />
                     </div>
                   </div>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div>
                       <Label htmlFor="profession">Profession</Label>
                       <Input 
@@ -3172,7 +3453,7 @@ export default function ApplicantDashboard() {
                     <p className="text-gray-600">Use the upload button above to add your documents</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {documents.map((doc) => (
                       <div key={doc.id} className="border rounded-lg p-4 hover:shadow-md transition-shadow bg-white">
                         <div className="flex items-center justify-between">
@@ -3347,7 +3628,7 @@ export default function ApplicantDashboard() {
                   <h3 className="text-xl font-semibold text-gray-900">Contact Information</h3>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div className="flex items-start space-x-3">
                       <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center flex-shrink-0">
                         <span className="text-green-600 text-sm">@</span>
@@ -3367,7 +3648,7 @@ export default function ApplicantDashboard() {
                       </div>
                     </div>
                   </div>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div className="flex items-start space-x-3">
                       <div className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center flex-shrink-0">
                         <MapPin className="h-4 w-4 text-orange-600" />

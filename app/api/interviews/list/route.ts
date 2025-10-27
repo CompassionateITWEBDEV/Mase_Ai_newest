@@ -22,40 +22,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('interview_schedules')
-      .select(`
-        id,
-        interview_date,
-        interview_type,
-        interview_location,
-        meeting_link,
-        interview_notes,
-        duration_minutes,
-        interviewer_name,
-        interviewer_email,
-        status,
-        created_at,
-        updated_at,
-        job_posting:job_postings(
-          id,
-          title,
-          department,
-          job_type,
-          city,
-          state
-        ),
-        applicant:applicants(
-          id,
-          first_name,
-          last_name,
-          email,
-          phone
-        ),
-        employer:employers(
-          id,
-          company_name,
-          email
-        )
-      `)
+      .select('*')
       .order('interview_date', { ascending: true })
       .limit(limit)
 
@@ -75,36 +42,78 @@ export async function GET(request: NextRequest) {
     const { data: interviews, error } = await query
 
     if (error) {
-      console.error('Error fetching interviews:', error)
+      console.error('❌ Error fetching interviews:', error)
+      console.error('❌ Error details:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code
+      })
       return NextResponse.json(
-        { error: 'Failed to fetch interviews' },
+        { error: 'Failed to fetch interviews: ' + error.message },
         { status: 500 }
       )
     }
 
-    // Transform the data for better display
-    const transformedInterviews = interviews?.map(interview => ({
-      ...interview,
-      interview_date_formatted: new Date(interview.interview_date).toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      }),
-      interview_time: new Date(interview.interview_date).toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit'
-      }),
-      status_badge: getStatusBadge(interview.status),
-      duration_formatted: `${interview.duration_minutes} minutes`,
-      applicant_name: `${interview.applicant?.first_name || ''} ${interview.applicant?.last_name || ''}`.trim(),
-      job_title: interview.job_posting?.title || 'Unknown Job',
-      company_name: interview.employer?.company_name || 'Unknown Company'
-    })) || []
+    console.log(`📋 Fetched ${interviews?.length || 0} interviews`)
 
-    console.log(`✅ Fetched ${transformedInterviews.length} interviews`)
+    // Fetch related data separately for each interview
+    const transformedInterviews = await Promise.all(
+      (interviews || []).map(async (interview: any) => {
+        try {
+          // Fetch related data in parallel
+          const [jobData, applicantData, employerData] = await Promise.all([
+            interview.job_posting_id 
+              ? supabase.from('job_postings').select('id, title, department, job_type, city, state').eq('id', interview.job_posting_id).single().then(r => r.data)
+              : null,
+            interview.applicant_id
+              ? supabase.from('applicants').select('id, first_name, last_name, email, phone').eq('id', interview.applicant_id).single().then(r => r.data)
+              : null,
+            interview.employer_id
+              ? supabase.from('employers').select('id, company_name, email').eq('id', interview.employer_id).single().then(r => r.data)
+              : null
+          ])
+
+          return {
+            ...interview,
+            job_posting: jobData,
+            applicant: applicantData,
+            employer: employerData,
+            interview_date_formatted: new Date(interview.interview_date).toLocaleDateString('en-US', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            interview_time: new Date(interview.interview_date).toLocaleTimeString('en-US', {
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            status_badge: getStatusBadge(interview.status),
+            duration_formatted: `${interview.duration_minutes} minutes`,
+            applicant_name: `${applicantData?.first_name || ''} ${applicantData?.last_name || ''}`.trim(),
+            job_title: jobData?.title || 'Unknown Job',
+            company_name: employerData?.company_name || 'Unknown Company'
+          }
+        } catch (err) {
+          console.error('❌ Error transforming interview:', err)
+          // Return basic interview data if transformation fails
+          return {
+            ...interview,
+            job_posting: null,
+            applicant: null,
+            employer: null,
+            applicant_name: 'Unknown',
+            job_title: 'Unknown Job',
+            company_name: 'Unknown Company'
+          }
+        }
+      })
+    )
+
+    console.log(`✅ Successfully transformed ${transformedInterviews.length} interviews`)
 
     return NextResponse.json({
       success: true,
@@ -113,7 +122,7 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error: any) {
-    console.error('Interview fetch error:', error)
+    console.error('❌ Interview fetch error:', error)
     return NextResponse.json(
       { error: error.message || 'Internal server error' },
       { status: 500 }

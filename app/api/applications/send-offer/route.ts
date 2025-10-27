@@ -48,6 +48,7 @@ export async function POST(request: NextRequest) {
         .insert({
           applicant_id: candidateId,
           job_posting_id: null, // No specific job posting for candidate pool offers
+          employer_id: employerId,
           status: 'offer_received',
           cover_letter: 'Direct offer from candidate pool',
           applied_date: new Date().toISOString(),
@@ -60,15 +61,7 @@ export async function POST(request: NextRequest) {
           offer_sent_date: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
-        .select(`
-          *,
-          applicant:applicants(
-            first_name,
-            last_name,
-            email,
-            phone
-          )
-        `)
+        .select('*')
         .single()
 
       if (createError) {
@@ -80,6 +73,17 @@ export async function POST(request: NextRequest) {
       }
 
       updatedApplication = newApplication
+      
+      // Fetch related data for candidate pool offer
+      if (updatedApplication) {
+        const [applicantData] = await Promise.all([
+          updatedApplication.applicant_id
+            ? supabase.from('applicants').select('first_name, last_name, email, phone').eq('id', updatedApplication.applicant_id).single().then(r => r.data)
+            : null
+        ])
+        
+        updatedApplication.applicant = applicantData
+      }
     } else {
       // For regular job applications, update existing record
       const { data: app, error: updateError } = await supabase
@@ -96,21 +100,7 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString()
         })
         .eq('id', applicationId)
-        .select(`
-          *,
-          applicant:applicants(
-            first_name,
-            last_name,
-            email,
-            phone
-          ),
-          job_posting:job_postings(
-            title,
-            employer:employers(
-              company_name
-            )
-          )
-        `)
+        .select('*')
         .single()
 
       if (updateError) {
@@ -122,6 +112,24 @@ export async function POST(request: NextRequest) {
       }
 
       updatedApplication = app
+      
+      // Fetch related data for regular offer
+      if (updatedApplication) {
+        const [applicantData, jobData, employerData] = await Promise.all([
+          updatedApplication.applicant_id
+            ? supabase.from('applicants').select('first_name, last_name, email, phone').eq('id', updatedApplication.applicant_id).single().then(r => r.data)
+            : null,
+          updatedApplication.job_posting_id
+            ? supabase.from('job_postings').select('title, employer_id').eq('id', updatedApplication.job_posting_id).single().then(r => r.data)
+            : null,
+          updatedApplication.employer_id
+            ? supabase.from('employers').select('company_name').eq('id', updatedApplication.employer_id).single().then(r => r.data)
+            : null
+        ])
+        
+        updatedApplication.applicant = applicantData
+        updatedApplication.job_posting = jobData ? { ...jobData, employer: employerData } : null
+      }
     }
 
     return NextResponse.json({

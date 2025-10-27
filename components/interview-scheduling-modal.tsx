@@ -16,6 +16,8 @@ interface InterviewSchedulingModalProps {
   applications?: any[]
   jobs?: any[]
   employerId?: string
+  editMode?: boolean
+  initialData?: any
 }
 
 export default function InterviewSchedulingModal({
@@ -24,7 +26,9 @@ export default function InterviewSchedulingModal({
   onSchedule,
   applications = [],
   jobs = [],
-  employerId
+  employerId,
+  editMode = false,
+  initialData
 }: InterviewSchedulingModalProps) {
   const [formData, setFormData] = useState({
     job_posting_id: '',
@@ -43,26 +47,45 @@ export default function InterviewSchedulingModal({
   const [selectedJob, setSelectedJob] = useState<any>(null)
   const [availableApplicants, setAvailableApplicants] = useState<any[]>([])
 
-  // Reset form when modal opens
+  // Reset form when modal opens or pre-fill for edit mode
   useEffect(() => {
     if (isOpen) {
-      setFormData({
-        job_posting_id: '',
-        applicant_id: '',
-        interview_date: '',
-        interview_time: '',
-        interview_type: 'video',
-        interview_location: '',
-        meeting_link: '',
-        interview_notes: '',
-        duration_minutes: 60,
-        interviewer_name: '',
-        interviewer_email: ''
-      })
+      if (editMode && initialData) {
+        // Pre-fill form with existing interview data
+        const interviewDate = new Date(initialData.interview_date)
+        setFormData({
+          job_posting_id: initialData.job_posting_id || '',
+          applicant_id: initialData.applicant_id || '',
+          interview_date: interviewDate.toISOString().split('T')[0],
+          interview_time: interviewDate.toTimeString().slice(0, 5), // Extract HH:MM
+          interview_type: initialData.interview_type || 'video',
+          interview_location: initialData.interview_location || '',
+          meeting_link: initialData.meeting_link || '',
+          interview_notes: initialData.interview_notes || '',
+          duration_minutes: initialData.duration_minutes || 60,
+          interviewer_name: initialData.interviewer_name || '',
+          interviewer_email: initialData.interviewer_email || ''
+        })
+      } else {
+        // Reset form for new interview
+        setFormData({
+          job_posting_id: '',
+          applicant_id: '',
+          interview_date: '',
+          interview_time: '',
+          interview_type: 'video',
+          interview_location: '',
+          meeting_link: '',
+          interview_notes: '',
+          duration_minutes: 60,
+          interviewer_name: '',
+          interviewer_email: ''
+        })
+      }
       setSelectedJob(null)
       setAvailableApplicants([])
     }
-  }, [isOpen])
+  }, [isOpen, editMode, initialData])
 
   // Filter applicants when job is selected
   useEffect(() => {
@@ -102,11 +125,16 @@ export default function InterviewSchedulingModal({
       // Combine date and time
       const interviewDateTime = new Date(`${formData.interview_date}T${formData.interview_time}`)
       
-      const interviewData = {
+      const interviewData: any = {
         ...formData,
         employer_id: employerId,
         interview_date: interviewDateTime.toISOString(),
         duration_minutes: parseInt(formData.duration_minutes.toString())
+      }
+
+      // Add interview_id if in edit mode
+      if (editMode && initialData) {
+        interviewData.interview_id = initialData.id
       }
 
       // Remove empty fields
@@ -116,11 +144,12 @@ export default function InterviewSchedulingModal({
         }
       })
 
+      console.log('📝 Modal sending interview data:', interviewData)
       await onSchedule(interviewData)
       onClose()
-    } catch (error) {
-      console.error('Error scheduling interview:', error)
-      alert('Failed to schedule interview. Please try again.')
+    } catch (error: any) {
+      console.error('❌ Modal error scheduling interview:', error)
+      alert(error.message || 'Failed to schedule interview. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -147,10 +176,10 @@ export default function InterviewSchedulingModal({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Calendar className="h-5 w-5" />
-            Schedule Interview
+            {editMode ? 'Edit Interview' : 'Schedule Interview'}
           </DialogTitle>
           <DialogDescription>
-            Schedule an interview with a qualified applicant
+            {editMode ? 'Update interview details' : 'Schedule an interview with a qualified applicant'}
           </DialogDescription>
         </DialogHeader>
 
@@ -187,9 +216,9 @@ export default function InterviewSchedulingModal({
                 <SelectValue placeholder={formData.job_posting_id ? "Select an applicant" : "First select a job posting"} />
               </SelectTrigger>
               <SelectContent>
-                {availableApplicants.map((applicant) => (
-                  <SelectItem key={applicant.id} value={applicant.applicant_id}>
-                    {applicant.applicant?.first_name} {applicant.applicant?.last_name} - {applicant.applicant?.email}
+                {availableApplicants.map((application) => (
+                  <SelectItem key={application.id} value={application.applicant_id || application.id}>
+                    {application.applicant?.first_name} {application.applicant?.last_name} - {application.applicant?.email}
                   </SelectItem>
                 ))}
               </SelectContent>

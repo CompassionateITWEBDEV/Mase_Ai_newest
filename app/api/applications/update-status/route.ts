@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 
 export async function PUT(request: NextRequest) {
   try {
-    const { applicationId, status, notes } = await request.json()
+    const { applicationId, status, notes, is_accepted } = await request.json()
 
     if (!applicationId || !status) {
       return NextResponse.json(
@@ -43,7 +43,7 @@ export async function PUT(request: NextRequest) {
       }
     )
 
-    console.log('Updating application status:', { applicationId, status, notes })
+    console.log('Updating application status:', { applicationId, status, notes, is_accepted })
 
     // Prepare update data
     const updateData: any = {
@@ -53,6 +53,10 @@ export async function PUT(request: NextRequest) {
 
     if (notes) {
       updateData.notes = notes
+    }
+
+    if (is_accepted !== undefined) {
+      updateData.is_accepted = is_accepted
     }
 
     // Update the application
@@ -138,19 +142,19 @@ export async function PUT(request: NextRequest) {
           console.log('✅ Application update notification created for applicant')
         }
         
-        // Notify applicant when reviewing
+        // Notify applicant when application is accepted for review (qualified candidate)
         else if (status === 'reviewing') {
           await supabase
             .from('notifications')
             .insert({
               applicant_id: updatedApplication.applicant_id,
               type: 'application',
-              title: 'Application Under Review',
-              message: `${companyName} is reviewing your application for ${jobTitle}.`,
+              title: 'Application Accepted for Review',
+              message: `${companyName} has accepted your application for ${jobTitle}. Your application is being reviewed and you may hear back about next steps soon.`,
               action_url: '/applicant-dashboard?tab=applications',
               read: false
             })
-          console.log('✅ Review notification created for applicant')
+          console.log('✅ Application accepted for review notification created for applicant')
         }
       } catch (notifError) {
         console.error('Error creating status notification:', notifError)
