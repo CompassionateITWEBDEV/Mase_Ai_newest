@@ -3161,18 +3161,23 @@ export default function EmployerDashboard() {
           {/* Interviews Tab */}
           <TabsContent value="interviews" className="space-y-6">
             {/* Reschedule Requests Section */}
-            {rescheduleRequests.length > 0 && (
-              <Card className="border-orange-300">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-orange-600">
-                    <AlertTriangle className="h-5 w-5" />
-                    Pending Reschedule Requests ({rescheduleRequests.length})
-                  </CardTitle>
-                  <CardDescription>
-                    Review and respond to interview reschedule requests from applicants
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
+            <Card className="border-orange-200">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-orange-600">
+                  <AlertTriangle className="h-5 w-5" />
+                  Reschedule Requests ({rescheduleRequests.length})
+                </CardTitle>
+                <CardDescription>
+                  Review and respond to interview reschedule requests from applicants
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {isLoadingRescheduleRequests ? (
+                  <div className="text-center py-4 text-gray-500">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-600 mx-auto mb-2"></div>
+                    Loading reschedule requests...
+                  </div>
+                ) : rescheduleRequests.length > 0 ? (
                   <div className="space-y-4">
                     {rescheduleRequests.map((request) => (
                       <Card key={request.id} className="border-orange-200 bg-orange-50">
@@ -3239,9 +3244,17 @@ export default function EmployerDashboard() {
                       </Card>
                     ))}
                   </div>
-                </CardContent>
-              </Card>
-            )}
+                ) : (
+                  <div className="text-center py-8">
+                    <AlertTriangle className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500">No pending reschedule requests</p>
+                    <p className="text-sm text-gray-400 mt-1">
+                      Applicants can request to reschedule their interviews, and requests will appear here
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             <Card>
               <CardHeader>
