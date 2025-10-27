@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
         application_id: applicationId,
         applicant_id: applicantId,
         employer_id: employerId,
-        current_date: currentDate,
+        original_date: currentDate,
         new_date: newDate,
         new_time: newTime,
         reason: reason,

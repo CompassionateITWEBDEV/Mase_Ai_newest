@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS interview_reschedule_requests (
   application_id UUID REFERENCES job_applications(id) ON DELETE CASCADE,
   applicant_id UUID REFERENCES applicants(id) ON DELETE CASCADE,
   employer_id UUID REFERENCES employers(id) ON DELETE CASCADE,
-  current_date TIMESTAMP WITH TIME ZONE,
+  original_date TIMESTAMP WITH TIME ZONE,
   new_date DATE NOT NULL,
   new_time TIME NOT NULL,
   reason TEXT NOT NULL,
