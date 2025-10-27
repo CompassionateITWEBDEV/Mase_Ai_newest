@@ -92,14 +92,12 @@ This is necessary because the reschedule request API needs to create records on 
      WITH CHECK (auth.role() = 'service_role');
    ```
 
-### "Missing columns error"
-Run this SQL in your Supabase SQL Editor:
-```sql
-ALTER TABLE interview_reschedule_requests 
-ADD COLUMN IF NOT EXISTS proposed_date DATE,
-ADD COLUMN IF NOT EXISTS proposed_time TIME,
-ADD COLUMN IF NOT EXISTS original_date TIMESTAMP WITH TIME ZONE;
-```
+### "Missing columns error" or "new_date violates not-null constraint"
+This means the table has old column names. Run the SQL from `scripts/fix-reschedule-column-names.sql` in your Supabase SQL Editor. It will:
+- Rename `new_date` → `proposed_date`
+- Rename `new_time` → `proposed_time`
+- Add `original_date` column
+- Make columns nullable if needed
 
 ## Questions?
 
