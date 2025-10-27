@@ -98,6 +98,8 @@ export default function EmployerDashboard() {
   const [isLoadingCandidates, setIsLoadingCandidates] = useState(false)
   const [interviews, setInterviews] = useState<any[]>([])
   const [isLoadingInterviews, setIsLoadingInterviews] = useState(false)
+  const [rescheduleRequests, setRescheduleRequests] = useState<any[]>([])
+  const [isLoadingRescheduleRequests, setIsLoadingRescheduleRequests] = useState(false)
   const [selectedApplication, setSelectedApplication] = useState<any>(null)
   const [isApplicationModalOpen, setIsApplicationModalOpen] = useState(false)
   const [selectedApplicantDocuments, setSelectedApplicantDocuments] = useState<any[]>([])
