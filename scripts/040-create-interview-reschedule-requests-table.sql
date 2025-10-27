@@ -55,7 +55,11 @@ CREATE POLICY "Applicants can insert reschedule requests"
 -- Create RLS policy for employers to update reschedule requests
 CREATE POLICY "Employers can update their reschedule requests" 
   ON interview_reschedule_requests FOR UPDATE 
-  USING (employer_id::text = auth.uid()::text OR employer_id IN (SELECT id FROM employers WHERE auth_user_id = auth.uid()));
+  USING (
+    auth.role() = 'service_role' OR
+    employer_id::text = auth.uid()::text OR 
+    employer_id IN (SELECT id FROM employers WHERE auth_user_id = auth.uid())
+  );
 
 -- Add comment
 COMMENT ON TABLE interview_reschedule_requests IS 'Stores interview reschedule requests from applicants';
