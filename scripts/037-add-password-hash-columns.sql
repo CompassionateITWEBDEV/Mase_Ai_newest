@@ -22,3 +22,4 @@ COMMENT ON COLUMN public.staff.password_hash IS 'Stored password hash for fallba
 -- For development purposes, we're storing plain text passwords
 -- TODO: Implement proper password hashing in the registration API
 
+

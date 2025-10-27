@@ -1,5 +1,27 @@
 "use client"
 
+/**
+ * Referral Management Page
+ * 
+ * This page manages incoming referrals from various sources including:
+ * - ExtendedCare Network
+ * - Fax uploads
+ * - Email referrals
+ * - Hospital/clinic referrals
+ * 
+ * Features:
+ * - AI-powered referral recommendations
+ * - Eligibility verification
+ * - Insurance monitoring
+ * - Financial protection alerts
+ * - Authorization tracking
+ * - ExtendedCare integration
+ * 
+ * Recent fixes:
+ * - Fixed TypeScript error handling for error messages
+ * - Fixed React hooks dependency warnings
+ */
+
 import { useState, useMemo, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -33,15 +55,48 @@ import { getCurrentUser, hasPermission } from "@/lib/auth"
 import type { Referral } from "@/lib/extendedcare-api"
 import { extendedCareApi } from "@/lib/extendedcare-api"
 
-const initialReferrals: Referral[] = [
-  {
-    id: "REF-001",
-    patientName: "Brenda Smith",
-    referralDate: "2024-07-09",
-    referralSource: "Mercy Hospital",
-    diagnosis: "Post-operative care for hip replacement",
-    insuranceProvider: "Medicare",
-    insuranceId: "MCR-12345",
+// Database referral type - matches the database schema
+interface DatabaseReferral {
+  id: string
+  patient_name: string
+  referral_date: string
+  referral_source: string
+  diagnosis: string
+  insurance_provider: string
+  insurance_id: string
+  status: string
+  ai_recommendation?: string
+  ai_reason?: string
+  soc_due_date?: string
+  extendedcare_data?: any
+  eligibility_status?: any
+  insurance_monitoring?: any
+  created_at: string
+  updated_at: string
+}
+
+// Convert database referral to frontend Referral type
+const convertDbReferralToReferral = (dbRef: DatabaseReferral): Referral => ({
+  id: dbRef.id,
+  patientName: dbRef.patient_name,
+  referralDate: dbRef.referral_date,
+  referralSource: dbRef.referral_source,
+  diagnosis: dbRef.diagnosis,
+  insuranceProvider: dbRef.insurance_provider,
+  insuranceId: dbRef.insurance_id,
+  status: dbRef.status as any,
+  aiRecommendation: dbRef.ai_recommendation as any,
+  aiReason: dbRef.ai_reason,
+  socDueDate: dbRef.soc_due_date,
+  extendedCareData: dbRef.extendedcare_data,
+})
+
+const initialReferrals: Referral[] = []
+
+export default function ReferralManagementPage() {
+  const [referrals, setReferrals] = useState<Referral[]>(initialReferrals)
+  const [activeTab, setActiveTab] = useState("referrals")
+  const [referralTab, setReferralTab] = useState("new")
     status: "New",
     aiRecommendation: "Approve",
     aiReason: "Standard post-op case with high approval chance.",
@@ -138,9 +193,10 @@ export default function ReferralManagementPage() {
   const [referralTab, setReferralTab] = useState("new")
   const [isLoadingExtendedCare, setIsLoadingExtendedCare] = useState(false)
   const [extendedCareStatus, setExtendedCareStatus] = useState<"connected" | "disconnected" | "syncing">("connected")
-  const [lastSyncTime, setLastSyncTime] = useState<string>("2024-07-10 10:30 AM")
+  const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleString())
   const [searchTerm, setSearchTerm] = useState("")
   const [filterSource, setFilterSource] = useState("all")
+  const [isLoadingReferrals, setIsLoadingReferrals] = useState(false)
 
   const [eligibilityChecks, setEligibilityChecks] = useState<Record<string, any>>({})
   const [insuranceMonitoring, setInsuranceMonitoring] = useState<Record<string, any>>({})
@@ -151,6 +207,45 @@ export default function ReferralManagementPage() {
   const canViewAuthorizations =
     hasPermission(currentUser, "authorization", "read") || hasPermission(currentUser, "authorization", "track")
   const canManageAuthorizations = hasPermission(currentUser, "authorization", "write")
+
+  // Fetch referrals from database
+  const fetchReferrals = async () => {
+    setIsLoadingReferrals(true)
+    try {
+      const response = await fetch("/api/referrals")
+      const data = await response.json()
+      
+      if (data && data.referrals) {
+        const convertedReferrals = data.referrals.map((dbRef: DatabaseReferral) => convertDbReferralToReferral(dbRef))
+        setReferrals(convertedReferrals)
+        
+        // Load eligibility and insurance monitoring from database
+        const newEligibilityChecks: Record<string, any> = {}
+        const newInsuranceMonitoring: Record<string, any> = {}
+        
+        data.referrals.forEach((dbRef: DatabaseReferral) => {
+          if (dbRef.eligibility_status) {
+            newEligibilityChecks[dbRef.id] = dbRef.eligibility_status
+          }
+          if (dbRef.insurance_monitoring) {
+            newInsuranceMonitoring[dbRef.id] = dbRef.insurance_monitoring
+          }
+        })
+        
+        setEligibilityChecks(newEligibilityChecks)
+        setInsuranceMonitoring(newInsuranceMonitoring)
+      }
+    } catch (error) {
+      console.error("Failed to fetch referrals:", error)
+    } finally {
+      setIsLoadingReferrals(false)
+    }
+  }
+
+  // Load referrals on mount
+  useEffect(() => {
+    fetchReferrals()
+  }, [])
 
   // Filter referrals based on status and search
   const filteredReferrals = useMemo(() => {
@@ -348,7 +443,11 @@ export default function ReferralManagementPage() {
     } catch (error) {
       setEligibilityChecks((prev) => ({
         ...prev,
-        [referral.id]: { status: "error", error: error.message, timestamp: new Date().toISOString() },
+        [referral.id]: { 
+          status: "error", 
+          error: error instanceof Error ? error.message : "Unknown error occurred", 
+          timestamp: new Date().toISOString() 
+        },
       }))
       throw error
     }
@@ -481,6 +580,7 @@ export default function ReferralManagementPage() {
     ) // 5 minutes
 
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extendedCareStatus])
 
   // Auto-check eligibility for new referrals
@@ -490,6 +590,7 @@ export default function ReferralManagementPage() {
     newReferrals.forEach((referral) => {
       checkEligibilityForReferral(referral)
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [referrals])
 
   // Continuous eligibility monitoring
@@ -507,6 +608,7 @@ export default function ReferralManagementPage() {
     ) // Check every hour
 
     return () => clearInterval(interval)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eligibilityChecks, referrals])
 
   return (

@@ -69,3 +69,4 @@ COMMENT ON COLUMN interview_schedules.duration_minutes IS 'Interview duration in
 COMMENT ON COLUMN interview_schedules.interviewer_name IS 'Name of the person conducting the interview';
 COMMENT ON COLUMN interview_schedules.interviewer_email IS 'Email of the interviewer for communication';
 
+
