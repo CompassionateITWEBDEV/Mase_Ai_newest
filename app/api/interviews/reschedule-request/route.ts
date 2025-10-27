@@ -22,9 +22,23 @@ export async function POST(request: NextRequest) {
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
-    const supabase = createClient(supabaseUrl, supabaseServiceKey || supabaseAnonKey)
+    
+    if (!supabaseServiceKey) {
+      console.error('Missing SUPABASE_SERVICE_ROLE_KEY - RLS policies will block this request')
+      return NextResponse.json(
+        { error: 'Server configuration error' },
+        { status: 500 }
+      )
+    }
+    
+    // Use service role to bypass RLS
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
 
     console.log('Creating reschedule request:', { interviewId, newDate, newTime })
 
@@ -55,6 +69,18 @@ export async function POST(request: NextRequest) {
           { 
             error: 'Reschedule requests table not found',
             hint: 'Please create the interview_reschedule_requests table first'
+          },
+          { status: 500 }
+        )
+      }
+      
+      // If objection to RLS policy
+      if (requestError.message.includes('row-level security policy')) {
+        return NextResponse.json(
+          { 
+            error: 'Failed to create reschedule request: RLS policy violation',
+            hint: 'Please ensure the service role key is configured correctly or update RLS policies',
+            details: requestError.message
           },
           { status: 500 }
         )
