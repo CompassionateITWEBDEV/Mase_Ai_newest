@@ -28,22 +28,34 @@ ALTER TABLE interview_reschedule_requests ENABLE ROW LEVEL SECURITY;
 -- Create RLS policy for employers to view their reschedule requests
 CREATE POLICY "Employers can view their reschedule requests" 
   ON interview_reschedule_requests FOR SELECT 
-  USING (employer_id::text = auth.uid()::text);
+  USING (
+    auth.role() = 'service_role' OR
+    employer_id::text = auth.uid()::text OR 
+    employer_id IN (SELECT id FROM employers WHERE auth_user_id = auth.uid())
+  );
 
 -- Create RLS policy for applicants to view their reschedule requests
 CREATE POLICY "Applicants can view their reschedule requests" 
   ON interview_reschedule_requests FOR SELECT 
-  USING (applicant_id::text = auth.uid()::text);
+  USING (
+    auth.role() = 'service_role' OR
+    applicant_id::text = auth.uid()::text OR 
+    applicant_id IN (SELECT id FROM applicants WHERE auth_user_id = auth.uid())
+  );
 
--- Create RLS policy for system to insert reschedule requests
-CREATE POLICY "System can insert reschedule requests" 
+-- Create RLS policy for applicants to insert reschedule requests
+CREATE POLICY "Applicants can insert reschedule requests" 
   ON interview_reschedule_requests FOR INSERT 
-  WITH CHECK (true);
+  WITH CHECK (
+    auth.role() = 'service_role' OR
+    applicant_id::text = auth.uid()::text OR 
+    applicant_id IN (SELECT id FROM applicants WHERE auth_user_id = auth.uid())
+  );
 
 -- Create RLS policy for employers to update reschedule requests
 CREATE POLICY "Employers can update their reschedule requests" 
   ON interview_reschedule_requests FOR UPDATE 
-  USING (employer_id::text = auth.uid()::text);
+  USING (employer_id::text = auth.uid()::text OR employer_id IN (SELECT id FROM employers WHERE auth_user_id = auth.uid()));
 
 -- Add comment
 COMMENT ON TABLE interview_reschedule_requests IS 'Stores interview reschedule requests from applicants';
