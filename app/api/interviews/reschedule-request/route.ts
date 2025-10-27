@@ -37,8 +37,8 @@ export async function POST(request: NextRequest) {
         applicant_id: applicantId,
         employer_id: employerId,
         original_date: currentDate,
-        new_date: newDate,
-        new_time: newTime,
+        proposed_date: newDate,
+        proposed_time: newTime,
         reason: reason,
         status: 'pending',
         created_at: new Date().toISOString()
