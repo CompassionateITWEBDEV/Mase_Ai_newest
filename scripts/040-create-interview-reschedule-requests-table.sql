@@ -10,8 +10,8 @@ CREATE TABLE IF NOT EXISTS interview_reschedule_requests (
   new_time TIME NOT NULL,
   reason TEXT NOT NULL,
   status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
-  reviewed_at TIMESTAMP WITH TIME ZONE,
-  reviewed_by UUID,
+  review_date TIMESTAMP WITH TIME ZONE,
+  review_by UUID,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

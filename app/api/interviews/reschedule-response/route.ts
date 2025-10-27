@@ -51,8 +51,8 @@ export async function POST(request: NextRequest) {
       .from('interview_reschedule_requests')
       .update({
         status: action,
-        reviewed_at: new Date().toISOString(),
-        reviewed_by: employerId
+        review_date: new Date().toISOString(),
+        review_by: employerId
       })
       .eq('id', requestId)
 
