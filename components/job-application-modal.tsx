@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import {
-  ArrowLeft,
   Upload,
   FileText,
   User,
@@ -20,8 +19,8 @@ import {
   Shield,
   AlertTriangle,
   Heart,
+  X,
 } from "lucide-react"
-import Link from "next/link"
 
 interface ProfileData {
   id?: string
@@ -43,15 +42,24 @@ interface ProfileData {
 interface JobApplicationProps {
   prefilledData?: ProfileData
   jobId?: string
+  onClose?: () => void
 }
+// Updated interface to include jobId
 
-export default function JobApplication({ prefilledData, jobId }: JobApplicationProps) {
+export default function JobApplication({ prefilledData, jobId, onClose }: JobApplicationProps) {
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const totalSteps = 7
-  const [selectedFiles, setSelectedFiles] = useState<{ [key: string]: File }>({})
 
-  // Form data state - persisted across step navigation
+  // File upload state
+  const [uploadedFiles, setUploadedFiles] = useState<Array<{
+    name: string
+    type: string
+    size: number
+    file: File
+  }>>([])
+
+  // Form data state
   const [formData, setFormData] = useState({
     firstName: '',
     middleInitial: '',
@@ -81,56 +89,61 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
     licenseExpiry: '',
     cpr: '',
     otherCerts: '',
-    // Healthcare Compliance fields
-    hipaa_training: false,
-    hipaa_details: '',
-    hipaa_agreement: false,
-    conflict_interest: false,
-    conflict_details: '',
-    relationship_conflict: false,
-    relationship_details: '',
-    conviction_history: false,
-    conviction_details: '',
-    registry_history: false,
-    background_consent: false,
-    // Health & Safety fields
-    tb_test_status: '',
-    tb_test_date: '',
-    tb_history_details: '',
-    infection_training: false,
-    infection_details: '',
-    happ_agreement: false,
-    physical_accommodation: '', // 'yes', 'accommodation', or 'no'
-    physical_details: '',
-    hep_b_vaccination: '',
-    flu_vaccination: '',
-    immunization_details: '',
-    // References fields
-    reference_1_name: '',
-    reference_1_relationship: '',
-    reference_1_company: '',
-    reference_1_phone: '',
-    reference_1_email: '',
-    reference_2_name: '',
-    reference_2_relationship: '',
-    reference_2_company: '',
-    reference_2_phone: '',
-    reference_2_email: '',
-    reference_3_name: '',
-    reference_3_relationship: '',
-    reference_3_company: '',
-    reference_3_phone: '',
-    reference_3_email: '',
-    // Emergency Contact fields
-    emergency_name: '',
-    emergency_relationship: '',
-    emergency_phone: '',
-    emergency_email: '',
-    emergency_address: '',
-    // Agreement fields
-    terms_agreed: false,
-    employment_at_will: false,
-    drug_testing_consent: false,
+    // Healthcare Compliance & Background
+    hipaaTraining: false,
+    hipaaDetails: '',
+    conflictInterest: false,
+    conflictDetails: '',
+    relationshipConflict: false,
+    relationshipDetails: '',
+    convictionHistory: false,
+    convictionDetails: '',
+    registryHistory: false,
+    backgroundConsent: false,
+    
+    // Health & Safety
+    tbTestStatus: '',
+    tbTestDate: '',
+    tbHistoryDetails: '',
+    infectionTraining: false,
+    infectionDetails: '',
+    physicalAccommodation: false,
+    physicalDetails: '',
+    hepBVaccination: '',
+    fluVaccination: '',
+    immunizationDetails: '',
+    
+    // Emergency Contact
+    emergencyName: '',
+    emergencyPhone: '',
+    emergencyRelationship: '',
+    emergencyEmail: '',
+    emergencyAddress: '',
+    
+    // References
+    reference1Name: '',
+    reference1Phone: '',
+    reference1Relationship: '',
+    reference1Company: '',
+    reference1Email: '',
+    reference2Name: '',
+    reference2Phone: '',
+    reference2Relationship: '',
+    reference2Company: '',
+    reference2Email: '',
+    reference3Name: '',
+    reference3Phone: '',
+    reference3Relationship: '',
+    reference3Company: '',
+    reference3Email: '',
+    
+    // Terms & Conditions
+    termsAgreed: false,
+    employmentAtWill: false,
+    drugTestingConsent: false,
+    
+    // Additional Information
+    additionalInfo: '',
   })
 
   // Pre-fill form data when component mounts or prefilledData changes
@@ -199,369 +212,211 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
     return professionMap[profession.toLowerCase()] || ''
   }
 
-  // Handle form field changes - using functional update to ensure we always have latest state
-  const handleInputChange = (field: string, value: string | boolean) => {
+  // Handle form field changes
+  const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({
       ...prev,
       [field]: value
     }))
   }
 
-  const nextStep = (e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault()
-    }
+  const nextStep = () => {
     if (currentStep < totalSteps) {
       setCurrentStep(currentStep + 1)
     }
   }
 
-  const prevStep = (e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault()
-    }
+  const prevStep = () => {
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1)
     }
   }
 
-  // Handle file selection
-  const handleFileChange = (docKey: string, event: React.ChangeEvent<HTMLInputElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    
+  // File upload handlers
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>, documentType: string) => {
     const file = event.target.files?.[0]
     if (file) {
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        alert(`File size exceeds 10MB limit. Please choose a smaller file.`)
-        // Reset the input
-        event.target.value = ''
-        return
+      const newFile = {
+        name: file.name,
+        type: documentType,
+        size: file.size,
+        file: file
       }
-      // Validate file type
-      const allowedTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png']
-      if (!allowedTypes.includes(file.type)) {
-        alert(`Invalid file type. Please upload PDF, JPG, or PNG files only.`)
-        // Reset the input
-        event.target.value = ''
-        return
-      }
-      setSelectedFiles(prev => ({
-        ...prev,
-        [docKey]: file
-      }))
+      setUploadedFiles(prev => [...prev, newFile])
     }
   }
 
-  // Remove selected file
-  const removeSelectedFile = (docKey: string) => {
-    setSelectedFiles(prev => {
-      const newFiles = { ...prev }
-      delete newFiles[docKey]
-      return newFiles
-    })
-    // Reset the file input
-    const fileInput = document.getElementById(`file-${docKey}`) as HTMLInputElement
-    if (fileInput) {
-      fileInput.value = ''
-    }
-  }
-
-  // Reset form to initial state
-  const resetForm = () => {
-    setFormData({
-      firstName: '',
-      middleInitial: '',
-      lastName: '',
-      email: '',
-      phone: '',
-      address: '',
-      city: '',
-      state: '',
-      zipCode: '',
-      dateOfBirth: '',
-      ssn: '',
-      desiredPosition: '',
-      employmentType: 'full-time',
-      availability: '',
-      yearsExperience: '',
-      workHistory: '',
-      specialties: '',
-      highSchool: '',
-      hsGradYear: '',
-      college: '',
-      degree: '',
-      major: '',
-      collegeGradYear: '',
-      license: '',
-      licenseState: '',
-      licenseExpiry: '',
-      cpr: '',
-      otherCerts: '',
-      // Healthcare Compliance fields
-      hipaa_training: false,
-      hipaa_details: '',
-      hipaa_agreement: false,
-      conflict_interest: false,
-      conflict_details: '',
-      relationship_conflict: false,
-      relationship_details: '',
-      conviction_history: false,
-      conviction_details: '',
-      registry_history: false,
-      background_consent: false,
-      // Health & Safety fields
-      tb_test_status: '',
-      tb_test_date: '',
-      tb_history_details: '',
-      infection_training: false,
-      infection_details: '',
-      happ_agreement: false,
-      physical_accommodation: '',
-      physical_details: '',
-      hep_b_vaccination: '',
-      flu_vaccination: '',
-      immunization_details: '',
-      // References fields
-      reference_1_name: '',
-      reference_1_relationship: '',
-      reference_1_company: '',
-      reference_1_phone: '',
-      reference_1_email: '',
-      reference_2_name: '',
-      reference_2_relationship: '',
-      reference_2_company: '',
-      reference_2_phone: '',
-      reference_2_email: '',
-      reference_3_name: '',
-      reference_3_relationship: '',
-      reference_3_company: '',
-      reference_3_phone: '',
-      reference_3_email: '',
-      // Emergency Contact fields
-      emergency_name: '',
-      emergency_relationship: '',
-      emergency_phone: '',
-      emergency_email: '',
-      emergency_address: '',
-      // Agreement fields
-      terms_agreed: false,
-      employment_at_will: false,
-      drug_testing_consent: false,
-    })
-    
-    // Clear selected files
-    setSelectedFiles({})
-    
-    // Reset file inputs
-    const fileInputs = document.querySelectorAll('input[type="file"]')
-    fileInputs.forEach((input) => {
-      (input as HTMLInputElement).value = ''
-    })
-    
-    // Reset form step
-    setCurrentStep(1)
-    
-    // Reset the HTML form element (find by form id or just the form)
-    setTimeout(() => {
-      const formElement = document.querySelector('form') as HTMLFormElement
-      if (formElement) {
-        formElement.reset()
-      }
-    }, 100)
-  }
-
-  // Form validation
-  const validateForm = (): string[] => {
-    const errors: string[] = []
-
-    // Step 1: Personal Information
-    if (!formData.firstName?.trim()) errors.push('First name is required')
-    if (!formData.lastName?.trim()) errors.push('Last name is required')
-    if (!formData.email?.trim()) errors.push('Email is required')
-    if (formData.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
-      errors.push('Please enter a valid email address')
-    }
-    if (!formData.phone?.trim()) errors.push('Phone number is required')
-    if (!formData.address?.trim()) errors.push('Address is required')
-    if (!formData.city?.trim()) errors.push('City is required')
-    if (!formData.state?.trim()) errors.push('State is required')
-    if (!formData.zipCode?.trim()) errors.push('Zip code is required')
-    if (!formData.desiredPosition?.trim()) errors.push('Desired position is required')
-
-    // Step 2: Education & Experience - basic validation
-    if (!formData.yearsExperience?.trim()) errors.push('Years of experience is required')
-
-    // Step 3: Licenses & Certifications - basic validation
-    if (!formData.license?.trim()) errors.push('Professional license information is required')
-
-    // Step 4: Document Upload - files are optional but noted
-
-    // Step 5: Healthcare Compliance
-    if (formData.hipaa_training === undefined || formData.hipaa_training === null) {
-      errors.push('HIPAA training question must be answered')
-    }
-    if (!formData.hipaa_agreement) errors.push('HIPAA agreement must be accepted')
-    if (formData.conflict_interest === undefined || formData.conflict_interest === null) {
-      errors.push('Conflict of interest question must be answered')
-    }
-    if (formData.relationship_conflict === undefined || formData.relationship_conflict === null) {
-      errors.push('Relationship conflict question must be answered')
-    }
-    if (formData.conviction_history === undefined || formData.conviction_history === null) {
-      errors.push('Conviction history question must be answered')
-    }
-    if (formData.registry_history === undefined || formData.registry_history === null) {
-      errors.push('Registry history question must be answered')
-    }
-    if (!formData.background_consent) errors.push('Background check consent is required')
-
-    // Step 6: Health & Safety
-    if (!formData.tb_test_status?.trim()) errors.push('TB test status is required')
-    if (formData.infection_training === undefined || formData.infection_training === null) {
-      errors.push('Infection prevention training question must be answered')
-    }
-    if (!formData.happ_agreement) errors.push('HAPP agreement must be accepted')
-    if (!formData.physical_accommodation?.trim()) {
-      errors.push('Physical accommodation question must be answered')
-    }
-    // If "Yes, with reasonable accommodation" is selected, details must be provided
-    if (formData.physical_accommodation === 'accommodation' && !formData.physical_details?.trim()) {
-      errors.push('Please describe the accommodations needed')
-    }
-    if (!formData.hep_b_vaccination?.trim()) errors.push('Hepatitis B vaccination status is required')
-    if (!formData.flu_vaccination?.trim()) errors.push('Influenza vaccination status is required')
-
-    // Step 7: References & Emergency Contact
-    if (!formData.reference_1_name?.trim()) errors.push('At least one reference (Name) is required')
-    if (!formData.reference_1_phone?.trim()) errors.push('At least one reference (Phone) is required')
-    if (!formData.emergency_name?.trim()) errors.push('Emergency contact name is required')
-    if (!formData.emergency_relationship?.trim()) errors.push('Emergency contact relationship is required')
-    if (!formData.emergency_phone?.trim()) errors.push('Emergency contact phone is required')
-    if (!formData.terms_agreed) errors.push('Terms and conditions must be accepted')
-    if (!formData.employment_at_will) errors.push('Employment at will acknowledgment is required')
-    if (!formData.drug_testing_consent) errors.push('Drug testing consent is required')
-
-    return errors
+  const removeFile = (index: number) => {
+    setUploadedFiles(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    
-    // Prevent duplicate submissions
-    if (isSubmitting) {
-      console.warn('Form submission already in progress, ignoring duplicate submit')
-      return
-    }
-    
-    // Validate form before submission
-    const validationErrors = validateForm()
-    if (validationErrors.length > 0) {
-      const errorMessage = `Please fix the following errors:\n\n${validationErrors.join('\n')}`
-      alert(errorMessage)
-      // Navigate to the first step with errors
-      if (validationErrors.some(err => err.includes('First name') || err.includes('Email') || err.includes('Phone'))) {
-        setCurrentStep(1)
-      } else if (validationErrors.some(err => err.includes('experience') || err.includes('education'))) {
-        setCurrentStep(2)
-      } else if (validationErrors.some(err => err.includes('license') || err.includes('certification'))) {
-        setCurrentStep(3)
-      } else if (validationErrors.some(err => err.includes('HIPAA') || err.includes('Conflict') || err.includes('Conviction'))) {
-        setCurrentStep(5)
-      } else if (validationErrors.some(err => err.includes('TB') || err.includes('Infection') || err.includes('Physical') || err.includes('vaccination'))) {
-        setCurrentStep(6)
-      } else if (validationErrors.some(err => err.includes('reference') || err.includes('Emergency') || err.includes('Terms'))) {
-        setCurrentStep(7)
-      }
-      return
-    }
-    
     setIsSubmitting(true)
 
     try {
-      const formDataToSubmit = new FormData(e.currentTarget)
-      
-      // First submit basic application data
-      const response = await fetch('/api/applications', {
+      // First, create the job application record
+      const applicationResponse = await fetch('/api/applications/create', {
         method: 'POST',
-        body: formDataToSubmit,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          job_posting_id: jobId,
+          applicant_id: prefilledData?.id,
+          cover_letter: formData.workHistory || null,
+          resume_url: null, // Will be set from uploaded documents
+        }),
       })
 
-      const result = await response.json()
+      const applicationResult = await applicationResponse.json()
 
-      if (result.success) {
-        // Now submit detailed form data - use formData state instead of FormData
-        // This ensures all controlled component values are included
-        const formObject: any = {}
-        
-        // Helper to convert camelCase to snake_case, but preserve already snake_case keys
-        const toSnakeCase = (str: string) => {
-          // If already contains underscore, assume it's already snake_case
-          if (str.includes('_')) {
-            return str
-          }
-          // Otherwise convert camelCase to snake_case
-          return str.replace(/([A-Z])/g, '_$1').toLowerCase()
-        }
-        
-        // Convert formData state to snake_case keys and merge with FormData
-        Object.entries(formData).forEach(([key, value]) => {
-          const snakeKey = toSnakeCase(key)
-          // Include all values except undefined and null
-          // Include false booleans, 0 numbers, and empty strings (they might be defaults)
-          if (value !== undefined && value !== null) {
-            formObject[snakeKey] = value
-          }
-        })
-        
-        // Also merge any values from FormData that might not be in state
-        for (let [key, value] of formDataToSubmit.entries()) {
-          if (!formObject[key]) {
-            // Convert string values to appropriate types
-            // FormDataEntryValue can be string | File
-            if (typeof value === 'string') {
-              if (value === 'true') {
-                formObject[key] = true
-              } else if (value === 'false') {
-                formObject[key] = false
-              } else {
-                formObject[key] = value
-              }
-            } else {
-              // Skip File objects - they're handled separately
-              formObject[key] = value
-            }
-          }
-        }
-
-        // Add job_application_id
-        formObject.job_application_id = result.applicationId || result.id || 'temp-id'
-
-        // Submit detailed form data
-        const detailedResponse = await fetch('/api/applications/form', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(formObject),
-        })
-
-        const detailedResult = await detailedResponse.json()
-
-        if (detailedResult.success) {
-          // Data successfully saved to database - now clear the form
-          alert(`Thank you for your application! Your confirmation number is: ${result.confirmationNumber}. We will contact you within 2-3 business days.`)
-          
-          // Clear form fields after successful submission to prevent duplicate submission on refresh
-          resetForm()
-        } else {
-          console.error('Detailed form submission failed:', detailedResult)
-          alert('Application submitted but detailed form data failed to save. Please contact support.')
-        }
-      } else {
-        throw new Error(result.message)
+      if (!applicationResult.success) {
+        throw new Error(applicationResult.error || 'Failed to create application')
       }
+
+      // Then, save the detailed form data
+      const formDataToSubmit = {
+        job_application_id: applicationResult.application.id,
+        // Personal Information
+        first_name: formData.firstName,
+        middle_initial: formData.middleInitial,
+        last_name: formData.lastName,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
+        city: formData.city,
+        state: formData.state,
+        zip_code: formData.zipCode,
+        date_of_birth: formData.dateOfBirth,
+        ssn: formData.ssn,
+
+        // Position & Experience
+        desired_position: formData.desiredPosition,
+        employment_type: formData.employmentType,
+        availability: formData.availability,
+        years_experience: formData.yearsExperience,
+        work_history: formData.workHistory,
+        specialties: formData.specialties,
+
+        // Education
+        high_school: formData.highSchool,
+        hs_grad_year: formData.hsGradYear ? parseInt(formData.hsGradYear) : null,
+        college: formData.college,
+        degree: formData.degree,
+        major: formData.major,
+        college_grad_year: formData.collegeGradYear ? parseInt(formData.collegeGradYear) : null,
+
+        // Licenses & Certifications
+        license: formData.license,
+        license_state: formData.licenseState,
+        license_expiry: formData.licenseExpiry,
+        cpr: formData.cpr,
+        other_certs: formData.otherCerts,
+
+        // Healthcare Compliance & Background
+        hipaa_training: formData.hipaaTraining || false,
+        hipaa_details: formData.hipaaDetails || '',
+        conflict_interest: formData.conflictInterest || false,
+        conflict_details: formData.conflictDetails || '',
+        relationship_conflict: formData.relationshipConflict || false,
+        relationship_details: formData.relationshipDetails || '',
+        conviction_history: formData.convictionHistory || false,
+        conviction_details: formData.convictionDetails || '',
+        registry_history: formData.registryHistory || false,
+        background_consent: formData.backgroundConsent || false,
+
+        // Health & Safety
+        tb_test_status: formData.tbTestStatus || '',
+        tb_test_date: formData.tbTestDate || null,
+        tb_history_details: formData.tbHistoryDetails || '',
+        infection_training: formData.infectionTraining || false,
+        infection_details: formData.infectionDetails || '',
+        physical_accommodation: formData.physicalAccommodation || false,
+        physical_details: formData.physicalDetails || '',
+        hep_b_vaccination: formData.hepBVaccination || '',
+        flu_vaccination: formData.fluVaccination || '',
+        immunization_details: formData.immunizationDetails || '',
+
+        // Emergency Contact
+        emergency_name: formData.emergencyName || '',
+        emergency_phone: formData.emergencyPhone || '',
+        emergency_relationship: formData.emergencyRelationship || '',
+        emergency_email: formData.emergencyEmail || '',
+        emergency_address: formData.emergencyAddress || '',
+
+        // References
+        reference_1_name: formData.reference1Name || '',
+        reference_1_phone: formData.reference1Phone || '',
+        reference_1_relationship: formData.reference1Relationship || '',
+        reference_1_company: formData.reference1Company || '',
+        reference_1_email: formData.reference1Email || '',
+        reference_2_name: formData.reference2Name || '',
+        reference_2_phone: formData.reference2Phone || '',
+        reference_2_relationship: formData.reference2Relationship || '',
+        reference_2_company: formData.reference2Company || '',
+        reference_2_email: formData.reference2Email || '',
+        reference_3_name: formData.reference3Name || '',
+        reference_3_phone: formData.reference3Phone || '',
+        reference_3_relationship: formData.reference3Relationship || '',
+        reference_3_company: formData.reference3Company || '',
+        reference_3_email: formData.reference3Email || '',
+
+        // Terms & Conditions
+        terms_agreed: formData.termsAgreed || false,
+        employment_at_will: formData.employmentAtWill || false,
+        drug_testing_consent: formData.drugTestingConsent || false,
+
+        // Additional Information
+        additional_info: formData.additionalInfo || '',
+      }
+
+      const formResponse = await fetch('/api/applications/form', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formDataToSubmit),
+      })
+
+      const formResult = await formResponse.json()
+
+      if (!formResult.success) {
+        console.error('Form save failed, but application was created:', formResult)
+        // Don't fail the whole submission if form save fails
+      }
+
+      // Upload documents to applicant_documents table
+      if (uploadedFiles.length > 0) {
+        console.log('Uploading documents:', uploadedFiles.length)
+        
+        for (const fileData of uploadedFiles) {
+          try {
+            // Create FormData for file upload
+            const formData = new FormData()
+            formData.append('file', fileData.file)
+            formData.append('applicant_id', applicationResult.application.applicant_id)
+            formData.append('document_type', fileData.type)
+            formData.append('file_name', fileData.name)
+            formData.append('file_size', fileData.size.toString())
+
+            const documentResponse = await fetch('/api/applicants/documents/upload', {
+              method: 'POST',
+              body: formData,
+            })
+
+            const documentResult = await documentResponse.json()
+            
+            if (!documentResult.success) {
+              console.error('Document upload failed:', documentResult.error)
+            } else {
+              console.log('Document uploaded successfully:', fileData.name)
+            }
+          } catch (error) {
+            console.error('Error uploading document:', fileData.name, error)
+          }
+        }
+      }
+
+      alert(`Thank you for your application! Your application has been submitted successfully. We will contact you within 2-3 business days.`)
+      if (onClose) onClose()
+
     } catch (error) {
       console.error('Submission error:', error)
       alert('There was an error submitting your application. Please try again.')
@@ -571,53 +426,48 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
   }
 
   return (
-    <>
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-center py-6">
-            <div className="text-center">
-              <h1 className="text-2xl font-bold text-gray-900">Job Application</h1>
-              <p className="text-gray-600">Apply for a position at IrishTriplets Healthcare</p>
-            </div>
-          </div>
+    <div className="space-y-6">
+      {/* Progress Bar */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-medium text-gray-700">
+            Step {currentStep} of {totalSteps}
+          </span>
+          <span className="text-sm text-gray-500">{Math.round((currentStep / totalSteps) * 100)}% Complete</span>
         </div>
-      </header>
-
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <form onSubmit={handleSubmit} noValidate>
-        {/* Progress Bar */}
-        <div className="mb-8">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">
-              Step {currentStep} of {totalSteps}
-            </span>
-            <span className="text-sm text-gray-500">{Math.round((currentStep / totalSteps) * 100)}% Complete</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${(currentStep / totalSteps) * 100}%` }}
-            ></div>
-          </div>
+        <div className="w-full bg-gray-200 rounded-full h-2">
+          <div
+            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+            style={{ width: `${(currentStep / totalSteps) * 100}%` }}
+          ></div>
         </div>
+      </div>
 
+      <form onSubmit={handleSubmit}>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
-              {currentStep === 1 && <User className="h-5 w-5 mr-2" />}
-              {currentStep === 2 && <Briefcase className="h-5 w-5 mr-2" />}
-              {currentStep === 3 && <GraduationCap className="h-5 w-5 mr-2" />}
-              {currentStep === 4 && <FileText className="h-5 w-5 mr-2" />}
-              {currentStep === 5 && <Shield className="h-5 w-5 mr-2" />}
-              {currentStep === 6 && <Heart className="h-5 w-5 mr-2" />}
-              {currentStep === 7 && <Phone className="h-5 w-5 mr-2" />}
-              {currentStep === 1 && "Personal Information"}
-              {currentStep === 2 && "Position & Experience"}
-              {currentStep === 3 && "Education & Certifications"}
-              {currentStep === 4 && "Document Upload"}
-              {currentStep === 5 && "Healthcare Compliance"}
-              {currentStep === 6 && "Health & Safety Requirements"}
-              {currentStep === 7 && "References & Contact"}
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center">
+                {currentStep === 1 && <User className="h-5 w-5 mr-2" />}
+                {currentStep === 2 && <Briefcase className="h-5 w-5 mr-2" />}
+                {currentStep === 3 && <GraduationCap className="h-5 w-5 mr-2" />}
+                {currentStep === 4 && <FileText className="h-5 w-5 mr-2" />}
+                {currentStep === 5 && <Shield className="h-5 w-5 mr-2" />}
+                {currentStep === 6 && <Heart className="h-5 w-5 mr-2" />}
+                {currentStep === 7 && <Phone className="h-5 w-5 mr-2" />}
+                {currentStep === 1 && "Personal Information"}
+                {currentStep === 2 && "Position & Experience"}
+                {currentStep === 3 && "Education & Certifications"}
+                {currentStep === 4 && "Healthcare Compliance"}
+                {currentStep === 5 && "References & Contact"}
+                {currentStep === 6 && "Health & Safety Requirements"}
+                {currentStep === 7 && "Document Upload"}
+              </div>
+              {onClose && (
+                <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
             </CardTitle>
             <CardDescription>
               {currentStep === 1 && "Please provide your basic personal information"}
@@ -631,7 +481,8 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Step 1: Personal Information */}
-            <div className={`space-y-4 ${currentStep !== 1 ? 'hidden' : ''}`}>
+            {currentStep === 1 && (
+              <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <Label htmlFor="firstName">First Name *</Label>
@@ -721,7 +572,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   </div>
                   <div>
                     <Label htmlFor="state">State *</Label>
-                    <Select key="state" name="state" value={formData.state} onValueChange={(value) => handleInputChange('state', value)}>
+                    <Select name="state" value={formData.state} onValueChange={(value) => handleInputChange('state', value)}>
                       <SelectTrigger>
                         <SelectValue placeholder="Select state" />
                       </SelectTrigger>
@@ -774,12 +625,14 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   </p>
                 </div>
               </div>
+            )}
 
             {/* Step 2: Position & Experience */}
-            <div className={`space-y-4 ${currentStep !== 2 ? 'hidden' : ''}`}>
+            {currentStep === 2 && (
+              <div className="space-y-4">
                 <div>
                   <Label htmlFor="position">Position Applying For *</Label>
-                  <Select key="desiredPosition" name="desiredPosition" value={formData.desiredPosition} onValueChange={(value) => handleInputChange('desiredPosition', value)}>
+                  <Select name="desiredPosition" value={formData.desiredPosition} onValueChange={(value) => handleInputChange('desiredPosition', value)}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select position" />
                     </SelectTrigger>
@@ -826,7 +679,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
 
                 <div>
                   <Label htmlFor="experience">Years of Experience *</Label>
-                  <Select key="yearsExperience" name="yearsExperience" value={formData.yearsExperience} onValueChange={(value) => handleInputChange('yearsExperience', value)}>
+                  <Select name="yearsExperience" value={formData.yearsExperience} onValueChange={(value) => handleInputChange('yearsExperience', value)}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select experience level" />
                     </SelectTrigger>
@@ -864,9 +717,11 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   />
                 </div>
               </div>
+            )}
 
             {/* Step 3: Education & Certifications */}
-            <div className={`space-y-6 ${currentStep !== 3 ? 'hidden' : ''}`}>
+            {currentStep === 3 && (
+              <div className="space-y-6">
                 <div>
                   <h3 className="text-lg font-medium mb-4">Education</h3>
                   <div className="space-y-4">
@@ -964,7 +819,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       </div>
                       <div>
                         <Label htmlFor="licenseState">License State</Label>
-                        <Select key="licenseState" name="licenseState" value={formData.licenseState} onValueChange={(value) => handleInputChange('licenseState', value)}>
+                        <Select name="licenseState" value={formData.licenseState} onValueChange={(value) => handleInputChange('licenseState', value)}>
                           <SelectTrigger>
                             <SelectValue placeholder="Select state" />
                           </SelectTrigger>
@@ -983,7 +838,6 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         <Label htmlFor="licenseExpiry">License Expiration Date</Label>
                         <Input 
                           id="licenseExpiry" 
-                          name="licenseExpiry"
                           type="date" 
                           value={formData.licenseExpiry}
                           onChange={(e) => handleInputChange('licenseExpiry', e.target.value)}
@@ -991,7 +845,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       </div>
                       <div>
                         <Label htmlFor="cpr">CPR Certification</Label>
-                        <Select key="cpr" name="cpr" value={formData.cpr} onValueChange={(value) => handleInputChange('cpr', value)}>
+                        <Select value={formData.cpr} onValueChange={(value) => handleInputChange('cpr', value)}>
                           <SelectTrigger>
                             <SelectValue placeholder="CPR status" />
                           </SelectTrigger>
@@ -1017,9 +871,11 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   </div>
                 </div>
               </div>
+            )}
 
             {/* Step 4: Document Upload */}
-            <div className={`space-y-6 ${currentStep !== 4 ? 'hidden' : ''}`}>
+            {currentStep === 4 && (
+              <div className="space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {[
                     { name: "Resume/CV", required: true, description: "Current resume or curriculum vitae" },
@@ -1039,8 +895,9 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                     },
                     { name: "Car Insurance", required: true, description: "Current automobile insurance certificate" },
                   ].map((doc, index) => {
-                    const docKey = doc.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
-                    const selectedFile = selectedFiles[docKey]
+                    // Check if resume is already uploaded
+                    const isResume = doc.name === "Resume/CV"
+                    const uploadedResume = prefilledData?.documents?.find((d: any) => d.document_type === 'resume')
                     
                     return (
                       <div key={index} className="border-2 border-dashed border-gray-300 rounded-lg p-4">
@@ -1050,60 +907,15 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                             {doc.name} {doc.required && <span className="text-red-500">*</span>}
                           </h3>
                           <p className="text-xs text-gray-500 mb-3">{doc.description}</p>
-                          {selectedFile ? (
-                            <div className="space-y-2">
-                              <div className="bg-gray-100 p-2 rounded flex items-center justify-between">
-                                <span className="text-xs font-medium text-gray-700 truncate mr-2">
-                                  {selectedFile.name}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    removeSelectedFile(docKey)
-                                  }}
-                                  className="text-red-600 hover:text-red-800 text-xs"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                              <p className="text-xs text-blue-600">
-                                File selected: {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                              </p>
+                          {isResume && uploadedResume ? (
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-2 mb-2">
+                              <p className="text-xs text-green-800 font-medium">✓ Resume Already Uploaded</p>
+                              <p className="text-xs text-green-600">{uploadedResume.file_name}</p>
                             </div>
                           ) : (
-                            <div>
-                              <input
-                                id={`file-${docKey}`}
-                                type="file"
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
-                                  handleFileChange(docKey, e)
-                                }}
-                                className="hidden"
-                              />
-                              <label htmlFor={`file-${docKey}`}>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    const fileInput = document.getElementById(`file-${docKey}`) as HTMLInputElement
-                                    if (fileInput) {
-                                      fileInput.click()
-                                    }
-                                  }}
-                                  className="cursor-pointer"
-                                >
-                                  Choose File
-                                </Button>
-                              </label>
-                            </div>
+                            <Button variant="outline" size="sm">
+                              Choose File
+                            </Button>
                           )}
                           <p className="text-xs text-gray-400 mt-2">PDF, JPG, PNG (Max 10MB)</p>
                         </div>
@@ -1123,9 +935,11 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   </ul>
                 </div>
               </div>
+            )}
 
             {/* Step 5: Healthcare Compliance */}
-            <div className={`space-y-6 ${currentStep !== 5 ? 'hidden' : ''}`}>
+            {currentStep === 5 && (
+              <div className="space-y-6">
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
                   <div className="flex items-center mb-2">
                     <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
@@ -1146,13 +960,13 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   <div className="space-y-4">
                     <div>
                       <Label>Have you completed HIPAA training in the past 12 months? *</Label>
-                      <RadioGroup name="hipaa_training" value={formData.hipaa_training ? 'true' : 'false'} onValueChange={(value) => handleInputChange('hipaa_training', value === 'true')} className="mt-2">
+                      <RadioGroup className="mt-2">
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="true" id="hipaa-yes" />
+                          <RadioGroupItem value="yes" id="hipaa-yes" />
                           <Label htmlFor="hipaa-yes">Yes</Label>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="false" id="hipaa-no" />
+                          <RadioGroupItem value="no" id="hipaa-no" />
                           <Label htmlFor="hipaa-no">No</Label>
                         </div>
                       </RadioGroup>
@@ -1161,21 +975,12 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       <Label htmlFor="hipaa-cert">HIPAA Certification Details</Label>
                       <Textarea
                         id="hipaa-cert"
-                        name="hipaa_details"
                         placeholder="Provide details about your HIPAA training (date, provider, certificate number if available)"
                         rows={3}
-                        value={formData.hipaa_details}
-                        onChange={(e) => handleInputChange('hipaa_details', e.target.value)}
                       />
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="hipaa-agreement" 
-                        name="hipaa_agreement" 
-                        checked={formData.hipaa_agreement}
-                        onCheckedChange={(checked) => handleInputChange('hipaa_agreement', checked)}
-                        required 
-                      />
+                      <Checkbox id="hipaa-agreement" required />
                       <Label htmlFor="hipaa-agreement" className="text-sm">
                         I understand and agree to comply with all HIPAA privacy and security requirements *
                       </Label>
@@ -1192,18 +997,13 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         Do you have any financial interests in healthcare facilities, suppliers, or related businesses?
                         *
                       </Label>
-                      <RadioGroup 
-                        name="conflict_interest" 
-                        value={formData.conflict_interest ? 'true' : 'false'} 
-                        onValueChange={(value) => handleInputChange('conflict_interest', value === 'true')} 
-                        className="mt-2"
-                      >
+                      <RadioGroup className="mt-2">
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="true" id="conflict-yes" />
+                          <RadioGroupItem value="yes" id="conflict-yes" />
                           <Label htmlFor="conflict-yes">Yes</Label>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="false" id="conflict-no" />
+                          <RadioGroupItem value="no" id="conflict-no" />
                           <Label htmlFor="conflict-no">No</Label>
                         </div>
                       </RadioGroup>
@@ -1212,11 +1012,8 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       <Label htmlFor="conflict-details">If yes, please provide details</Label>
                       <Textarea
                         id="conflict-details"
-                        name="conflict_details"
                         placeholder="Describe any potential conflicts of interest"
                         rows={3}
-                        value={formData.conflict_details}
-                        onChange={(e) => handleInputChange('conflict_details', e.target.value)}
                       />
                     </div>
                     <div>
@@ -1224,18 +1021,13 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         Are you related to or have personal relationships with any IrishTriplets employees, patients, or
                         board members? *
                       </Label>
-                      <RadioGroup 
-                        name="relationship_conflict" 
-                        value={formData.relationship_conflict ? 'true' : 'false'} 
-                        onValueChange={(value) => handleInputChange('relationship_conflict', value === 'true')} 
-                        className="mt-2"
-                      >
+                      <RadioGroup className="mt-2">
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="true" id="relationship-yes" />
+                          <RadioGroupItem value="yes" id="relationship-yes" />
                           <Label htmlFor="relationship-yes">Yes</Label>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="false" id="relationship-no" />
+                          <RadioGroupItem value="no" id="relationship-no" />
                           <Label htmlFor="relationship-no">No</Label>
                         </div>
                       </RadioGroup>
@@ -1244,11 +1036,8 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       <Label htmlFor="relationship-details">If yes, please provide details</Label>
                       <Textarea
                         id="relationship-details"
-                        name="relationship_details"
                         placeholder="Describe any relationships that could present conflicts"
                         rows={3}
-                        value={formData.relationship_details}
-                        onChange={(e) => handleInputChange('relationship_details', e.target.value)}
                       />
                     </div>
                   </div>
@@ -1260,19 +1049,13 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   <div className="space-y-4">
                     <div>
                       <Label>Have you ever been convicted of a felony or misdemeanor? *</Label>
-                      <RadioGroup 
-                        name="conviction_history"
-                        value={formData.conviction_history ? 'true' : 'false'} 
-                        onValueChange={(value) => handleInputChange('conviction_history', value === 'true')}
-                        className="mt-2"
-                        required
-                      >
+                      <RadioGroup className="mt-2">
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="true" id="conviction-yes" />
+                          <RadioGroupItem value="yes" id="conviction-yes" />
                           <Label htmlFor="conviction-yes">Yes</Label>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="false" id="conviction-no" />
+                          <RadioGroupItem value="no" id="conviction-no" />
                           <Label htmlFor="conviction-no">No</Label>
                         </div>
                       </RadioGroup>
@@ -1281,41 +1064,27 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       <Label htmlFor="conviction-details">If yes, please provide details</Label>
                       <Textarea
                         id="conviction-details"
-                        name="conviction_details"
                         placeholder="Provide details about any convictions, including dates and circumstances"
                         rows={3}
-                        value={formData.conviction_details}
-                        onChange={(e) => handleInputChange('conviction_details', e.target.value)}
                       />
                     </div>
                     <div>
                       <Label>
                         Have you ever been listed on any state abuse registry or had professional sanctions? *
                       </Label>
-                      <RadioGroup 
-                        name="registry_history" 
-                        value={formData.registry_history ? 'true' : 'false'} 
-                        onValueChange={(value) => handleInputChange('registry_history', value === 'true')} 
-                        className="mt-2"
-                      >
+                      <RadioGroup className="mt-2">
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="true" id="registry-yes" />
+                          <RadioGroupItem value="yes" id="registry-yes" />
                           <Label htmlFor="registry-yes">Yes</Label>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="false" id="registry-no" />
+                          <RadioGroupItem value="no" id="registry-no" />
                           <Label htmlFor="registry-no">No</Label>
                         </div>
                       </RadioGroup>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="background-consent" 
-                        name="background_consent" 
-                        checked={formData.background_consent}
-                        onCheckedChange={(checked) => handleInputChange('background_consent', checked === true)} 
-                        required 
-                      />
+                      <Checkbox id="background-consent" required />
                       <Label htmlFor="background-consent" className="text-sm">
                         I authorize IrishTriplets to conduct a comprehensive background check including criminal
                         history, employment verification, and professional references *
@@ -1324,9 +1093,11 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   </div>
                 </div>
               </div>
+            )}
 
             {/* Step 6: Health & Safety Requirements */}
-            <div className={`space-y-6 ${currentStep !== 6 ? 'hidden' : ''}`}>
+            {currentStep === 6 && (
+              <div className="space-y-6">
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
                   <div className="flex items-center mb-2">
                     <Heart className="h-5 w-5 text-green-600 mr-2" />
@@ -1344,12 +1115,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   <div className="space-y-4">
                     <div>
                       <Label>TB Test Status *</Label>
-                      <Select 
-                        key="tb_test_status"
-                        name="tb_test_status"
-                        value={formData.tb_test_status}
-                        onValueChange={(value) => handleInputChange('tb_test_status', value)}
-                      >
+                      <Select>
                         <SelectTrigger>
                           <SelectValue placeholder="Select TB test status" />
                         </SelectTrigger>
@@ -1364,23 +1130,14 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                     </div>
                     <div>
                       <Label htmlFor="tb-date">Date of Last TB Test</Label>
-                      <Input 
-                        id="tb-date" 
-                        name="tb_test_date" 
-                        type="date" 
-                        value={formData.tb_test_date}
-                        onChange={(e) => handleInputChange('tb_test_date', e.target.value)}
-                      />
+                      <Input id="tb-date" type="date" />
                     </div>
                     <div>
                       <Label htmlFor="tb-details">Additional TB History Details</Label>
                       <Textarea
                         id="tb-details"
-                        name="tb_history_details"
                         placeholder="Provide any additional information about TB testing or treatment history"
                         rows={3}
-                        value={formData.tb_history_details}
-                        onChange={(e) => handleInputChange('tb_history_details', e.target.value)}
                       />
                     </div>
                     <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
@@ -1413,18 +1170,13 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                     </div>
                     <div>
                       <Label>Have you received training in infection prevention and control? *</Label>
-                      <RadioGroup 
-                        name="infection_training" 
-                        value={formData.infection_training ? 'true' : 'false'} 
-                        onValueChange={(value) => handleInputChange('infection_training', value === 'true')} 
-                        className="mt-2"
-                      >
+                      <RadioGroup className="mt-2">
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="true" id="infection-training-yes" />
+                          <RadioGroupItem value="yes" id="infection-training-yes" />
                           <Label htmlFor="infection-training-yes">Yes</Label>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="false" id="infection-training-no" />
+                          <RadioGroupItem value="no" id="infection-training-no" />
                           <Label htmlFor="infection-training-no">No</Label>
                         </div>
                       </RadioGroup>
@@ -1433,21 +1185,12 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       <Label htmlFor="infection-training-details">Training Details</Label>
                       <Textarea
                         id="infection-training-details"
-                        name="infection_details"
                         placeholder="Describe your infection prevention training (dates, provider, topics covered)"
                         rows={3}
-                        value={formData.infection_details}
-                        onChange={(e) => handleInputChange('infection_details', e.target.value)}
                       />
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Checkbox 
-                        id="happ-agreement" 
-                        name="happ_agreement" 
-                        checked={formData.happ_agreement}
-                        onCheckedChange={(checked) => handleInputChange('happ_agreement', checked === true)} 
-                        required 
-                      />
+                      <Checkbox id="happ-agreement" required />
                       <Label htmlFor="happ-agreement" className="text-sm">
                         I commit to following all HAPP guidelines and infection prevention protocols *
                       </Label>
@@ -1464,19 +1207,13 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         Can you perform the essential functions of the position with or without reasonable
                         accommodation? *
                       </Label>
-                      <RadioGroup 
-                        name="physical_accommodation" 
-                        value={formData.physical_accommodation || ''} 
-                        onValueChange={(value) => handleInputChange('physical_accommodation', value)} 
-                        className="mt-2"
-                        required
-                      >
+                      <RadioGroup className="mt-2">
                         <div className="flex items-center space-x-2">
                           <RadioGroupItem value="yes" id="physical-yes" />
                           <Label htmlFor="physical-yes">Yes</Label>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <RadioGroupItem value="accommodation" id="physical-accommodation" />
+                          <RadioGroupItem value="with-accommodation" id="physical-accommodation" />
                           <Label htmlFor="physical-accommodation">Yes, with reasonable accommodation</Label>
                         </div>
                         <div className="flex items-center space-x-2">
@@ -1485,20 +1222,14 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         </div>
                       </RadioGroup>
                     </div>
-                    {formData.physical_accommodation === 'accommodation' && (
-                      <div>
-                        <Label htmlFor="accommodation-details">If accommodation is needed, please describe *</Label>
-                        <Textarea
-                          id="accommodation-details"
-                          name="physical_details"
-                          placeholder="Describe any accommodations you may need to perform job duties"
-                          rows={3}
-                          value={formData.physical_details}
-                          onChange={(e) => handleInputChange('physical_details', e.target.value)}
-                          required={formData.physical_accommodation === 'accommodation'}
-                        />
-                      </div>
-                    )}
+                    <div>
+                      <Label htmlFor="accommodation-details">If accommodation is needed, please describe</Label>
+                      <Textarea
+                        id="accommodation-details"
+                        placeholder="Describe any accommodations you may need to perform job duties"
+                        rows={3}
+                      />
+                    </div>
                     <div className="bg-gray-50 p-3 rounded">
                       <h5 className="font-medium text-gray-900 mb-2">Essential Physical Requirements Include:</h5>
                       <ul className="text-sm text-gray-700 space-y-1">
@@ -1519,12 +1250,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label>Hepatitis B Vaccination *</Label>
-                        <Select 
-                          key="hep_b_vaccination"
-                          name="hep_b_vaccination"
-                          value={formData.hep_b_vaccination}
-                          onValueChange={(value) => handleInputChange('hep_b_vaccination', value)}
-                        >
+                        <Select>
                           <SelectTrigger>
                             <SelectValue placeholder="Select status" />
                           </SelectTrigger>
@@ -1538,12 +1264,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       </div>
                       <div>
                         <Label>Influenza Vaccination (Current Season) *</Label>
-                        <Select 
-                          key="flu_vaccination"
-                          name="flu_vaccination"
-                          value={formData.flu_vaccination}
-                          onValueChange={(value) => handleInputChange('flu_vaccination', value)}
-                        >
+                        <Select>
                           <SelectTrigger>
                             <SelectValue placeholder="Select status" />
                           </SelectTrigger>
@@ -1560,19 +1281,18 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       <Label htmlFor="immunization-details">Additional Immunization Information</Label>
                       <Textarea
                         id="immunization-details"
-                        name="immunization_details"
                         placeholder="Provide details about immunization status, exemptions, or medical contraindications"
                         rows={3}
-                        value={formData.immunization_details}
-                        onChange={(e) => handleInputChange('immunization_details', e.target.value)}
                       />
                     </div>
                   </div>
                 </div>
               </div>
+            )}
 
             {/* Step 7: References & Contact */}
-            <div className={`space-y-6 ${currentStep !== 7 ? 'hidden' : ''}`}>
+            {currentStep === 7 && (
+              <div className="space-y-6">
                 <div>
                   <h3 className="text-lg font-medium mb-4">Professional References</h3>
                   <p className="text-sm text-gray-600 mb-4">Please provide at least 3 professional references</p>
@@ -1583,59 +1303,23 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <Label htmlFor={`ref${refNum}Name`}>Full Name *</Label>
-                          <Input 
-                            id={`ref${refNum}Name`} 
-                            name={`reference_${refNum}_name`} 
-                            placeholder="Reference name" 
-                            value={formData[`reference_${refNum}_name` as keyof typeof formData] as string || ''}
-                            onChange={(e) => handleInputChange(`reference_${refNum}_name`, e.target.value)}
-                            required 
-                          />
+                          <Input id={`ref${refNum}Name`} placeholder="Reference name" required />
                         </div>
                         <div>
                           <Label htmlFor={`ref${refNum}Relationship`}>Relationship *</Label>
-                          <Input 
-                            id={`ref${refNum}Relationship`} 
-                            name={`reference_${refNum}_relationship`} 
-                            placeholder="e.g., Former Supervisor" 
-                            value={formData[`reference_${refNum}_relationship` as keyof typeof formData] as string || ''}
-                            onChange={(e) => handleInputChange(`reference_${refNum}_relationship`, e.target.value)}
-                            required 
-                          />
+                          <Input id={`ref${refNum}Relationship`} placeholder="e.g., Former Supervisor" required />
                         </div>
                         <div>
                           <Label htmlFor={`ref${refNum}Company`}>Company/Organization *</Label>
-                          <Input 
-                            id={`ref${refNum}Company`} 
-                            name={`reference_${refNum}_company`} 
-                            placeholder="Company name" 
-                            value={formData[`reference_${refNum}_company` as keyof typeof formData] as string || ''}
-                            onChange={(e) => handleInputChange(`reference_${refNum}_company`, e.target.value)}
-                            required 
-                          />
+                          <Input id={`ref${refNum}Company`} placeholder="Company name" required />
                         </div>
                         <div>
                           <Label htmlFor={`ref${refNum}Phone`}>Phone Number *</Label>
-                          <Input 
-                            id={`ref${refNum}Phone`} 
-                            name={`reference_${refNum}_phone`} 
-                            type="tel" 
-                            placeholder="(248) 555-0123" 
-                            value={formData[`reference_${refNum}_phone` as keyof typeof formData] as string || ''}
-                            onChange={(e) => handleInputChange(`reference_${refNum}_phone`, e.target.value)}
-                            required 
-                          />
+                          <Input id={`ref${refNum}Phone`} type="tel" placeholder="(248) 555-0123" required />
                         </div>
                         <div className="md:col-span-2">
                           <Label htmlFor={`ref${refNum}Email`}>Email Address</Label>
-                          <Input 
-                            id={`ref${refNum}Email`} 
-                            name={`reference_${refNum}_email`} 
-                            type="email" 
-                            placeholder="reference@email.com" 
-                            value={formData[`reference_${refNum}_email` as keyof typeof formData] as string || ''}
-                            onChange={(e) => handleInputChange(`reference_${refNum}_email`, e.target.value)}
-                          />
+                          <Input id={`ref${refNum}Email`} type="email" placeholder="reference@email.com" />
                         </div>
                       </div>
                     </div>
@@ -1648,58 +1332,23 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="emergencyName">Full Name *</Label>
-                        <Input 
-                          id="emergencyName" 
-                          name="emergency_name" 
-                          placeholder="Emergency contact name" 
-                          value={formData.emergency_name}
-                          onChange={(e) => handleInputChange('emergency_name', e.target.value)}
-                          required 
-                        />
+                        <Input id="emergencyName" placeholder="Emergency contact name" required />
                       </div>
                       <div>
                         <Label htmlFor="emergencyRelationship">Relationship *</Label>
-                        <Input 
-                          id="emergencyRelationship" 
-                          name="emergency_relationship" 
-                          placeholder="e.g., Spouse, Parent" 
-                          value={formData.emergency_relationship}
-                          onChange={(e) => handleInputChange('emergency_relationship', e.target.value)}
-                          required 
-                        />
+                        <Input id="emergencyRelationship" placeholder="e.g., Spouse, Parent" required />
                       </div>
                       <div>
                         <Label htmlFor="emergencyPhone">Phone Number *</Label>
-                        <Input 
-                          id="emergencyPhone" 
-                          name="emergency_phone" 
-                          type="tel" 
-                          placeholder="(248) 555-0123" 
-                          value={formData.emergency_phone}
-                          onChange={(e) => handleInputChange('emergency_phone', e.target.value)}
-                          required 
-                        />
+                        <Input id="emergencyPhone" type="tel" placeholder="(248) 555-0123" required />
                       </div>
                       <div>
                         <Label htmlFor="emergencyEmail">Email Address</Label>
-                        <Input 
-                          id="emergencyEmail" 
-                          name="emergency_email" 
-                          type="email" 
-                          placeholder="emergency@email.com" 
-                          value={formData.emergency_email}
-                          onChange={(e) => handleInputChange('emergency_email', e.target.value)}
-                        />
+                        <Input id="emergencyEmail" type="email" placeholder="emergency@email.com" />
                       </div>
                       <div className="md:col-span-2">
                         <Label htmlFor="emergencyAddress">Address</Label>
-                        <Input 
-                          id="emergencyAddress" 
-                          name="emergency_address" 
-                          placeholder="Emergency contact address" 
-                          value={formData.emergency_address}
-                          onChange={(e) => handleInputChange('emergency_address', e.target.value)}
-                        />
+                        <Input id="emergencyAddress" placeholder="Emergency contact address" />
                       </div>
                     </div>
                   </div>
@@ -1715,80 +1364,193 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
 
                 <div className="space-y-3">
                   <div className="flex items-center space-x-2">
-                    <Checkbox 
-                      id="terms" 
-                      name="terms_agreed" 
-                      checked={formData.terms_agreed}
-                      onCheckedChange={(checked) => handleInputChange('terms_agreed', checked)}
-                      required 
-                    />
+                    <Checkbox id="terms" required />
                     <Label htmlFor="terms" className="text-sm">
                       I certify that all information provided is true and complete to the best of my knowledge *
                     </Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox 
-                      id="employment-at-will" 
-                      name="employment_at_will" 
-                      checked={formData.employment_at_will}
-                      onCheckedChange={(checked) => handleInputChange('employment_at_will', checked)}
-                      required 
-                    />
+                    <Checkbox id="employment-at-will" required />
                     <Label htmlFor="employment-at-will" className="text-sm">
                       I understand that employment with IrishTriplets is at-will and may be terminated by either party
                       at any time *
                     </Label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <Checkbox 
-                      id="drug-testing" 
-                      name="drug_testing_consent" 
-                      checked={formData.drug_testing_consent}
-                      onCheckedChange={(checked) => handleInputChange('drug_testing_consent', checked)}
-                      required 
-                    />
+                    <Checkbox id="drug-testing" required />
                     <Label htmlFor="drug-testing" className="text-sm">
                       I consent to pre-employment drug testing and random drug testing as required *
                     </Label>
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Step 7: Document Upload */}
+            {currentStep === 7 && (
+              <div>
+                <h3 className="text-lg font-medium mb-4">Document Upload</h3>
+                <div className="space-y-6">
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h4 className="font-medium text-blue-900 mb-2">Required Documents</h4>
+                    <p className="text-sm text-blue-700 mb-4">
+                      Please upload the following documents. You can upload them now or later, but they must be submitted before your application can be processed.
+                    </p>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Resume Upload */}
+                      <div className="border-2 border-dashed border-blue-300 rounded-lg p-4">
+                        <div className="text-center">
+                          <FileText className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+                          <h5 className="font-medium text-gray-900 mb-1">Resume/CV</h5>
+                          <p className="text-sm text-gray-600 mb-3">Upload your professional resume</p>
+                          <input
+                            type="file"
+                            id="resume"
+                            accept=".pdf,.doc,.docx"
+                            className="hidden"
+                            onChange={(e) => handleFileUpload(e, 'resume')}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => document.getElementById('resume')?.click()}
+                          >
+                            Choose File
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* License Upload */}
+                      <div className="border-2 border-dashed border-blue-300 rounded-lg p-4">
+                        <div className="text-center">
+                          <FileText className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+                          <h5 className="font-medium text-gray-900 mb-1">Professional License</h5>
+                          <p className="text-sm text-gray-600 mb-3">Upload your professional license</p>
+                          <input
+                            type="file"
+                            id="license"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            onChange={(e) => handleFileUpload(e, 'license')}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => document.getElementById('license')?.click()}
+                          >
+                            Choose File
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Certification Upload */}
+                      <div className="border-2 border-dashed border-blue-300 rounded-lg p-4">
+                        <div className="text-center">
+                          <FileText className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+                          <h5 className="font-medium text-gray-900 mb-1">Certifications</h5>
+                          <p className="text-sm text-gray-600 mb-3">Upload relevant certifications</p>
+                          <input
+                            type="file"
+                            id="certification"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            onChange={(e) => handleFileUpload(e, 'certification')}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => document.getElementById('certification')?.click()}
+                          >
+                            Choose File
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Background Check Upload */}
+                      <div className="border-2 border-dashed border-blue-300 rounded-lg p-4">
+                        <div className="text-center">
+                          <FileText className="h-8 w-8 text-blue-500 mx-auto mb-2" />
+                          <h5 className="font-medium text-gray-900 mb-1">Background Check</h5>
+                          <p className="text-sm text-gray-600 mb-3">Upload background check results</p>
+                          <input
+                            type="file"
+                            id="background_check"
+                            accept=".pdf,.jpg,.jpeg,.png"
+                            className="hidden"
+                            onChange={(e) => handleFileUpload(e, 'background_check')}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => document.getElementById('background_check')?.click()}
+                          >
+                            Choose File
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Uploaded Files List */}
+                    {uploadedFiles.length > 0 && (
+                      <div className="mt-6">
+                        <h5 className="font-medium text-gray-900 mb-3">Uploaded Files</h5>
+                        <div className="space-y-2">
+                          {uploadedFiles.map((file, index) => (
+                            <div key={index} className="flex items-center justify-between bg-white p-3 rounded border">
+                              <div className="flex items-center space-x-3">
+                                <FileText className="h-5 w-5 text-gray-500" />
+                                <div>
+                                  <p className="font-medium text-sm">{file.name}</p>
+                                  <p className="text-xs text-gray-500">{file.type} • {(file.size / 1024).toFixed(1)} KB</p>
+                                </div>
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => removeFile(index)}
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Navigation Buttons */}
             <div className="flex justify-between pt-6 border-t">
-              <Button 
-                type="button" 
-                variant="outline" 
-                onClick={(e) => {
-                  e.preventDefault()
-                  prevStep(e)
-                }} 
-                disabled={currentStep === 1} 
-                className="bg-transparent"
+              <Button
+                type="button"
+                variant="outline"
+                onClick={prevStep}
+                disabled={currentStep === 1}
               >
                 Previous
               </Button>
-
+              
               {currentStep < totalSteps ? (
-                <Button 
-                  type="button" 
-                  onClick={(e) => {
-                    e.preventDefault()
-                    nextStep(e)
-                  }}
-                >
-                  Next Step
+                <Button type="button" onClick={nextStep}>
+                  Next
                 </Button>
               ) : (
-                <Button type="submit" disabled={isSubmitting} className="bg-green-600 hover:bg-green-700">
+                <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting ? "Submitting..." : "Submit Application"}
                 </Button>
               )}
             </div>
           </CardContent>
         </Card>
-        </form>
-      </main>
-    </>
+      </form>
+    </div>
   )
 }

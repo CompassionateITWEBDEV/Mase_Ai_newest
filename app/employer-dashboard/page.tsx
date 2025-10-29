@@ -24,17 +24,22 @@ import {
   MapPin, 
   Clock, 
   Users,
+  User,
   CheckCircle,
   XCircle,
   FileText,
   TrendingUp,
+  GraduationCap,
+  Shield,
+  Heart,
+  Phone,
+  AlertTriangle,
   Building2,
   Download,
   Calendar,
   Send,
   UserCheck,
   Star,
-  AlertTriangle,
   BarChart3,
   PieChart as PieChartIcon,
   Activity,
@@ -85,6 +90,19 @@ interface JobPosting {
   created_at: string
 }
 
+// Helper to format position code to display name
+const formatPositionName = (positionCode: string) => {
+  const positionMap: { [key: string]: string } = {
+    'rn': 'Registered Nurse (RN)',
+    'pt': 'Physical Therapist (PT)',
+    'ot': 'Occupational Therapist (OT)',
+    'st': 'Speech Therapist (ST)',
+    'hha': 'Home Health Aide (HHA)',
+    'msw': 'Master of Social Work (MSW)'
+  }
+  return positionMap[positionCode?.toLowerCase()] || positionCode || 'Not specified'
+}
+
 export default function EmployerDashboard() {
   const [activeTab, setActiveTab] = useState("overview")
   const [jobs, setJobs] = useState<JobPosting[]>([])
@@ -112,6 +130,10 @@ export default function EmployerDashboard() {
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null)
   const [isCandidateModalOpen, setIsCandidateModalOpen] = useState(false)
   const [selectedApplicationForAction, setSelectedApplicationForAction] = useState<any>(null)
+  const [selectedApplicationForm, setSelectedApplicationForm] = useState<any>(null)
+  const [isLoadingApplicationForm, setIsLoadingApplicationForm] = useState(false)
+  const [uploadedDocuments, setUploadedDocuments] = useState<any[]>([])
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false)
 
   // Filter states
   const [statusFilter, setStatusFilter] = useState("all")
@@ -469,6 +491,57 @@ export default function EmployerDashboard() {
     }
   }
 
+  const loadApplicationForm = async (jobApplicationId: string) => {
+    try {
+      setIsLoadingApplicationForm(true)
+      console.log('🔄 Loading application form for job application:', jobApplicationId)
+      
+      const response = await fetch(`/api/applications/form/${jobApplicationId}`)
+      console.log('📡 Response status:', response.status)
+      
+      const data = await response.json()
+      console.log('📋 Application form response:', data)
+      
+      if (data.success && data.applicationForm) {
+        setSelectedApplicationForm(data.applicationForm)
+        console.log('✅ Loaded application form data:', data.applicationForm)
+      } else {
+        console.log('⚠️ No application form found:', data.error)
+        setSelectedApplicationForm(null)
+      }
+    } catch (error) {
+      console.error('❌ Error loading application form:', error)
+      setSelectedApplicationForm(null)
+    } finally {
+      setIsLoadingApplicationForm(false)
+    }
+  }
+
+  const loadUploadedDocuments = async (applicantId: string) => {
+    try {
+      setIsLoadingDocuments(true)
+      console.log('🔄 Loading documents for applicant:', applicantId)
+      
+      const response = await fetch(`/api/applicants/documents?applicant_id=${applicantId}`)
+      const data = await response.json()
+      
+      console.log('📄 Documents response:', data)
+      
+      if (data.success && data.documents) {
+        setUploadedDocuments(data.documents)
+        console.log('✅ Loaded documents:', data.documents.length)
+      } else {
+        console.log('⚠️ No documents found')
+        setUploadedDocuments([])
+      }
+    } catch (error) {
+      console.error('❌ Error loading documents:', error)
+      setUploadedDocuments([])
+    } finally {
+      setIsLoadingDocuments(false)
+    }
+  }
+
   const respondToRescheduleRequest = async (requestId: string, action: 'approved' | 'rejected') => {
     try {
       const response = await fetch('/api/interviews/reschedule-response', {
@@ -575,7 +648,10 @@ export default function EmployerDashboard() {
       const data = await response.json()
       if (data.success) {
         console.log('✅ Application accepted successfully')
+        alert('Application accepted successfully!')
         loadApplications()
+        // Close the modal
+        setIsApplicationModalOpen(false)
       } else {
         throw new Error(data.error || 'Failed to accept application')
       }
@@ -588,6 +664,17 @@ export default function EmployerDashboard() {
   const viewApplicationDetails = async (application: any) => {
     setSelectedApplication(application)
     setIsApplicationModalOpen(true)
+    
+    // Load application form data
+    if (application.id) {
+      await loadApplicationForm(application.id)
+    }
+    
+    // Load uploaded documents
+    const applicantId = application.applicant?.id || application.applicant_id
+    if (applicantId) {
+      await loadUploadedDocuments(applicantId)
+    }
     
     // Track the profile view
     try {
@@ -3741,67 +3828,47 @@ export default function EmployerDashboard() {
       {/* Application Details Modal */}
       {selectedApplication && (
         <Dialog open={isApplicationModalOpen} onOpenChange={setIsApplicationModalOpen}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="text-2xl font-bold">
-                Application Details
-              </DialogTitle>
-              <DialogDescription>
-                Review {selectedApplication.applicant?.full_name}'s application for {selectedApplication.job_posting?.title}
-              </DialogDescription>
-            </DialogHeader>
+          <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto p-0">
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white p-6 rounded-t-lg">
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-bold flex items-center">
+                  <User className="h-6 w-6 mr-3" />
+                  Application Details
+                </DialogTitle>
+                <DialogDescription className="text-blue-100 mt-2">
+                  Review application from {selectedApplication.applicant?.full_name || (selectedApplicationForm ? selectedApplicationForm.first_name + ' ' + selectedApplicationForm.last_name : 'Applicant')} for {selectedApplication.job_posting?.title || 'Position'}
+                </DialogDescription>
+              </DialogHeader>
+            </div>
             
-            <div className="space-y-6">
-              {/* Applicant Information */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold mb-3">Applicant Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Name:</p>
-                    <p className="font-medium">{selectedApplication.applicant?.full_name}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Email:</p>
-                    <p className="font-medium">{selectedApplication.applicant?.email}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Phone:</p>
-                    <p className="font-medium">{selectedApplication.applicant?.phone || 'Not provided'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Location:</p>
-                    <p className="font-medium">{selectedApplication.applicant?.location}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Profession:</p>
-                    <p className="font-medium">{selectedApplication.applicant?.profession || 'Not specified'}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Experience Level:</p>
-                    <p className="font-medium">{selectedApplication.applicant?.experience_level || 'Not specified'}</p>
-                  </div>
-                </div>
-              </div>
+            <div className="space-y-6 p-6">
 
               {/* Job Information */}
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h3 className="text-lg font-semibold mb-3">Job Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Position:</p>
-                    <p className="font-medium">{selectedApplication.job_posting?.title}</p>
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-lg border-2 border-blue-200 shadow-sm">
+                <div className="flex items-center mb-4 pb-3 border-b-2 border-blue-300">
+                  <Briefcase className="h-6 w-6 mr-3 text-blue-600" />
+                  <h3 className="text-xl font-bold text-gray-900">Job Information</h3>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white p-4 rounded-lg border border-blue-200">
+                    <p className="text-xs font-semibold text-blue-600 mb-2 uppercase tracking-wide">Position</p>
+                    <p className="text-lg font-bold text-gray-900">{selectedApplication.job_posting?.title || formatPositionName(selectedApplicationForm?.desired_position) || 'Not specified'}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Location:</p>
-                    <p className="font-medium">{selectedApplication.job_posting?.location}</p>
+                  <div className="bg-white p-4 rounded-lg border border-blue-200">
+                    <p className="text-xs font-semibold text-blue-600 mb-2 uppercase tracking-wide">Location</p>
+                    <p className="text-lg font-medium text-gray-900">{selectedApplication.job_posting?.city && selectedApplication.job_posting?.state ? `${selectedApplication.job_posting.city}, ${selectedApplication.job_posting.state}` : selectedApplication.job_posting?.location || 'Not specified'}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Job Type:</p>
-                    <p className="font-medium">{selectedApplication.job_posting?.job_type}</p>
+                  <div className="bg-white p-4 rounded-lg border border-blue-200">
+                    <p className="text-xs font-semibold text-blue-600 mb-2 uppercase tracking-wide">Job Type</p>
+                    <p className="text-lg font-medium text-gray-900 capitalize">{selectedApplication.job_posting?.job_type || selectedApplicationForm?.employment_type || 'Not specified'}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Applied Date:</p>
-                    <p className="font-medium">{new Date(selectedApplication.applied_date).toLocaleDateString()}</p>
+                  <div className="bg-white p-4 rounded-lg border border-blue-200">
+                    <p className="text-xs font-semibold text-blue-600 mb-2 uppercase tracking-wide">Applied Date</p>
+                    <p className="text-lg font-medium text-gray-900">{new Date(selectedApplication.applied_date).toLocaleDateString('en-US', { 
+                      year: 'numeric', 
+                      month: 'long', 
+                      day: 'numeric' 
+                    })}</p>
                   </div>
                 </div>
               </div>
@@ -3815,6 +3882,862 @@ export default function EmployerDashboard() {
                   </div>
                 </div>
               )}
+
+              {/* Detailed Application Form */}
+              {isLoadingApplicationForm ? (
+                <div className="bg-gray-50 p-6 rounded-lg border-2 border-gray-200">
+                  <h3 className="text-xl font-bold mb-4 text-gray-800">Detailed Application Form</h3>
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600"></div>
+                    <span className="ml-4 text-gray-600 font-medium">Loading application form...</span>
+                  </div>
+                </div>
+              ) : selectedApplicationForm ? (
+                <div className="bg-white rounded-lg shadow-md border-2 border-gray-200">
+                  <div className="bg-gradient-to-r from-green-600 to-green-700 text-white p-6 rounded-t-lg">
+                    <h3 className="text-2xl font-bold flex items-center">
+                      <FileText className="h-6 w-6 mr-3" />
+                      Complete Application Form Details
+                    </h3>
+                  </div>
+                  
+                  <div className="p-6 space-y-8">
+                  {/* Step 1: Personal Information */}
+                  <div className="mb-8 pb-8 border-b-2 border-gray-200">
+                    <div className="flex items-center mb-6 pb-3 border-b-2 border-blue-200">
+                      <div className="bg-blue-100 p-3 rounded-lg mr-4">
+                        <User className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-bold text-gray-900">Personal Information</h4>
+                        <p className="text-sm text-gray-600">Basic personal details and contact information</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">First Name *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.first_name || 'Not provided'}</p>
+                          </div>
+                      </div>
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Middle Initial</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.middle_initial || 'Not provided'}</p>
+                          </div>
+                      </div>
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Last Name *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.last_name || 'Not provided'}</p>
+                      </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Email Address *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.email || 'Not provided'}</p>
+                          </div>
+                      </div>
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Phone Number *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.phone || 'Not provided'}</p>
+                      </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-700 mb-2 block">Address *</Label>
+                        <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.address || 'Not provided'}</p>
+                      </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">City *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.city || 'Not provided'}</p>
+                          </div>
+                      </div>
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">State *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.state || 'Not provided'}</p>
+                          </div>
+                      </div>
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">ZIP Code *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.zip_code || 'Not provided'}</p>
+                      </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Date of Birth</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.date_of_birth ? new Date(selectedApplicationForm.date_of_birth).toLocaleDateString() : 'Not provided'}</p>
+                          </div>
+                      </div>
+                      <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Social Security Number</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                        <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.ssn || 'Not provided'}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 2: Position & Experience */}
+                  <div className="mb-8 pb-8 border-b-2 border-gray-200">
+                    <div className="flex items-center mb-6 pb-3 border-b-2 border-blue-200">
+                      <div className="bg-blue-100 p-3 rounded-lg mr-4">
+                        <Briefcase className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <h4 className="text-xl font-bold text-gray-900">Position & Experience</h4>
+                        <p className="text-sm text-gray-600">Desired role and professional background</p>
+                      </div>
+                    </div>
+                    
+                    <div className="space-y-5">
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-700 mb-2 block">Position Applying For *</Label>
+                        <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-blue-50 to-indigo-50 border-blue-200 shadow-sm">
+                          <p className="font-bold text-blue-900 text-lg">{formatPositionName(selectedApplicationForm.desired_position) || 'Not provided'}</p>
+                      </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Employment Type *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                            <p className="font-semibold text-gray-900 text-lg capitalize">{selectedApplicationForm.employment_type || 'Not provided'}</p>
+                        </div>
+                        </div>
+
+                        <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Years of Experience *</Label>
+                          <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                            <p className="font-semibold text-gray-900 text-lg">{selectedApplicationForm.years_experience || 'Not provided'}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-semibold text-gray-700 mb-2 block">Availability *</Label>
+                        <div className="mt-1 p-4 border-2 rounded-lg bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200 shadow-sm">
+                          <p className="font-medium text-gray-900 whitespace-pre-wrap">{selectedApplicationForm.availability || 'Not provided'}</p>
+                      </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-medium">Work History</Label>
+                        <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.work_history || 'Not provided'}</p>
+                      </div>
+                      </div>
+
+                      <div>
+                        <Label className="text-sm font-medium">Specialties/Areas of Expertise</Label>
+                        <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                          <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.specialties || 'Not provided'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 3: Education & Certifications */}
+                  <div className="mb-6">
+                    <div className="flex items-center mb-4">
+                      <GraduationCap className="h-5 w-5 mr-2 text-blue-600" />
+                      <h4 className="text-lg font-medium">Education & Certifications</h4>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-4">Share your educational background and certifications</p>
+                    
+                    <div className="space-y-6">
+                      {/* Education Section */}
+                      <div>
+                        <h3 className="text-lg font-medium mb-4">Education</h3>
+                        <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                              <Label className="text-sm font-medium">High School *</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.high_school || 'Not provided'}</p>
+                              </div>
+                      </div>
+                      <div>
+                              <Label className="text-sm font-medium">Graduation Year</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.hs_grad_year || 'Not provided'}</p>
+                      </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                              <Label className="text-sm font-medium">College/University</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.college || 'Not provided'}</p>
+                              </div>
+                      </div>
+                      <div>
+                              <Label className="text-sm font-medium">Degree</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.degree || 'Not provided'}</p>
+                      </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                              <Label className="text-sm font-medium">Major/Field of Study</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.major || 'Not provided'}</p>
+                              </div>
+                      </div>
+                      <div>
+                              <Label className="text-sm font-medium">Graduation Year</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.college_grad_year || 'Not provided'}</p>
+                              </div>
+                            </div>
+                      </div>
+                    </div>
+                  </div>
+
+                      {/* Professional Licenses & Certifications Section */}
+                      <div>
+                        <h3 className="text-lg font-medium mb-4">Professional Licenses & Certifications</h3>
+                        <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                              <Label className="text-sm font-medium">Professional License Number</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.license || 'Not provided'}</p>
+                              </div>
+                      </div>
+                      <div>
+                              <Label className="text-sm font-medium">License State</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.license_state || 'Not provided'}</p>
+                      </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                              <Label className="text-sm font-medium">License Expiration Date</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.license_expiry ? new Date(selectedApplicationForm.license_expiry).toLocaleDateString() : 'Not provided'}</p>
+                              </div>
+                      </div>
+                      <div>
+                              <Label className="text-sm font-medium">CPR Certification</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                        <p className="font-medium">{selectedApplicationForm.cpr || 'Not provided'}</p>
+                      </div>
+                            </div>
+                          </div>
+
+                          <div>
+                            <Label className="text-sm font-medium">Other Certifications</Label>
+                            <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                              <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.other_certs || 'Not provided'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 5: Healthcare Compliance */}
+                  <div className="mb-6">
+                    <div className="flex items-center mb-4">
+                      <Shield className="h-5 w-5 mr-2 text-blue-600" />
+                      <h4 className="text-lg font-medium">Healthcare Compliance</h4>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-4">Complete healthcare compliance requirements</p>
+                    
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                      <div className="flex items-center mb-2">
+                        <AlertTriangle className="h-5 w-5 text-red-600 mr-2" />
+                        <h3 className="font-medium text-red-900">Healthcare Compliance Requirements</h3>
+                      </div>
+                      <p className="text-sm text-red-800">
+                        All healthcare positions require compliance with federal and state regulations. Please complete all
+                        sections carefully.
+                      </p>
+                    </div>
+
+                    <div className="space-y-6">
+                      {/* HIPAA Compliance */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-medium mb-3 flex items-center">
+                          <Shield className="h-5 w-5 mr-2 text-blue-600" />
+                          HIPAA Compliance & Privacy Training
+                        </h4>
+                        <div className="space-y-4">
+                          <div>
+                            <Label className="text-sm font-medium">Have you completed HIPAA training in the past 12 months? *</Label>
+                            <div className="mt-2 p-3 border rounded-md bg-gray-50">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${selectedApplicationForm.hipaa_training ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                          {selectedApplicationForm.hipaa_training ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium">HIPAA Certification Details</Label>
+                            <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                              <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.hipaa_details || 'Not provided'}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${selectedApplicationForm.hipaa_training ? 'bg-green-500 border-green-500' : 'bg-gray-200 border-gray-300'}`}>
+                              {selectedApplicationForm.hipaa_training && <div className="w-2 h-2 bg-white rounded-sm"></div>}
+                            </div>
+                            <Label className="text-sm">
+                              I understand and agree to comply with all HIPAA privacy and security requirements *
+                            </Label>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Conflict of Interest */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-medium mb-3">Conflict of Interest Disclosure</h4>
+                        <div className="space-y-4">
+                          <div>
+                            <Label className="text-sm font-medium">
+                              Do you have any financial interests in healthcare facilities, suppliers, or related businesses? *
+                            </Label>
+                            <div className="mt-2 p-3 border rounded-md bg-gray-50">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${selectedApplicationForm.conflict_interest ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                          {selectedApplicationForm.conflict_interest ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                          </div>
+                          {selectedApplicationForm.conflict_details && (
+                            <div>
+                              <Label className="text-sm font-medium">If yes, please provide details</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.conflict_details}</p>
+                              </div>
+                            </div>
+                          )}
+                          <div>
+                            <Label className="text-sm font-medium">
+                              Are you related to or have personal relationships with any IrishTriplets employees, patients, or board members? *
+                            </Label>
+                            <div className="mt-2 p-3 border rounded-md bg-gray-50">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${selectedApplicationForm.relationship_conflict ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                          {selectedApplicationForm.relationship_conflict ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                          </div>
+                          {selectedApplicationForm.relationship_details && (
+                            <div>
+                              <Label className="text-sm font-medium">If yes, please provide details</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.relationship_details}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Background Check Consent */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-medium mb-3">Background Check Authorization</h4>
+                        <div className="space-y-4">
+                          <div>
+                            <Label className="text-sm font-medium">Have you ever been convicted of a felony or misdemeanor? *</Label>
+                            <div className="mt-2 p-3 border rounded-md bg-gray-50">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${selectedApplicationForm.conviction_history ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                          {selectedApplicationForm.conviction_history ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                          </div>
+                          {selectedApplicationForm.conviction_details && (
+                            <div>
+                              <Label className="text-sm font-medium">If yes, please provide details</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.conviction_details}</p>
+                              </div>
+                            </div>
+                          )}
+                          <div>
+                            <Label className="text-sm font-medium">
+                              Have you ever been listed on any state abuse registry or had professional sanctions? *
+                            </Label>
+                            <div className="mt-2 p-3 border rounded-md bg-gray-50">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${selectedApplicationForm.registry_history ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
+                          {selectedApplicationForm.registry_history ? 'Yes' : 'No'}
+                        </span>
+                      </div>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${selectedApplicationForm.background_consent ? 'bg-green-500 border-green-500' : 'bg-gray-200 border-gray-300'}`}>
+                              {selectedApplicationForm.background_consent && <div className="w-2 h-2 bg-white rounded-sm"></div>}
+                            </div>
+                            <Label className="text-sm">
+                              I authorize IrishTriplets to conduct a comprehensive background check including criminal
+                              history, employment verification, and professional references *
+                            </Label>
+                          </div>
+                        </div>
+                      </div>
+                      </div>
+                    </div>
+                    
+                  {/* Step 6: Health & Safety Requirements */}
+                  <div className="mb-6">
+                    <div className="flex items-center mb-4">
+                      <Heart className="h-5 w-5 mr-2 text-blue-600" />
+                      <h4 className="text-lg font-medium">Health & Safety Requirements</h4>
+                      </div>
+                    <p className="text-sm text-gray-600 mb-4">Health screening and safety requirements</p>
+                    
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-6">
+                      <div className="flex items-center mb-2">
+                        <Heart className="h-5 w-5 text-green-600 mr-2" />
+                        <h3 className="font-medium text-green-900">Health & Safety Requirements</h3>
+                      </div>
+                      <p className="text-sm text-green-800">
+                        Healthcare workers must meet specific health and safety requirements to protect patients and
+                        colleagues.
+                      </p>
+                      </div>
+
+                    <div className="space-y-6">
+                      {/* TB Screening */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-medium mb-3">Tuberculosis (TB) Screening</h4>
+                        <div className="space-y-4">
+                          <div>
+                            <Label className="text-sm font-medium">TB Test Status *</Label>
+                            <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                              <p className="font-medium">{selectedApplicationForm.tb_test_status || 'Not provided'}</p>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium">Date of Last TB Test</Label>
+                            <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                              <p className="font-medium">{selectedApplicationForm.tb_test_date ? new Date(selectedApplicationForm.tb_test_date).toLocaleDateString() : 'Not provided'}</p>
+                            </div>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium">Additional TB History Details</Label>
+                            <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                              <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.tb_history_details || 'Not provided'}</p>
+                            </div>
+                          </div>
+                          <div className="bg-yellow-50 p-3 rounded border border-yellow-200">
+                            <p className="text-sm text-yellow-800">
+                              <strong>Note:</strong> All healthcare workers must have a negative TB test within 12 months of
+                              employment. If your test is older or you haven't been tested, you will need to complete testing
+                              before starting work.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* HAPP Statement */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-medium mb-3">Healthcare Associated Prevention Program (HAPP) Statement</h4>
+                        <div className="space-y-4">
+                          <div className="bg-blue-50 p-4 rounded border border-blue-200">
+                            <h5 className="font-medium text-blue-900 mb-2">HAPP Commitment Statement</h5>
+                            <p className="text-sm text-blue-800 mb-3">
+                              IrishTriplets is committed to preventing healthcare-associated infections and promoting patient
+                              safety. All employees must adhere to evidence-based infection prevention practices.
+                            </p>
+                            <ul className="text-sm text-blue-800 space-y-1">
+                              <li>• Follow proper hand hygiene protocols</li>
+                              <li>• Use personal protective equipment (PPE) appropriately</li>
+                              <li>• Adhere to isolation precautions</li>
+                              <li>• Report potential infections or safety concerns immediately</li>
+                              <li>• Participate in ongoing infection prevention training</li>
+                            </ul>
+                          </div>
+                          <div>
+                            <Label className="text-sm font-medium">Have you received training in infection prevention and control? *</Label>
+                            <div className="mt-2 p-3 border rounded-md bg-gray-50">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${selectedApplicationForm.infection_training ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                                {selectedApplicationForm.infection_training ? 'Yes' : 'No'}
+                              </span>
+                            </div>
+                          </div>
+                          {selectedApplicationForm.infection_details && (
+                            <div>
+                              <Label className="text-sm font-medium">Training Details</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.infection_details}</p>
+                              </div>
+                      </div>
+                    )}
+                          <div className="flex items-center space-x-2">
+                            <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${selectedApplicationForm.infection_training ? 'bg-green-500 border-green-500' : 'bg-gray-200 border-gray-300'}`}>
+                              {selectedApplicationForm.infection_training && <div className="w-2 h-2 bg-white rounded-sm"></div>}
+                            </div>
+                            <Label className="text-sm">
+                              I commit to following all HAPP guidelines and infection prevention protocols *
+                            </Label>
+                          </div>
+                        </div>
+                  </div>
+
+                      {/* Physical Requirements */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-medium mb-3">Physical Requirements & Accommodations</h4>
+                        <div className="space-y-4">
+                      <div>
+                            <Label className="text-sm font-medium">
+                              Can you perform the essential functions of the position with or without reasonable accommodation? *
+                            </Label>
+                            <div className="mt-2 p-3 border rounded-md bg-gray-50">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${selectedApplicationForm.physical_accommodation ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'}`}>
+                                {selectedApplicationForm.physical_accommodation ? 'Yes, with reasonable accommodation' : 'Yes'}
+                              </span>
+                            </div>
+                          </div>
+                          {selectedApplicationForm.physical_details && (
+                            <div>
+                              <Label className="text-sm font-medium">If accommodation is needed, please describe</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.physical_details}</p>
+                              </div>
+                            </div>
+                          )}
+                          <div className="bg-gray-50 p-3 rounded">
+                            <h5 className="font-medium text-gray-900 mb-2">Essential Physical Requirements Include:</h5>
+                            <ul className="text-sm text-gray-700 space-y-1">
+                              <li>• Lifting up to 50 pounds occasionally</li>
+                              <li>• Standing and walking for extended periods</li>
+                              <li>• Bending, stooping, and reaching</li>
+                              <li>• Manual dexterity for patient care tasks</li>
+                              <li>• Visual and auditory acuity for patient assessment</li>
+                            </ul>
+                      </div>
+                    </div>
+                  </div>
+
+                      {/* Immunization Status */}
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-medium mb-3">Immunization Requirements</h4>
+                        <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                              <Label className="text-sm font-medium">Hepatitis B Vaccination *</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium">{selectedApplicationForm.hep_b_vaccination || 'Not provided'}</p>
+                              </div>
+                      </div>
+                      <div>
+                              <Label className="text-sm font-medium">Influenza Vaccination (Current Season) *</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium">{selectedApplicationForm.flu_vaccination || 'Not provided'}</p>
+                              </div>
+                            </div>
+                      </div>
+                      <div>
+                            <Label className="text-sm font-medium">Additional Immunization Information</Label>
+                            <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                              <p className="font-medium whitespace-pre-wrap">{selectedApplicationForm.immunization_details || 'Not provided'}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Step 7: References & Contact */}
+                  <div className="mb-6">
+                    <div className="flex items-center mb-4">
+                      <Phone className="h-5 w-5 mr-2 text-blue-600" />
+                      <h4 className="text-lg font-medium">References & Contact</h4>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-4">Provide references and emergency contact information</p>
+                    
+                    <div className="space-y-6">
+                      {/* Professional References */}
+                      <div>
+                        <h3 className="text-lg font-medium mb-4">Professional References</h3>
+                    <div className="space-y-4">
+                      {/* Reference 1 */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="font-medium mb-3">Reference 1</h4>
+                            <div className="space-y-4">
+                            <div>
+                                <Label className="text-sm font-medium">Full Name *</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_1_name || 'Not provided'}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-sm font-medium">Relationship</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_1_relationship || 'Not provided'}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-sm font-medium">Company/Organization</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_1_company || 'Not provided'}</p>
+                            </div>
+                          </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <Label className="text-sm font-medium">Phone Number</Label>
+                                  <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                    <p className="font-medium">{selectedApplicationForm.reference_1_phone || 'Not provided'}</p>
+                        </div>
+                                </div>
+                                <div>
+                                  <Label className="text-sm font-medium">Email Address</Label>
+                                  <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                    <p className="font-medium">{selectedApplicationForm.reference_1_email || 'Not provided'}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                      {/* Reference 2 */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="font-medium mb-3">Reference 2</h4>
+                            <div className="space-y-4">
+                            <div>
+                                <Label className="text-sm font-medium">Full Name *</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_2_name || 'Not provided'}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-sm font-medium">Relationship</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_2_relationship || 'Not provided'}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-sm font-medium">Company/Organization</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_2_company || 'Not provided'}</p>
+                            </div>
+                          </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <Label className="text-sm font-medium">Phone Number</Label>
+                                  <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                    <p className="font-medium">{selectedApplicationForm.reference_2_phone || 'Not provided'}</p>
+                        </div>
+                                </div>
+                                <div>
+                                  <Label className="text-sm font-medium">Email Address</Label>
+                                  <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                    <p className="font-medium">{selectedApplicationForm.reference_2_email || 'Not provided'}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                      {/* Reference 3 */}
+                          <div className="border rounded-lg p-4">
+                            <h4 className="font-medium mb-3">Reference 3</h4>
+                            <div className="space-y-4">
+                            <div>
+                                <Label className="text-sm font-medium">Full Name *</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_3_name || 'Not provided'}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-sm font-medium">Relationship</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_3_relationship || 'Not provided'}</p>
+                                </div>
+                            </div>
+                            <div>
+                                <Label className="text-sm font-medium">Company/Organization</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.reference_3_company || 'Not provided'}</p>
+                            </div>
+                          </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <Label className="text-sm font-medium">Phone Number</Label>
+                                  <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                    <p className="font-medium">{selectedApplicationForm.reference_3_phone || 'Not provided'}</p>
+                        </div>
+                                </div>
+                                <div>
+                                  <Label className="text-sm font-medium">Email Address</Label>
+                                  <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                    <p className="font-medium">{selectedApplicationForm.reference_3_email || 'Not provided'}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Emergency Contact */}
+                      <div>
+                        <h3 className="text-lg font-medium mb-4">Emergency Contact</h3>
+                        <div className="border rounded-lg p-4">
+                          <div className="space-y-4">
+                            <div>
+                              <Label className="text-sm font-medium">Full Name *</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium">{selectedApplicationForm.emergency_name || 'Not provided'}</p>
+                              </div>
+                            </div>
+                            <div>
+                              <Label className="text-sm font-medium">Relationship</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium">{selectedApplicationForm.emergency_relationship || 'Not provided'}</p>
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <Label className="text-sm font-medium">Phone Number</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.emergency_phone || 'Not provided'}</p>
+                                </div>
+                              </div>
+                              <div>
+                                <Label className="text-sm font-medium">Email Address</Label>
+                                <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                  <p className="font-medium">{selectedApplicationForm.emergency_email || 'Not provided'}</p>
+                                </div>
+                              </div>
+                            </div>
+                            <div>
+                              <Label className="text-sm font-medium">Address</Label>
+                              <div className="mt-1 p-3 border rounded-md bg-gray-50">
+                                <p className="font-medium">{selectedApplicationForm.emergency_address || 'Not provided'}</p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Application Review */}
+                      <div className="border rounded-lg p-4">
+                        <h3 className="text-lg font-medium mb-4">Application Review</h3>
+                        <div className="space-y-4">
+                          <p className="text-sm text-gray-700">
+                            By submitting this application, you certify that all information provided is accurate and complete. 
+                            IrishTriplets Healthcare will review your application and contact you within 2-3 business days.
+                          </p>
+                          <div className="space-y-3">
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${selectedApplicationForm.terms_agreed ? 'bg-green-500 border-green-500' : 'bg-gray-200 border-gray-300'}`}>
+                                {selectedApplicationForm.terms_agreed && <div className="w-2 h-2 bg-white rounded-sm"></div>}
+                              </div>
+                              <Label className="text-sm">
+                                I certify that all information provided is true and complete to the best of my knowledge.
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${selectedApplicationForm.employment_at_will ? 'bg-green-500 border-green-500' : 'bg-gray-200 border-gray-300'}`}>
+                                {selectedApplicationForm.employment_at_will && <div className="w-2 h-2 bg-white rounded-sm"></div>}
+                              </div>
+                              <Label className="text-sm">
+                                I understand that employment with IrishTriplets is at-will and may be terminated by either party at any time.
+                              </Label>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className={`w-4 h-4 rounded border-2 flex items-center justify-center ${selectedApplicationForm.drug_testing_consent ? 'bg-green-500 border-green-500' : 'bg-gray-200 border-gray-300'}`}>
+                                {selectedApplicationForm.drug_testing_consent && <div className="w-2 h-2 bg-white rounded-sm"></div>}
+                              </div>
+                              <Label className="text-sm">
+                                I consent to pre-employment drug testing and random drug testing as required.
+                              </Label>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Additional Information */}
+                  <div className="mb-6">
+                    <h4 className="text-md font-medium mb-3 text-green-700">Additional Information</h4>
+                    <div className="bg-white p-4 rounded border">
+                      <p className="text-gray-700 whitespace-pre-wrap">{selectedApplicationForm.additional_info || 'No additional information provided'}</p>
+                    </div>
+                  </div>
+
+                  {/* Form Submission Info */}
+                  <div className="mb-6">
+                    <h4 className="text-md font-medium mb-3 text-green-700">Form Submission Details</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-600 mb-1">Submitted At:</p>
+                        <p className="font-medium">{selectedApplicationForm.submitted_at ? new Date(selectedApplicationForm.submitted_at).toLocaleString() : 'Not available'}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600 mb-1">Last Updated:</p>
+                        <p className="font-medium">{selectedApplicationForm.updated_at ? new Date(selectedApplicationForm.updated_at).toLocaleString() : 'Not available'}</p>
+                      </div>
+                    </div>
+                  </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-lg font-semibold mb-3">Detailed Application Form</h3>
+                  <p className="text-gray-600">No detailed application form submitted yet.</p>
+                </div>
+              )}
+
+              {/* Uploaded Documents */}
+              <div className="bg-purple-50 p-4 rounded-lg">
+                <h3 className="text-lg font-semibold mb-3 text-purple-800">Uploaded Documents</h3>
+                {isLoadingDocuments ? (
+                  <div className="flex items-center justify-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+                    <span className="ml-2 text-gray-600">Loading documents...</span>
+                  </div>
+                ) : uploadedDocuments.length > 0 ? (
+                  <div className="space-y-3">
+                    {uploadedDocuments.map((doc, index) => (
+                      <div key={index} className="flex items-center justify-between bg-white p-3 rounded border">
+                        <div className="flex items-center space-x-3">
+                          <FileText className="h-5 w-5 text-purple-600" />
+                          <div>
+                            <p className="font-medium">{doc.document_type.charAt(0).toUpperCase() + doc.document_type.slice(1).replace('_', ' ')}</p>
+                            <p className="text-sm text-gray-500">{doc.file_name} • {doc.file_size_mb} MB</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <span className={`px-2 py-1 text-xs rounded font-medium ${
+                            doc.status === 'verified' ? 'bg-green-100 text-green-800' : 
+                            doc.status === 'rejected' ? 'bg-red-100 text-red-800' : 
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-600 italic text-center py-4">No documents uploaded yet</p>
+                )}
+              </div>
 
               {/* Application Status */}
               <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">

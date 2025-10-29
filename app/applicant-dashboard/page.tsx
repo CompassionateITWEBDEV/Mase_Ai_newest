@@ -44,6 +44,7 @@ import {
   Target,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 interface ApplicantInfo {
   id: string
@@ -97,6 +98,7 @@ interface JobApplication {
 }
 
 export default function ApplicantDashboard() {
+  const router = useRouter()
   const [activeTab, setActiveTab] = useState("overview")
   const [searchQuery, setSearchQuery] = useState("")
   const [applicantInfo, setApplicantInfo] = useState<ApplicantInfo | null>(null)
@@ -1035,7 +1037,7 @@ export default function ApplicantDashboard() {
     return documents.some((doc: any) => doc.document_type === 'resume')
   }
 
-  // Apply for a job - show confirmation dialog
+  // Apply for a job - navigate to application page with auto-filled profile data
   const applyForJob = async (jobId: string) => {
     if (!applicantInfo?.id) return
 
@@ -1046,12 +1048,42 @@ export default function ApplicantDashboard() {
       return
     }
 
-    // Find the job details
-    const job = jobs.find(j => j.id === jobId) || recommendedJobs.find(j => j.id === jobId)
-    if (job) {
-      setJobToApply(job)
-      setIsApplyConfirmOpen(true)
+    // Store applicant profile data in localStorage for auto-fill
+    if (applicantInfo) {
+      // Fetch latest documents before storing
+      let latestDocuments = documents || []
+      try {
+        const docsResponse = await fetch(`/api/applicants/documents?applicant_id=${applicantInfo.id}`)
+        const docsData = await docsResponse.json()
+        if (docsData.success && docsData.documents) {
+          latestDocuments = docsData.documents
+        }
+      } catch (error) {
+        console.error('Error fetching documents:', error)
+        // Use existing documents state if fetch fails
+      }
+      
+      const profileDataForApplication = {
+        id: applicantInfo.id,
+        firstName: applicantInfo.firstName,
+        lastName: applicantInfo.lastName,
+        email: applicantInfo.email,
+        phone: applicantInfo.phone,
+        profession: applicantInfo.profession,
+        experience: applicantInfo.experience,
+        education: applicantInfo.education,
+        certifications: applicantInfo.certifications,
+        address: applicantInfo.address,
+        city: applicantInfo.city,
+        state: applicantInfo.state,
+        zipCode: applicantInfo.zipCode,
+        documents: latestDocuments
+      }
+      localStorage.setItem('applicantProfileForApplication', JSON.stringify(profileDataForApplication))
     }
+
+    // Navigate to application page with jobId as query parameter
+    router.push(`/application?jobId=${jobId}`)
   }
 
   // Confirm and apply for job

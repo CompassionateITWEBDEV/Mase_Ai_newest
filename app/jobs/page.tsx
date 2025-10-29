@@ -647,7 +647,7 @@ export default function JobsPage() {
                   >
                     Close
                   </Button>
-                  <Link href="/register">
+                  <Link href="/application">
                     <Button className="bg-blue-600 hover:bg-blue-700">
                       Apply Now
                       <ArrowRight className="h-4 w-4 ml-2" />

@@ -30,54 +30,142 @@ import {
   LinkIcon,
   Copy,
   CheckCircle,
+  Upload,
+  GraduationCap,
+  Briefcase,
+  Shield,
+  AlertTriangle,
+  Heart,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 
 export default function ApplicationTracking() {
+  const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
   const [positionFilter, setPositionFilter] = useState("all")
   const [selectedApplication, setSelectedApplication] = useState<any>(null)
   const [linkCopied, setLinkCopied] = useState(false)
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false)
+  const [candidateEmail, setCandidateEmail] = useState("")
+  const [candidateName, setCandidateName] = useState("")
+  const [personalMessage, setPersonalMessage] = useState("")
+  const [isSendingEmail, setIsSendingEmail] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
 
   const [applications, setApplications] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [selectedStatus, setSelectedStatus] = useState<string>("")
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
+  const [noteText, setNoteText] = useState("")
+  const [isSavingNote, setIsSavingNote] = useState(false)
 
   useEffect(() => {
-    const loadApplications = async () => {
-      try {
-        setIsLoading(true)
-        // In a real app, this would fetch from an API endpoint
-        // const response = await fetch('/api/applications')
-        // const data = await response.json()
-        // setApplications(data.applications || [])
-        
-        // For now, just show empty state
-        setApplications([])
-      } catch (error) {
-        console.error('Failed to load applications:', error)
-        setApplications([])
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
     loadApplications()
   }, [])
 
+  // Reset selected status and note when application changes
+  useEffect(() => {
+    if (selectedApplication) {
+      setSelectedStatus("")
+      setNoteText(selectedApplication.notes || "")
+    }
+  }, [selectedApplication])
+
+  const handleSaveNote = async () => {
+    if (!selectedApplication || !selectedApplication.id) {
+      alert('No application selected')
+      return
+    }
+
+    setIsSavingNote(true)
+
+    try {
+      const response = await fetch('/api/applications/update-status', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          applicationId: selectedApplication.id,
+          status: selectedApplication.status, // Keep current status
+          notes: noteText.trim() || null
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to save note')
+      }
+
+      alert('Note saved successfully!')
+      
+      // Refresh applications list to get updated notes
+      await loadApplications()
+      
+      // Update the selected application with new notes
+      const updatedApplicationsResponse = await fetch('/api/applications')
+      if (updatedApplicationsResponse.ok) {
+        const updatedApplications = await updatedApplicationsResponse.json()
+        if (updatedApplications.success) {
+          const updatedApp = updatedApplications.applications.find((app: any) => app.id === selectedApplication.id)
+          if (updatedApp) {
+            setSelectedApplication(updatedApp)
+          }
+        }
+      }
+    } catch (error: any) {
+      console.error('Error saving note:', error)
+      alert(`Failed to save note: ${error.message || 'Unknown error'}`)
+    } finally {
+      setIsSavingNote(false)
+    }
+  }
+
+  // Map database statuses to display categories for pipeline
+  const getStatusCategory = (status: string): string => {
+    switch (status) {
+      case "pending":
+        return "new"
+      case "reviewing":
+        return "screening"
+      case "interview_scheduled":
+        return "interview"
+      case "offer_received":
+      case "offer_accepted":
+        return "background"
+      case "accepted":
+        return "hired"
+      case "rejected":
+      case "offer_declined":
+        return "rejected"
+      default:
+        return status // Return as-is if not mapped
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
+      case "pending":
       case "new":
         return "bg-blue-100 text-blue-800"
+      case "reviewing":
       case "screening":
         return "bg-yellow-100 text-yellow-800"
+      case "interview_scheduled":
       case "interview":
         return "bg-purple-100 text-purple-800"
+      case "offer_received":
+      case "offer_accepted":
       case "background":
         return "bg-orange-100 text-orange-800"
+      case "accepted":
       case "hired":
         return "bg-green-100 text-green-800"
       case "rejected":
+      case "offer_declined":
         return "bg-red-100 text-red-800"
       default:
         return "bg-gray-100 text-gray-800"
@@ -118,9 +206,182 @@ export default function ApplicationTracking() {
     setTimeout(() => setLinkCopied(false), 2000)
   }
 
-  const sendApplicationLink = (email: string) => {
-    // In a real app, this would send an email
-    console.log(`Sending application link to ${email}`)
+  const sendApplicationLink = async () => {
+    if (!candidateEmail || !candidateEmail.trim()) {
+      alert('Please enter a valid email address')
+      return
+    }
+
+    setIsSendingEmail(true)
+    setEmailSent(false)
+
+    try {
+      const response = await fetch('/api/applications/send-link', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: candidateEmail.trim(),
+          candidateName: candidateName.trim() || undefined,
+          personalMessage: personalMessage.trim() || undefined
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to send email')
+      }
+
+      setEmailSent(true)
+      alert('Application link sent successfully!')
+      
+      // Clear form after successful send
+      setCandidateEmail("")
+      setCandidateName("")
+      setPersonalMessage("")
+      
+      // Reset sent state after 3 seconds
+      setTimeout(() => setEmailSent(false), 3000)
+    } catch (error: any) {
+      console.error('Error sending application link:', error)
+      alert(`Failed to send email: ${error.message || 'Unknown error'}`)
+    } finally {
+      setIsSendingEmail(false)
+    }
+  }
+
+
+  const handleApplyClick = () => {
+    // Navigate to application page
+    router.push('/application')
+  }
+
+  const loadApplications = async () => {
+    try {
+      setIsLoading(true)
+      const response = await fetch('/api/applications')
+      const data = await response.json()
+      
+      if (data.success) {
+        setApplications(data.applications || [])
+      } else {
+        console.error('Failed to load applications:', data.error)
+        setApplications([])
+      }
+    } catch (error) {
+      console.error('Failed to load applications:', error)
+      setApplications([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleStatusUpdate = async () => {
+    if (!selectedApplication) {
+      alert('No application selected')
+      return
+    }
+
+    if (!selectedApplication.id) {
+      alert('Invalid application ID')
+      return
+    }
+
+    if (!selectedStatus) {
+      alert('Please select a status to update')
+      return
+    }
+
+    setIsUpdatingStatus(true)
+
+    try {
+      // Map UI status values to API status values
+      // API accepts: 'pending', 'accepted', 'rejected', 'reviewing', 'interview_scheduled', 'offer_received', 'offer_accepted', 'offer_declined'
+      const statusMap: { [key: string]: string } = {
+        'screening': 'reviewing', // Map screening to reviewing
+        'interview': 'interview_scheduled',
+        'background': 'reviewing',
+        'hired': 'accepted',
+        'rejected': 'rejected'
+      }
+
+      const apiStatus = statusMap[selectedStatus] || selectedStatus
+
+      // Validate status against allowed values
+      const allowedStatuses = ['pending', 'accepted', 'rejected', 'reviewing', 'interview_scheduled', 'offer_received', 'offer_accepted', 'offer_declined']
+      
+      if (!allowedStatuses.includes(apiStatus)) {
+        alert(`Invalid status: ${apiStatus}. Please select a valid status.`)
+        setIsUpdatingStatus(false)
+        return
+      }
+
+      console.log('Updating status with:', {
+        applicationId: selectedApplication.id,
+        status: apiStatus,
+        selectedStatus
+      })
+
+      let response: Response
+      try {
+        response = await fetch('/api/applications/update-status', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            applicationId: selectedApplication.id,
+            status: apiStatus,
+            notes: `Status updated to ${selectedStatus}`
+          })
+        })
+        console.log('Response status:', response.status, response.statusText)
+      } catch (fetchError: any) {
+        console.error('Network error:', fetchError)
+        throw new Error(`Network error: ${fetchError.message || 'Could not connect to server. Please check your internet connection and try again.'}`)
+      }
+
+      // Check if response is ok before parsing
+      if (!response.ok) {
+        let errorMessage = `HTTP error! status: ${response.status}`
+        try {
+          const errorData = await response.json()
+          errorMessage = errorData.error || errorMessage
+        } catch (parseError) {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage
+        }
+        throw new Error(errorMessage)
+      }
+
+      let data: any
+      try {
+        data = await response.json()
+      } catch (parseError: any) {
+        console.error('Failed to parse response:', parseError)
+        throw new Error('Invalid response from server. Please try again.')
+      }
+
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to update status')
+      }
+
+      alert('Application status updated successfully!')
+      
+      // Refresh applications list
+      await loadApplications()
+      
+      // Clear selected status and close modal
+      setSelectedStatus("")
+      setSelectedApplication(null)
+    } catch (error: any) {
+      console.error('Error updating status:', error)
+      alert(`Failed to update status: ${error.message || 'Unknown error'}`)
+    } finally {
+      setIsUpdatingStatus(false)
+    }
   }
 
   return (
@@ -167,22 +428,73 @@ export default function ApplicationTracking() {
                         </Button>
                       </div>
                     </div>
-                    <div>
-                      <Label htmlFor="candidate-email">Send to Email</Label>
-                      <div className="flex space-x-2">
-                        <Input id="candidate-email" placeholder="candidate@email.com" />
-                        <Button>
-                          <Send className="h-4 w-4 mr-2" />
-                          Send
-                        </Button>
+                    
+                    {emailSent && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-3 flex items-center gap-2">
+                        <CheckCircle className="h-4 w-4 text-green-600" />
+                        <span className="text-sm text-green-800">Email sent successfully!</span>
                       </div>
+                    )}
+
+                    <div>
+                      <Label htmlFor="candidate-name">Candidate Name (Optional)</Label>
+                      <Input 
+                        id="candidate-name" 
+                        placeholder="John Doe"
+                        value={candidateName}
+                        onChange={(e) => setCandidateName(e.target.value)}
+                        disabled={isSendingEmail}
+                      />
                     </div>
+
+                    <div>
+                      <Label htmlFor="candidate-email">Email Address *</Label>
+                      <Input 
+                        id="candidate-email" 
+                        type="email"
+                        placeholder="candidate@email.com"
+                        value={candidateEmail}
+                        onChange={(e) => setCandidateEmail(e.target.value)}
+                        disabled={isSendingEmail}
+                        required
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="personal-message">Personal Message (Optional)</Label>
+                      <Textarea
+                        id="personal-message"
+                        placeholder="Add a personal note to the email..."
+                        value={personalMessage}
+                        onChange={(e) => setPersonalMessage(e.target.value)}
+                        disabled={isSendingEmail}
+                        rows={3}
+                      />
+                    </div>
+
+                    <Button 
+                      onClick={sendApplicationLink}
+                      disabled={isSendingEmail || !candidateEmail.trim()}
+                      className="w-full"
+                    >
+                      {isSendingEmail ? (
+                        <>
+                          <span className="animate-spin mr-2">⏳</span>
+                          Sending...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="h-4 w-4 mr-2" />
+                          Send Application Link
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </DialogContent>
               </Dialog>
-              <Link href="/application">
-                <Button>New Application</Button>
-              </Link>
+              <Button onClick={handleApplyClick} disabled={isLoadingProfile}>
+                {isLoadingProfile ? "Loading..." : "New Application"}
+              </Button>
             </div>
           </div>
         </div>
@@ -202,30 +514,43 @@ export default function ApplicationTracking() {
               {[
                 {
                   stage: "New",
-                  count: applications.filter((app) => app.status === "new").length,
+                  category: "new",
+                  statuses: ["pending"],
                   color: "bg-blue-500",
                 },
                 {
                   stage: "Screening",
-                  count: applications.filter((app) => app.status === "screening").length,
+                  category: "screening",
+                  statuses: ["reviewing"],
                   color: "bg-yellow-500",
                 },
                 {
                   stage: "Interview",
-                  count: applications.filter((app) => app.status === "interview").length,
+                  category: "interview",
+                  statuses: ["interview_scheduled"],
                   color: "bg-purple-500",
                 },
                 {
                   stage: "Background",
-                  count: applications.filter((app) => app.status === "background").length,
+                  category: "background",
+                  statuses: ["offer_received", "offer_accepted"],
                   color: "bg-orange-500",
                 },
                 {
                   stage: "Hired",
-                  count: applications.filter((app) => app.status === "hired").length,
+                  category: "hired",
+                  statuses: ["accepted"],
                   color: "bg-green-500",
                 },
-              ].map((stage) => (
+              ].map((stage) => {
+                const count = applications.filter((app) => 
+                  stage.statuses.includes(app.status)
+                ).length
+                return {
+                  ...stage,
+                  count
+                }
+              }).map((stage) => (
                 <Card key={stage.stage}>
                   <CardContent className="p-4 text-center">
                     <div
@@ -242,24 +567,22 @@ export default function ApplicationTracking() {
 
             {/* Pipeline Columns */}
             <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-              {["new", "screening", "interview", "background", "hired"].map((status) => (
-                <Card key={status}>
+              {[
+                { category: "new", statuses: ["pending"], title: "New Applications" },
+                { category: "screening", statuses: ["reviewing"], title: "Screening" },
+                { category: "interview", statuses: ["interview_scheduled"], title: "Interview" },
+                { category: "background", statuses: ["offer_received", "offer_accepted"], title: "Background Check" },
+                { category: "hired", statuses: ["accepted"], title: "Hired" }
+              ].map(({ category, statuses, title }) => (
+                <Card key={category}>
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-medium capitalize">
-                      {status === "new"
-                        ? "New Applications"
-                        : status === "screening"
-                          ? "Screening"
-                          : status === "interview"
-                            ? "Interview"
-                            : status === "background"
-                              ? "Background Check"
-                              : "Hired"}
+                    <CardTitle className="text-sm font-medium">
+                      {title}
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {applications
-                      .filter((app) => app.status === status)
+                      .filter((app) => statuses.includes(app.status))
                       .map((app) => (
                         <div
                           key={app.id}
@@ -303,11 +626,12 @@ export default function ApplicationTracking() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Status</SelectItem>
-                        <SelectItem value="new">New</SelectItem>
-                        <SelectItem value="screening">Screening</SelectItem>
-                        <SelectItem value="interview">Interview</SelectItem>
-                        <SelectItem value="background">Background</SelectItem>
-                        <SelectItem value="hired">Hired</SelectItem>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="reviewing">Reviewing/Screening</SelectItem>
+                        <SelectItem value="interview_scheduled">Interview Scheduled</SelectItem>
+                        <SelectItem value="offer_received">Offer Received</SelectItem>
+                        <SelectItem value="offer_accepted">Offer Accepted</SelectItem>
+                        <SelectItem value="accepted">Hired</SelectItem>
                         <SelectItem value="rejected">Rejected</SelectItem>
                       </SelectContent>
                     </Select>
@@ -394,7 +718,7 @@ export default function ApplicationTracking() {
                     <CheckCircle className="h-8 w-8 text-green-500 mr-3" />
                     <div>
                       <p className="text-2xl font-bold">
-                        {applications.filter((app) => app.status === "hired").length}
+                        {applications.filter((app) => app.status === "accepted").length}
                       </p>
                       <p className="text-gray-600 text-sm">Hired This Month</p>
                     </div>
@@ -407,7 +731,41 @@ export default function ApplicationTracking() {
                   <div className="flex items-center">
                     <Calendar className="h-8 w-8 text-purple-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">12</p>
+                      <p className="text-2xl font-bold">
+                        {(() => {
+                          const acceptedApps = applications.filter((app) => app.status === "accepted")
+                          if (acceptedApps.length === 0) return "0"
+                          
+                          const now = new Date()
+                          const totalDays = acceptedApps.reduce((sum, app) => {
+                            // Try to get the raw date from applicationData first, then fallback to parsing appliedDate
+                            let appliedDate: Date
+                            if (app.applicationData?.applied_date) {
+                              appliedDate = new Date(app.applicationData.applied_date)
+                            } else {
+                              // Parse the formatted date string (MM/DD/YYYY)
+                              const dateStr = app.appliedDate
+                              if (dateStr && typeof dateStr === 'string') {
+                                const [month, day, year] = dateStr.split('/')
+                                appliedDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
+                              } else {
+                                return sum // Skip if no date available
+                              }
+                            }
+                            
+                            // Check if date is valid
+                            if (isNaN(appliedDate.getTime())) {
+                              return sum // Skip invalid dates
+                            }
+                            
+                            const daysDiff = Math.floor((now.getTime() - appliedDate.getTime()) / (1000 * 60 * 60 * 24))
+                            return sum + Math.max(0, daysDiff) // Ensure non-negative
+                          }, 0)
+                          
+                          const avgDays = acceptedApps.length > 0 ? Math.round(totalDays / acceptedApps.length) : 0
+                          return avgDays.toString()
+                        })()}
+                      </p>
                       <p className="text-gray-600 text-sm">Avg. Days to Hire</p>
                     </div>
                   </div>
@@ -419,7 +777,14 @@ export default function ApplicationTracking() {
                   <div className="flex items-center">
                     <User className="h-8 w-8 text-orange-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">68%</p>
+                      <p className="text-2xl font-bold">
+                        {(() => {
+                          const total = applications.length
+                          const accepted = applications.filter((app) => app.status === "accepted").length
+                          if (total === 0) return "0%"
+                          return Math.round((accepted / total) * 100) + "%"
+                        })()}
+                      </p>
                       <p className="text-gray-600 text-sm">Conversion Rate</p>
                     </div>
                   </div>
@@ -435,25 +800,93 @@ export default function ApplicationTracking() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {["RN", "PT", "OT", "HHA", "MSW"].map((position) => {
-                    const positionApps = applications.filter((app) => app.position.includes(position))
-                    const hired = positionApps.filter((app) => app.status === "hired").length
+                  {[
+                    { code: "rn", label: "RN", name: "Registered Nurse" },
+                    { code: "pt", label: "PT", name: "Physical Therapist" },
+                    { code: "ot", label: "OT", name: "Occupational Therapist" },
+                    { code: "st", label: "ST", name: "Speech Therapist" },
+                    { code: "hha", label: "HHA", name: "Home Health Aide" },
+                    { code: "msw", label: "MSW", name: "Master of Social Work" }
+                  ].map((position) => {
+                    // Match applications by checking multiple fields and formats
+                    const positionApps = applications.filter((app) => {
+                      const pos = (app.position || "").toLowerCase()
+                      const desiredPos = (app.formData?.desired_position || "").toLowerCase()
+                      const jobTitle = (app.applicationData?.job_title || "").toLowerCase()
+                      
+                      // Check if position code, label, or name appears in any of these fields
+                      return (
+                        pos.includes(position.code) ||
+                        pos.includes(position.label.toLowerCase()) ||
+                        pos.includes(position.name.toLowerCase()) ||
+                        desiredPos.includes(position.code) ||
+                        desiredPos.includes(position.label.toLowerCase()) ||
+                        jobTitle.includes(position.code) ||
+                        jobTitle.includes(position.label.toLowerCase()) ||
+                        jobTitle.includes(position.name.toLowerCase())
+                      )
+                    })
+                    
+                    const hired = positionApps.filter((app) => app.status === "accepted").length
                     const total = positionApps.length
-                    const percentage = total > 0 ? Math.round((hired / total) * 100) : 0
+                    const rejected = positionApps.filter((app) => app.status === "rejected" || app.status === "offer_declined").length
+                    
+                    // Calculate percentages accurately
+                    const hireRate = total > 0 ? Math.round((hired / total) * 100) : 0
+                    const distributionPercentage = applications.length > 0 ? Math.round((total / applications.length) * 100) : 0
+                    const rejectionRate = total > 0 ? Math.round((rejected / total) * 100) : 0
+                    const pendingRate = total > 0 ? Math.round(((total - hired - rejected) / total) * 100) : 0
 
                     return (
-                      <div key={position} className="space-y-2">
+                      <div key={position.code} className="space-y-2">
                         <div className="flex justify-between items-center">
-                          <span className="font-medium">{position}</span>
-                          <span className="text-sm text-gray-600">
-                            {hired}/{total} hired ({percentage}%)
-                          </span>
+                          <span className="font-medium">{position.label} ({position.name})</span>
+                          <div className="flex items-center gap-2 text-sm">
+                            <span className="text-green-600 font-medium">{hired} hired</span>
+                            <span className="text-gray-400">•</span>
+                            <span className="text-gray-600">{total} total</span>
+                          </div>
                         </div>
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-blue-600 h-2 rounded-full"
-                            style={{ width: `${total > 0 ? (total / applications.length) * 100 : 0}%` }}
-                          ></div>
+                        <div className="space-y-1">
+                          {/* Hire Rate Progress Bar */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 w-20">Hire Rate:</span>
+                            <div className="flex-1 bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                              <div
+                                className="bg-green-500 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${hireRate}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-xs font-medium text-gray-700 w-12 text-right">{hireRate}%</span>
+                          </div>
+                          {/* Distribution Progress Bar */}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-500 w-20">Distribution:</span>
+                            <div className="flex-1 bg-gray-200 rounded-full h-2.5 overflow-hidden">
+                              <div
+                                className="bg-blue-500 h-full rounded-full transition-all duration-300"
+                                style={{ width: `${distributionPercentage}%` }}
+                              ></div>
+                            </div>
+                            <span className="text-xs font-medium text-gray-700 w-12 text-right">{distributionPercentage}%</span>
+                          </div>
+                        </div>
+                        {/* Summary Stats */}
+                        <div className="flex items-center gap-4 text-xs text-gray-500 pt-1">
+                          <span className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                            {hired} Hired ({hireRate}%)
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-yellow-500"></span>
+                            {total - hired - rejected} Pending ({pendingRate}%)
+                          </span>
+                          {rejected > 0 && (
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                              {rejected} Rejected ({rejectionRate}%)
+                            </span>
+                          )}
                         </div>
                       </div>
                     )
@@ -494,17 +927,182 @@ export default function ApplicationTracking() {
                         <Phone className="h-4 w-4 mr-2 text-gray-400" />
                         {selectedApplication.phone}
                       </p>
+                      {selectedApplication.formData?.address && (
+                        <p className="flex items-center">
+                          <span className="h-4 w-4 mr-2 text-gray-400">📍</span>
+                          {selectedApplication.formData.address}, {selectedApplication.formData.city}, {selectedApplication.formData.state} {selectedApplication.formData.zip_code}
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div>
                     <h4 className="font-medium mb-2">Application Details</h4>
                     <div className="space-y-1 text-sm">
                       <p>Applied: {selectedApplication.appliedDate}</p>
+                      <p>Position: {selectedApplication.formData?.desired_position || selectedApplication.position}</p>
                       <p>Experience: {selectedApplication.experience}</p>
                       <p>Education: {selectedApplication.education}</p>
+                      {selectedApplication.formData?.employment_type && (
+                        <p>Employment Type: {selectedApplication.formData.employment_type}</p>
+                      )}
                     </div>
                   </div>
                 </div>
+
+                {/* Detailed Form Information */}
+                {selectedApplication.formData && (
+                  <div className="space-y-4">
+                    <h4 className="font-medium">Detailed Application Information</h4>
+                    
+                    {/* Personal Information */}
+                    <div className="border rounded-lg p-4">
+                      <h5 className="font-medium mb-3">Personal Information</h5>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p><strong>Full Name:</strong> {selectedApplication.formData.first_name} {selectedApplication.formData.middle_initial} {selectedApplication.formData.last_name}</p>
+                          <p><strong>Date of Birth:</strong> {selectedApplication.formData.date_of_birth || 'Not provided'}</p>
+                          <p><strong>SSN:</strong> {selectedApplication.formData.ssn ? '***-**-' + selectedApplication.formData.ssn.slice(-4) : 'Not provided'}</p>
+                        </div>
+                        <div>
+                          <p><strong>Email:</strong> {selectedApplication.formData.email}</p>
+                          <p><strong>Phone:</strong> {selectedApplication.formData.phone}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Education */}
+                    {(selectedApplication.formData.high_school || selectedApplication.formData.college) && (
+                      <div className="border rounded-lg p-4">
+                        <h5 className="font-medium mb-3">Education</h5>
+                        <div className="text-sm space-y-2">
+                          {selectedApplication.formData.high_school && (
+                            <p><strong>High School:</strong> {selectedApplication.formData.high_school} {selectedApplication.formData.hs_grad_year && `(${selectedApplication.formData.hs_grad_year})`}</p>
+                          )}
+                          {selectedApplication.formData.college && (
+                            <p><strong>College:</strong> {selectedApplication.formData.college}</p>
+                          )}
+                          {selectedApplication.formData.degree && (
+                            <p><strong>Degree:</strong> {selectedApplication.formData.degree}</p>
+                          )}
+                          {selectedApplication.formData.major && (
+                            <p><strong>Major:</strong> {selectedApplication.formData.major}</p>
+                          )}
+                          {selectedApplication.formData.college_grad_year && (
+                            <p><strong>Graduation Year:</strong> {selectedApplication.formData.college_grad_year}</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Work Experience */}
+                    {(selectedApplication.formData.work_history || selectedApplication.formData.specialties) && (
+                      <div className="border rounded-lg p-4">
+                        <h5 className="font-medium mb-3">Work Experience</h5>
+                        <div className="text-sm space-y-2">
+                          {selectedApplication.formData.years_experience && (
+                            <p><strong>Years of Experience:</strong> {selectedApplication.formData.years_experience}</p>
+                          )}
+                          {selectedApplication.formData.work_history && (
+                            <div>
+                              <p><strong>Work History:</strong></p>
+                              <p className="text-gray-600 mt-1">{selectedApplication.formData.work_history}</p>
+                            </div>
+                          )}
+                          {selectedApplication.formData.specialties && (
+                            <div>
+                              <p><strong>Specialties:</strong></p>
+                              <p className="text-gray-600 mt-1">{selectedApplication.formData.specialties}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Licenses & Certifications */}
+                    {(selectedApplication.formData.license || selectedApplication.formData.cpr || selectedApplication.formData.other_certs) && (
+                      <div className="border rounded-lg p-4">
+                        <h5 className="font-medium mb-3">Licenses & Certifications</h5>
+                        <div className="text-sm space-y-2">
+                          {selectedApplication.formData.license && (
+                            <p><strong>Professional License:</strong> {selectedApplication.formData.license} {selectedApplication.formData.license_state && `(${selectedApplication.formData.license_state})`}</p>
+                          )}
+                          {selectedApplication.formData.license_expiry && (
+                            <p><strong>License Expiry:</strong> {selectedApplication.formData.license_expiry}</p>
+                          )}
+                          {selectedApplication.formData.cpr && (
+                            <p><strong>CPR Certification:</strong> {selectedApplication.formData.cpr}</p>
+                          )}
+                          {selectedApplication.formData.other_certs && (
+                            <div>
+                              <p><strong>Other Certifications:</strong></p>
+                              <p className="text-gray-600 mt-1">{selectedApplication.formData.other_certs}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* References */}
+                    {(selectedApplication.formData.reference_1_name || selectedApplication.formData.reference_2_name || selectedApplication.formData.reference_3_name) && (
+                      <div className="border rounded-lg p-4">
+                        <h5 className="font-medium mb-3">Professional References</h5>
+                        <div className="text-sm space-y-3">
+                          {selectedApplication.formData.reference_1_name && (
+                            <div className="border-l-2 border-blue-200 pl-3">
+                              <p><strong>Reference 1:</strong> {selectedApplication.formData.reference_1_name}</p>
+                              <p><strong>Relationship:</strong> {selectedApplication.formData.reference_1_relationship}</p>
+                              <p><strong>Company:</strong> {selectedApplication.formData.reference_1_company}</p>
+                              <p><strong>Phone:</strong> {selectedApplication.formData.reference_1_phone}</p>
+                              {selectedApplication.formData.reference_1_email && (
+                                <p><strong>Email:</strong> {selectedApplication.formData.reference_1_email}</p>
+                              )}
+                            </div>
+                          )}
+                          {selectedApplication.formData.reference_2_name && (
+                            <div className="border-l-2 border-blue-200 pl-3">
+                              <p><strong>Reference 2:</strong> {selectedApplication.formData.reference_2_name}</p>
+                              <p><strong>Relationship:</strong> {selectedApplication.formData.reference_2_relationship}</p>
+                              <p><strong>Company:</strong> {selectedApplication.formData.reference_2_company}</p>
+                              <p><strong>Phone:</strong> {selectedApplication.formData.reference_2_phone}</p>
+                              {selectedApplication.formData.reference_2_email && (
+                                <p><strong>Email:</strong> {selectedApplication.formData.reference_2_email}</p>
+                              )}
+                            </div>
+                          )}
+                          {selectedApplication.formData.reference_3_name && (
+                            <div className="border-l-2 border-blue-200 pl-3">
+                              <p><strong>Reference 3:</strong> {selectedApplication.formData.reference_3_name}</p>
+                              <p><strong>Relationship:</strong> {selectedApplication.formData.reference_3_relationship}</p>
+                              <p><strong>Company:</strong> {selectedApplication.formData.reference_3_company}</p>
+                              <p><strong>Phone:</strong> {selectedApplication.formData.reference_3_phone}</p>
+                              {selectedApplication.formData.reference_3_email && (
+                                <p><strong>Email:</strong> {selectedApplication.formData.reference_3_email}</p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Emergency Contact */}
+                    {selectedApplication.formData.emergency_name && (
+                      <div className="border rounded-lg p-4">
+                        <h5 className="font-medium mb-3">Emergency Contact</h5>
+                        <div className="text-sm space-y-1">
+                          <p><strong>Name:</strong> {selectedApplication.formData.emergency_name}</p>
+                          <p><strong>Relationship:</strong> {selectedApplication.formData.emergency_relationship}</p>
+                          <p><strong>Phone:</strong> {selectedApplication.formData.emergency_phone}</p>
+                          {selectedApplication.formData.emergency_email && (
+                            <p><strong>Email:</strong> {selectedApplication.formData.emergency_email}</p>
+                          )}
+                          {selectedApplication.formData.emergency_address && (
+                            <p><strong>Address:</strong> {selectedApplication.formData.emergency_address}</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Documents Status */}
                 <div>
@@ -540,8 +1138,44 @@ export default function ApplicationTracking() {
                 {/* Notes */}
                 <div>
                   <h4 className="font-medium mb-2">Notes</h4>
-                  <p className="text-sm text-gray-600 mb-3">{selectedApplication.notes}</p>
-                  <Textarea placeholder="Add a note..." />
+                  {selectedApplication.notes && (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-3">
+                      <p className="text-sm text-gray-700 whitespace-pre-wrap">{selectedApplication.notes}</p>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Textarea 
+                      placeholder="Add a note about this candidate..." 
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value)}
+                      disabled={isSavingNote}
+                      rows={4}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setNoteText(selectedApplication.notes || "")}
+                        disabled={isSavingNote}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveNote}
+                        disabled={isSavingNote || !noteText.trim()}
+                      >
+                        {isSavingNote ? (
+                          <>
+                            <span className="animate-spin mr-2">⏳</span>
+                            Saving...
+                          </>
+                        ) : (
+                          'Save Note'
+                        )}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Actions */}
@@ -561,7 +1195,7 @@ export default function ApplicationTracking() {
                     </Button>
                   </div>
                   <div className="flex space-x-2">
-                    <Select>
+                    <Select value={selectedStatus} onValueChange={setSelectedStatus}>
                       <SelectTrigger className="w-40">
                         <SelectValue placeholder="Change Status" />
                       </SelectTrigger>
@@ -573,13 +1207,19 @@ export default function ApplicationTracking() {
                         <SelectItem value="rejected">Reject</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Button>Update Status</Button>
+                    <Button 
+                      onClick={handleStatusUpdate}
+                      disabled={!selectedStatus || isUpdatingStatus}
+                    >
+                      {isUpdatingStatus ? "Updating..." : "Update Status"}
+                    </Button>
                   </div>
                 </div>
               </div>
             </DialogContent>
           </Dialog>
         )}
+
       </main>
     </div>
   )

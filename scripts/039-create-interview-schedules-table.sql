@@ -70,3 +70,6 @@ COMMENT ON COLUMN interview_schedules.interviewer_name IS 'Name of the person co
 COMMENT ON COLUMN interview_schedules.interviewer_email IS 'Email of the interviewer for communication';
 
 
+
+
+

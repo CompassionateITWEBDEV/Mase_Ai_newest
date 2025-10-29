@@ -5,9 +5,70 @@ export async function PUT(request: NextRequest) {
   try {
     const { applicationId, status, notes, is_accepted } = await request.json()
 
-    if (!applicationId || !status) {
+    if (!applicationId) {
       return NextResponse.json(
-        { error: 'Application ID and status are required' },
+        { error: 'Application ID is required' },
+        { status: 400 }
+      )
+    }
+
+    // Allow updating notes without changing status
+    if (notes !== undefined && !status) {
+      // Only updating notes, status is optional
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+      
+      if (!supabaseUrl || !supabaseAnonKey) {
+        console.error('Missing Supabase environment variables')
+        return NextResponse.json(
+          { error: 'Server configuration error' },
+          { status: 500 }
+        )
+      }
+      
+      const supabase = createClient(
+        supabaseUrl, 
+        supabaseServiceKey || supabaseAnonKey,
+        {
+          auth: {
+            autoRefreshToken: false,
+            persistSession: false
+          }
+        }
+      )
+
+      const updateData: any = {
+        notes: notes || null,
+        updated_at: new Date().toISOString()
+      }
+
+      const { data: updatedApplication, error: updateError } = await supabase
+        .from('job_applications')
+        .update(updateData)
+        .eq('id', applicationId)
+        .select()
+        .single()
+
+      if (updateError) {
+        console.error('Error updating notes:', updateError)
+        return NextResponse.json(
+          { error: 'Failed to update notes: ' + updateError.message },
+          { status: 500 }
+        )
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: 'Notes updated successfully',
+        application: updatedApplication,
+      })
+    }
+
+    // Normal status update flow
+    if (!status) {
+      return NextResponse.json(
+        { error: 'Status is required when updating status' },
         { status: 400 }
       )
     }
