@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -38,6 +39,11 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { StaffSupplyAnalyzer } from "@/components/staff-supply-analyzer"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/hooks/use-toast"
 
 interface PendingOnboardingPatient {
   id: string
@@ -61,6 +67,244 @@ interface PendingOnboardingPatient {
 export default function StaffDashboard() {
   const [activeTab, setActiveTab] = useState("overview")
   const [searchTerm, setSearchTerm] = useState("")
+  const searchParams = useSearchParams()
+
+  // Load staff from database to make header info accurate
+  const [staffList, setStaffList] = useState<any[]>([])
+  const [isLoadingStaff, setIsLoadingStaff] = useState(true)
+  const staffIdFromQuery = searchParams?.get("staff_id") || undefined
+
+  useEffect(() => {
+    const loadStaff = async () => {
+      try {
+        setIsLoadingStaff(true)
+        const res = await fetch('/api/staff/list')
+        const data = await res.json()
+        if (data.success && Array.isArray(data.staff)) {
+          setStaffList(data.staff)
+        }
+      } catch (e) {
+        console.error('Failed to load staff for dashboard', e)
+      } finally {
+        setIsLoadingStaff(false)
+      }
+    }
+    loadStaff()
+  }, [])
+
+  const selectedStaff = staffList.find((s) => s.id === staffIdFromQuery) || staffList[0]
+
+  // Load upcoming shifts for selected staff from staff_shifts table
+  const [upcomingShifts, setUpcomingShifts] = useState<Array<{ id: string; date: string; time: string; location: string; unit: string; day_of_week: number; start_time: string; end_time: string; shift_type: string; notes?: string }>>([])
+  const [isLoadingShifts, setIsLoadingShifts] = useState<boolean>(false)
+  const { toast } = useToast()
+  const [pendingCancelShiftIds, setPendingCancelShiftIds] = useState<string[]>([])
+  const [isCancelOpen, setIsCancelOpen] = useState<boolean>(false)
+  const [cancelReason, setCancelReason] = useState<string>("")
+  const [cancelTarget, setCancelTarget] = useState<any | null>(null)
+  const [isDetailsOpen, setIsDetailsOpen] = useState<boolean>(false)
+  const [detailsShift, setDetailsShift] = useState<any | null>(null)
+  const [isEditOpen, setIsEditOpen] = useState<boolean>(false)
+  const [editingShift, setEditingShift] = useState<any | null>(null)
+  const days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+  const [newShift, setNewShift] = useState({ day_of_week: 0, start_time: "08:00", end_time: "17:00", shift_type: "office", facility: "", unit: "", notes: "" })
+
+  const formatFacilityUnit = (locationValue?: string) => {
+    const raw = String(locationValue || '')
+    const beforeComma = raw.split(',')[0] || ''
+    const [facility, unit] = beforeComma.split(' | ')
+    return { facility: facility || '', unit: unit || '' }
+  }
+
+  const getNextDateForDow = (dow: number) => {
+    // dow: 0=Mon .. 6=Sun in our API schema
+    const now = new Date()
+    const todayDow = (now.getDay() + 6) % 7 // convert Sun=0 to Mon=0
+    const delta = (dow - todayDow + 7) % 7
+    const dt = new Date(now)
+    dt.setDate(now.getDate() + delta)
+    return dt
+  }
+
+  useEffect(() => {
+    const loadShifts = async () => {
+      try {
+        setIsLoadingShifts(true)
+        setUpcomingShifts([])
+        if (!selectedStaff?.id) return
+        const r = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(selectedStaff.id)}`, { cache: 'no-store' })
+        const d = await r.json()
+        if (d.success && Array.isArray(d.shifts)) {
+          const mapped = d.shifts
+            .filter((sh: any) => sh.day_of_week >= 0 && sh.day_of_week <= 6)
+            .map((sh: any) => {
+              const nextDate = getNextDateForDow(sh.day_of_week)
+              const { facility, unit } = formatFacilityUnit(sh.location)
+              return {
+                id: sh.id,
+                date: nextDate.toISOString().split('T')[0],
+                time: `${sh.start_time} - ${sh.end_time}`,
+                location: facility,
+                unit: unit,
+                day_of_week: sh.day_of_week,
+                start_time: sh.start_time,
+                end_time: sh.end_time,
+                shift_type: sh.shift_type || 'office',
+                notes: sh.notes || '',
+              }
+            })
+            .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          setUpcomingShifts(mapped)
+        }
+        // load pending cancel requests for this staff
+        try {
+          const cr = await fetch(`/api/staff/cancel-requests?staff_id=${encodeURIComponent(selectedStaff.id)}&status=pending`, { cache: 'no-store' })
+          if (cr.ok) {
+            const cd = await cr.json()
+            const ids = (cd.requests || []).map((x: any) => x.shift_id)
+            setPendingCancelShiftIds(ids)
+          } else {
+            setPendingCancelShiftIds([])
+          }
+        } catch {
+          setPendingCancelShiftIds([])
+        }
+      } finally {
+        setIsLoadingShifts(false)
+      }
+    }
+    loadShifts()
+  }, [selectedStaff?.id])
+
+  const openEditShift = (sh: any) => {
+    const idx = typeof sh.day_of_week === 'number' ? sh.day_of_week : 0
+    setEditingShift(sh)
+    setNewShift({
+      day_of_week: idx,
+      start_time: sh.start_time,
+      end_time: sh.end_time,
+      shift_type: sh.shift_type || 'office',
+      facility: sh.location || '',
+      unit: sh.unit || '',
+      notes: sh.notes || ''
+    })
+    setIsEditOpen(true)
+  }
+
+  const composeLocation = (facility: string, unit: string) => [facility, unit].filter(Boolean).join(' | ')
+
+  const updateShift = async () => {
+    if (!editingShift) return
+    const payload = {
+      id: editingShift.id,
+      day_of_week: newShift.day_of_week,
+      start_time: newShift.start_time,
+      end_time: newShift.end_time,
+      shift_type: newShift.shift_type,
+      location: composeLocation(newShift.facility, newShift.unit),
+      notes: newShift.notes,
+    }
+    const res = await fetch('/api/staff/shifts', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to update shift')
+      return
+    }
+    await refreshShifts()
+    setIsEditOpen(false)
+    setEditingShift(null)
+  }
+
+  const openCancelDialog = (shift: any) => {
+    setCancelTarget(shift)
+    setCancelReason("")
+    setIsCancelOpen(true)
+  }
+
+  const submitCancelRequest = async () => {
+    const shift = cancelTarget
+    if (!selectedStaff?.id || !shift) return
+    try {
+      const res = await fetch('/api/staff/cancel-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shift_id: shift.id, staff_id: selectedStaff.id, reason: cancelReason || '' }) })
+      const d = await res.json()
+      if (!d.success) {
+        console.error('Cancel request failed:', d)
+        toast({ title: 'Request failed', description: d.error || 'Failed to request cancellation' })
+        return
+      }
+      // mark this shift as requested so the button disables immediately
+      setPendingCancelShiftIds((prev) => Array.from(new Set([...(prev || []), shift.id])))
+      setIsCancelOpen(false)
+      setCancelTarget(null)
+      toast({ title: 'Cancellation requested', description: 'Pending approval by admin.' })
+    } catch (e: any) {
+      console.error('Cancel request error:', e)
+      toast({ title: 'Network error', description: e?.message || 'Please try again.' })
+    }
+  }
+
+  const openDetails = (shift: any) => {
+    setDetailsShift(shift)
+    setIsDetailsOpen(true)
+  }
+
+  const refreshShifts = async () => {
+    if (!selectedStaff?.id) return
+    setIsLoadingShifts(true)
+    try {
+      const r = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(selectedStaff.id)}`, { cache: 'no-store' })
+      const d = await r.json()
+      if (d.success && Array.isArray(d.shifts)) {
+        const mapped = d.shifts.map((sh: any) => {
+          const nextDate = getNextDateForDow(sh.day_of_week)
+          const { facility, unit } = formatFacilityUnit(sh.location)
+          return {
+            id: sh.id,
+            date: nextDate.toISOString().split('T')[0],
+            time: `${sh.start_time} - ${sh.end_time}`,
+            location: facility,
+            unit,
+            day_of_week: sh.day_of_week,
+            start_time: sh.start_time,
+            end_time: sh.end_time,
+            shift_type: sh.shift_type || 'office',
+            notes: sh.notes || '',
+          }
+        }).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        setUpcomingShifts(mapped)
+      }
+    } finally {
+      setIsLoadingShifts(false)
+    }
+  }
+
+  // Generate display ID like RN-2025-123 (not using DB id)
+  const getDeptCode = (dept?: string) => {
+    const d = (dept || '').toLowerCase()
+    if (d.includes('nurse') || d.includes('rn')) return 'RN'
+    if (d.includes('therapy') || d.includes('pt')) return 'PT'
+    if (d.includes('occupational') || d.includes('ot')) return 'OT'
+    if (d.includes('speech') || d.includes('st')) return 'ST'
+    if (d.includes('admin')) return 'ADM'
+    return 'RN'
+  }
+
+  const simpleHash = (s: string) => {
+    let h = 0
+    for (let i = 0; i < s.length; i++) {
+      h = (h * 31 + s.charCodeAt(i)) >>> 0
+    }
+    // Map to 3 digits 100-999 for a cleaner look
+    return (h % 900) + 100
+  }
+
+  const generatedDisplayId = (() => {
+    const year = new Date().getFullYear()
+    const deptCode = getDeptCode(selectedStaff?.department)
+    const basis = selectedStaff ? `${selectedStaff.name || ''}|${selectedStaff.email || ''}` : 'mock'
+    const seq = simpleHash(basis)
+    return `${deptCode}-${year}-${seq}`
+  })()
 
   const staffData = {
     name: "Sarah Johnson",
@@ -235,6 +479,59 @@ export default function StaffDashboard() {
     ],
   }
 
+  // Overlay real staff info when available
+  const displayStaff = {
+    name: selectedStaff?.name || staffData.name,
+    role: selectedStaff?.department || staffData.role,
+    id: generatedDisplayId,
+    avatar: staffData.avatar,
+    rating: staffData.rating,
+    totalShifts: staffData.totalShifts,
+    hoursWorked: staffData.hoursWorked,
+    earnings: staffData.earnings,
+    certifications: staffData.certifications,
+    upcomingShifts: upcomingShifts.length > 0 ? upcomingShifts : staffData.upcomingShifts,
+    recentPayStubs: staffData.recentPayStubs,
+    trainingModules: staffData.trainingModules,
+    patientReviews: staffData.patientReviews,
+    supplyTransactions: staffData.supplyTransactions,
+  }
+
+  // Load certifications/licenses from applicant documents by staff email
+  const [certsFromDocs, setCertsFromDocs] = useState<Array<{ name: string; status: string; expires: string }>>([])
+  const [isLoadingCerts, setIsLoadingCerts] = useState<boolean>(false)
+
+  useEffect(() => {
+    const loadCerts = async () => {
+      try {
+        setIsLoadingCerts(true)
+        setCertsFromDocs([])
+        const email = selectedStaff?.email
+        if (!email) return
+        const res = await fetch(`/api/applicants/documents/by-email?email=${encodeURIComponent(email)}`)
+        const data = await res.json()
+        if (data.success && Array.isArray(data.documents)) {
+          const mapped = data.documents
+            .filter((d: any) => d.document_type === 'license' || d.document_type === 'certification')
+            .map((d: any) => {
+              const baseName = (d.file_name || d.document_type || '').replace(/\.[^/.]+$/, '')
+              const name = d.document_type === 'license' ? (baseName || 'License') : (baseName || 'Certification')
+              const status = d.status === 'verified' ? 'Active' : (d.status === 'pending' ? 'Pending' : 'Needs Review')
+              const expires = d.expiration_date ? new Date(d.expiration_date).toISOString().split('T')[0] : '—'
+              return { name, status, expires }
+            })
+          setCertsFromDocs(mapped)
+        }
+      } catch (e) {
+        console.error('Failed to load certificates/licenses from documents', e)
+      } finally {
+        setIsLoadingCerts(false)
+      }
+    }
+    loadCerts()
+  }, [selectedStaff?.email])
+  const certificationsToShow = certsFromDocs
+
   // Enhanced pending onboarding patients with automatic eligibility checking and auth management
   const [pendingOnboardingPatients, setPendingOnboardingPatients] = useState<PendingOnboardingPatient[]>([
     {
@@ -392,13 +689,13 @@ export default function StaffDashboard() {
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-4">
               <Avatar className="h-10 w-10">
-                <AvatarImage src={staffData.avatar || "/placeholder.svg"} alt={staffData.name} />
+                <AvatarImage src={displayStaff.avatar || "/placeholder.svg"} alt={displayStaff.name} />
                 <AvatarFallback>SJ</AvatarFallback>
               </Avatar>
               <div>
-                <h1 className="text-xl font-semibold text-gray-900">Welcome back, {staffData.name}</h1>
+                <h1 className="text-xl font-semibold text-gray-900">Welcome back, {displayStaff.name}</h1>
                 <p className="text-sm text-gray-600">
-                  {staffData.role} • ID: {staffData.id}
+                  {displayStaff.role} • ID: {displayStaff.id}
                 </p>
               </div>
             </div>
@@ -442,7 +739,7 @@ export default function StaffDashboard() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Rating</p>
-                      <p className="text-2xl font-bold text-gray-900">{staffData.rating}</p>
+                      <p className="text-2xl font-bold text-gray-900">{displayStaff.rating}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -456,7 +753,7 @@ export default function StaffDashboard() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Hours Worked</p>
-                      <p className="text-2xl font-bold text-gray-900">{staffData.hoursWorked}</p>
+                      <p className="text-2xl font-bold text-gray-900">{displayStaff.hoursWorked}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -470,7 +767,7 @@ export default function StaffDashboard() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Total Shifts</p>
-                      <p className="text-2xl font-bold text-gray-900">{staffData.totalShifts}</p>
+                      <p className="text-2xl font-bold text-gray-900">{displayStaff.totalShifts}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -484,7 +781,7 @@ export default function StaffDashboard() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Total Earnings</p>
-                      <p className="text-2xl font-bold text-gray-900">${staffData.earnings.toLocaleString()}</p>
+                      <p className="text-2xl font-bold text-gray-900">${displayStaff.earnings.toLocaleString()}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -502,7 +799,8 @@ export default function StaffDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {staffData.upcomingShifts.map((shift, index) => (
+                  {isLoadingShifts && <div className="p-4 text-sm text-gray-500">Loading shifts...</div>}
+                  {displayStaff.upcomingShifts.map((shift, index) => (
                     <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center space-x-4">
                         <div className="p-2 bg-blue-100 rounded-lg">
@@ -517,7 +815,7 @@ export default function StaffDashboard() {
                         <p className="font-medium">{shift.location}</p>
                         <p className="text-sm text-gray-600">{shift.unit}</p>
                       </div>
-                      <Button variant="outline" size="sm">
+                      <Button variant="outline" size="sm" onClick={() => openDetails(shift)}>
                         View Details
                         <ChevronRight className="h-4 w-4 ml-1" />
                       </Button>
@@ -526,6 +824,45 @@ export default function StaffDashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Upcoming shift details dialog */}
+            <Dialog open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Shift Details</DialogTitle>
+                  <DialogDescription>Review your upcoming shift information.</DialogDescription>
+                </DialogHeader>
+                {detailsShift && (
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Date</span>
+                      <span className="font-medium">{detailsShift.date}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Time</span>
+                      <span className="font-medium">{detailsShift.time}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Facility</span>
+                      <span className="font-medium">{detailsShift.location || '—'}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-600">Department</span>
+                      <span className="font-medium">{detailsShift.unit || '—'}</span>
+                    </div>
+                    {detailsShift.notes && (
+                      <div className="text-sm">
+                        <div className="text-gray-600">Notes</div>
+                        <div className="font-medium mt-1">{detailsShift.notes}</div>
+                      </div>
+                    )}
+                    <div className="flex justify-end gap-2 pt-2">
+                      <Button variant="outline" onClick={() => setIsDetailsOpen(false)}>Close</Button>
+                    </div>
+                  </div>
+                )}
+              </DialogContent>
+            </Dialog>
 
             {/* Certifications Status */}
             <Card>
@@ -537,28 +874,34 @@ export default function StaffDashboard() {
                 <CardDescription>Keep track of your professional certifications</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {staffData.certifications.map((cert, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <div className="p-2 bg-green-100 rounded-lg">
-                          <Shield className="h-4 w-4 text-green-600" />
+                {isLoadingCerts ? (
+                  <div className="p-4 text-sm text-gray-500">Loading certifications...</div>
+                ) : certificationsToShow.length === 0 ? (
+                  <div className="p-4 text-sm text-gray-500">No certifications or licenses on file.</div>
+                ) : (
+                  <div className="space-y-4">
+                    {certificationsToShow.map((cert, index) => (
+                      <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          <div className="p-2 bg-green-100 rounded-lg">
+                            <Shield className="h-4 w-4 text-green-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium">{cert.name}</p>
+                            <p className="text-sm text-gray-600">Expires: {cert.expires}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{cert.name}</p>
-                          <p className="text-sm text-gray-600">Expires: {cert.expires}</p>
-                        </div>
+                        <Badge
+                          className={
+                            cert.status === "Active" ? "bg-green-100 text-green-800" : cert.status === 'Pending' ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-800"
+                          }
+                        >
+                          {cert.status}
+                        </Badge>
                       </div>
-                      <Badge
-                        className={
-                          cert.status === "Active" ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"
-                        }
-                      >
-                        {cert.status}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -811,7 +1154,22 @@ export default function StaffDashboard() {
             </div>
 
             {/* Supply Analyzer Component */}
-            <StaffSupplyAnalyzer staffId="RN-2024-001" />
+            <StaffSupplyAnalyzer 
+              staffId={displayStaff.id}
+              staffName={displayStaff.name}
+              supplyUsage={displayStaff.supplyTransactions.map((t: any) => ({
+                id: t.id,
+                patientId: t.patientId,
+                patientName: t.patientName,
+                supplyId: t.supplyId,
+                supplyName: t.supplyName,
+                category: t.category,
+                quantity: t.quantityUsed,
+                unitCost: t.unitCost,
+                totalCost: t.totalUsedCost,
+                usedAt: t.usedAt,
+              }))}
+            />
 
             {/* Recent Supply Transactions */}
             <Card>
@@ -836,7 +1194,7 @@ export default function StaffDashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {staffData.supplyTransactions.slice(0, 10).map((transaction) => (
+                    {displayStaff.supplyTransactions.slice(0, 10).map((transaction) => (
                       <TableRow key={transaction.id}>
                         <TableCell className="text-sm">
                           {new Date(transaction.checkedOutAt).toLocaleDateString()}
@@ -885,7 +1243,7 @@ export default function StaffDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {staffData.upcomingShifts.map((shift, index) => (
+                  {(upcomingShifts.length > 0 ? upcomingShifts : staffData.upcomingShifts).map((shift: any, index: number) => (
                     <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center space-x-4">
                         <div className="p-2 bg-blue-100 rounded-lg">
@@ -901,18 +1259,92 @@ export default function StaffDashboard() {
                         <p className="text-sm text-gray-600">{shift.unit}</p>
                       </div>
                       <div className="flex space-x-2">
-                        <Button variant="outline" size="sm">
-                          Edit
-                        </Button>
-                        <Button variant="outline" size="sm">
-                          Cancel
-                        </Button>
+                        {shift.id ? (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => openEditShift(shift)}>Edit</Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={pendingCancelShiftIds.includes(shift.id)}
+                              onClick={() => openCancelDialog(shift)}
+                            >
+                              {pendingCancelShiftIds.includes(shift.id) ? 'Requested' : 'Request Cancel'}
+                            </Button>
+                          </>
+                        ) : (
+                          <Button variant="outline" size="sm" disabled>Sample</Button>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
               </CardContent>
             </Card>
+
+            {/* Edit shift dialog for staff dashboard */}
+            <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Edit Shift</DialogTitle>
+                  <DialogDescription>Update this shift</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Day</Label>
+                    <Select value={String(newShift.day_of_week)} onValueChange={(v) => setNewShift({ ...newShift, day_of_week: Number.parseInt(v) })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {days.map((d, i) => (
+                          <SelectItem key={i} value={String(i)}>{d}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Facility</Label>
+                      <Input value={newShift.facility} onChange={(e) => setNewShift({ ...newShift, facility: e.target.value })} placeholder="e.g., Sunrise Senior Living" />
+                    </div>
+                    <div>
+                      <Label>Unit / Department</Label>
+                      <Input value={newShift.unit} onChange={(e) => setNewShift({ ...newShift, unit: e.target.value })} placeholder="e.g., ICU" />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label>Start Time</Label>
+                      <Input type="time" value={newShift.start_time} onChange={(e) => setNewShift({ ...newShift, start_time: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>End Time</Label>
+                      <Input type="time" value={newShift.end_time} onChange={(e) => setNewShift({ ...newShift, end_time: e.target.value })} />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Type</Label>
+                    <Select value={newShift.shift_type} onValueChange={(v) => setNewShift({ ...newShift, shift_type: v })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="office">Office</SelectItem>
+                        <SelectItem value="field">Field</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label>Notes</Label>
+                    <Textarea rows={2} value={newShift.notes} onChange={(e) => setNewShift({ ...newShift, notes: e.target.value })} />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+                    <Button onClick={updateShift}>Save Changes</Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="training" className="space-y-6">
@@ -926,7 +1358,7 @@ export default function StaffDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {staffData.trainingModules.map((module, index) => (
+                  {displayStaff.trainingModules.map((module, index) => (
                     <div key={index} className="p-4 border rounded-lg">
                       <div className="flex items-center justify-between mb-3">
                         <div>
@@ -969,7 +1401,7 @@ export default function StaffDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {staffData.patientReviews.map((review, index) => (
+                  {displayStaff.patientReviews.map((review, index) => (
                     <div key={index} className="p-4 border rounded-lg">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center space-x-2">
@@ -991,6 +1423,26 @@ export default function StaffDashboard() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Cancel request reason dialog */}
+            <Dialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
+              <DialogContent className="max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Request Shift Cancellation</DialogTitle>
+                  <DialogDescription>Please provide a reason for cancellation.</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label>Reason</Label>
+                    <Textarea rows={3} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="e.g., Family emergency, schedule conflict" />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setIsCancelOpen(false)}>Close</Button>
+                    <Button onClick={submitCancelRequest} disabled={!cancelReason.trim()}>Submit Request</Button>
+                  </div>
+                </div>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           <TabsContent value="payroll" className="space-y-6">
@@ -1004,7 +1456,7 @@ export default function StaffDashboard() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {staffData.recentPayStubs.map((payStub, index) => (
+                  {displayStaff.recentPayStubs.map((payStub, index) => (
                     <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center space-x-4">
                         <div className="p-2 bg-green-100 rounded-lg">

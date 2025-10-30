@@ -75,3 +75,4 @@ ADD COLUMN IF NOT EXISTS reference3_relationship TEXT;
 -- Add comment
 COMMENT ON COLUMN public.application_forms.additional_info IS 'Additional information provided by the applicant';
 
+

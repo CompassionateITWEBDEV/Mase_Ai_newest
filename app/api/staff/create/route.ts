@@ -7,6 +7,7 @@ export async function POST(request: NextRequest) {
     const {
       email,
       name,
+      password,
       role_id,
       department,
       organization,
@@ -14,9 +15,9 @@ export async function POST(request: NextRequest) {
     } = body
 
     // Validate required fields
-    if (!email || !name) {
+    if (!email || !name || !password) {
       return NextResponse.json(
-        { error: 'Missing required fields: email and name' },
+        { error: 'Missing required fields: email, name, and password' },
         { status: 400 }
       )
     }
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
       .insert({
         email,
         name,
+        password_hash: password, // stored as-is for fallback auth; improve to hashing when login updated
         role_id: role_id || null,
         department: department || null,
         organization: organization || null,

@@ -61,3 +61,4 @@ GRANT INSERT ON public.application_forms TO authenticated;
 }
 
 
+

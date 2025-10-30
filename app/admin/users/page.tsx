@@ -9,6 +9,8 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command"
 import {
   Dialog,
   DialogContent,
@@ -32,6 +34,8 @@ import {
   AlertTriangle,
   Eye,
   Building2,
+  ChevronsUpDown,
+  Check,
 } from "lucide-react"
 import { type User, type UserRole, type Permission, USER_ROLES } from "@/lib/auth"
 
@@ -107,6 +111,30 @@ export default function UserManagement() {
     loadUsers()
   }, [])
 
+  // Employees (hired applicants) for dropdown
+  const [employees, setEmployees] = useState<{ id: string; name: string; email: string }[]>([])
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false)
+  const [isEmployeePickerOpen, setIsEmployeePickerOpen] = useState(false)
+
+  useEffect(() => {
+    const loadEmployees = async () => {
+      try {
+        setIsLoadingEmployees(true)
+        const res = await fetch('/api/employees/list')
+        const data = await res.json()
+        if (data.success && Array.isArray(data.employees)) {
+          setEmployees(data.employees)
+        }
+      } catch (e) {
+        console.error('Failed to load employees', e)
+      } finally {
+        setIsLoadingEmployees(false)
+      }
+    }
+
+    loadEmployees()
+  }, [])
+
   // Load audit logs from database
   useEffect(() => {
     const loadAuditLogs = async () => {
@@ -131,6 +159,8 @@ export default function UserManagement() {
   const [newUser, setNewUser] = useState({
     email: "",
     name: "",
+    employeeId: "",
+    password: "",
     role: "",
     department: "",
     organization: "",
@@ -180,7 +210,13 @@ export default function UserManagement() {
       return
     }
 
-    if (!newUser.email || !newUser.name) {
+    // Require selecting an employee to ensure consistent data
+    if (!newUser.employeeId) {
+      alert('Please select an employee (hired applicant)')
+      return
+    }
+
+    if (!newUser.email || !newUser.name || !newUser.password) {
       alert('Please fill in all required fields')
       return
     }
@@ -195,6 +231,7 @@ export default function UserManagement() {
         body: JSON.stringify({
           email: newUser.email,
           name: newUser.name,
+          password: newUser.password,
           role_id: newUser.role,
           department: newUser.department,
           organization: newUser.organization,
@@ -224,6 +261,8 @@ export default function UserManagement() {
     setNewUser({
       email: "",
       name: "",
+      employeeId: "",
+      password: "",
       role: "",
       department: "",
       organization: "",
@@ -484,13 +523,55 @@ export default function UserManagement() {
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="name">Full Name</Label>
-                  <Input
-                    id="name"
-                    value={newUser.name}
-                    onChange={(e) => setNewUser({ ...newUser, name: e.target.value })}
-                    placeholder="Enter full name"
-                  />
+                  <Label htmlFor="employee">Employees</Label>
+                  <Popover open={isEmployeePickerOpen} onOpenChange={setIsEmployeePickerOpen}>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={isEmployeePickerOpen}
+                        className="w-full justify-between"
+                      >
+                        {newUser.employeeId
+                          ? (employees.find((e) => e.id === newUser.employeeId)?.name || "Unknown")
+                          : (isLoadingEmployees ? "Loading employees..." : "Select employee")}
+                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[460px] p-0">
+                      <Command>
+                        <CommandInput placeholder="Search employee by name or email..." />
+                        <CommandList>
+                          <CommandEmpty>No results found.</CommandEmpty>
+                          <CommandGroup>
+                            {employees.map((emp) => (
+                              <CommandItem
+                                key={emp.id}
+                                value={`${emp.name} ${emp.email}`}
+                                onSelect={() => {
+                                  setNewUser({
+                                    ...newUser,
+                                    employeeId: emp.id,
+                                    name: emp.name,
+                                    email: emp.email,
+                                  })
+                                  setIsEmployeePickerOpen(false)
+                                }}
+                              >
+                                <Check
+                                  className={`mr-2 h-4 w-4 ${newUser.employeeId === emp.id ? 'opacity-100' : 'opacity-0'}`}
+                                />
+                                <div className="flex flex-col">
+                                  <span className="font-medium">{emp.name}</span>
+                                  <span className="text-xs text-gray-500">{emp.email}</span>
+                                </div>
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
                 </div>
                 <div>
                   <Label htmlFor="email">Email Address</Label>
@@ -499,7 +580,20 @@ export default function UserManagement() {
                     type="email"
                     value={newUser.email}
                     onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
-                    placeholder="Enter email address"
+                    placeholder="Select employee to auto-fill"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="password">Temporary Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                    placeholder="Enter a password"
                   />
                 </div>
               </div>
@@ -1048,9 +1142,6 @@ export default function UserManagement() {
                       <div className="w-3 h-3 bg-green-500 rounded-full mt-1 flex-shrink-0"></div>
                       <div className="flex-1">
                         <div className="font-medium text-sm">{permission.name}</div>
-                        {permission.description && (
-                          <div className="text-xs text-gray-500 mt-1">{permission.description}</div>
-                        )}
                       </div>
                     </div>
                   ))}

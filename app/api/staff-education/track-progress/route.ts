@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
 
 export async function POST(request: NextRequest) {
   try {
@@ -112,7 +113,8 @@ async function generateProgressRecommendations(staffId: string, progressData: an
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
-    const staffId = searchParams.get("staffId")
+    const staffId =
+      searchParams.get("staffId") || request.headers.get("x-user-id") || request.headers.get("x-staff-id") || undefined
 
     if (!staffId) {
       return NextResponse.json({ success: false, error: "Staff ID is required" }, { status: 400 })
@@ -132,17 +134,56 @@ export async function GET(request: NextRequest) {
 }
 
 async function getStaffEducationProgress(staffId: string) {
-  // In real implementation, fetch from database
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  const supabase = createClient(supabaseUrl, supabaseAnonKey)
+
+  const { data: evals, error } = await supabase
+    .from("staff_self_evaluations")
+    .select("id, evaluation_type, assessment_type, status, submitted_at, approved_at, created_at, updated_at")
+    .eq("staff_id", staffId)
+    .order("created_at", { ascending: false })
+
+  if (error) {
+    // Fallback mock if query fails
+    return {
+      staffId,
+      overallProgress: 0,
+      completedModules: 0,
+      totalModules: 0,
+      currentModule: null,
+      moduleProgress: 0,
+      timeSpent: 0,
+      achievements: [],
+      nextMilestone: null,
+      estimatedCompletion: null,
+      evaluations: [],
+    }
+  }
+
+  const total = evals?.length || 0
+  const submitted = (evals || []).filter((e) => e.status === "submitted").length
+  const approved = (evals || []).filter((e) => e.status === "approved").length
+  const lastSubmitted = (evals || []).find((e) => e.status === "submitted")?.submitted_at || null
+  const lastApproved = (evals || []).find((e) => e.status === "approved")?.approved_at || null
+
+  // Derive a simple progress metric from approvals/submissions
+  const totalWeight = Math.max(total, 1)
+  const overallProgress = Math.round(((submitted + approved * 2) / (totalWeight * 2)) * 100)
+
   return {
     staffId,
-    overallProgress: 67,
-    completedModules: 3,
-    totalModules: 5,
-    currentModule: "medication-documentation-mastery",
-    moduleProgress: 45,
-    timeSpent: 180, // minutes
-    achievements: ["First Module Completed", "Clinical Writing Excellence Certified"],
-    nextMilestone: "50% Plan Progress",
-    estimatedCompletion: "2024-02-08",
+    overallProgress,
+    completedModules: approved, // treat approved evals as completed milestones
+    totalModules: total,
+    currentModule: null,
+    moduleProgress: submitted > 0 && approved === 0 ? 50 : approved > 0 ? 100 : 0,
+    timeSpent: null,
+    achievements: approved > 0 ? ["Evaluation Approved"] : [],
+    nextMilestone: approved === 0 && submitted > 0 ? "Get supervisor approval" : null,
+    estimatedCompletion: null,
+    evaluations: evals || [],
+    lastSubmitted,
+    lastApproved,
   }
 }

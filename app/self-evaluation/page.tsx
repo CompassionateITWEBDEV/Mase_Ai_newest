@@ -48,6 +48,9 @@ export default function SelfEvaluationPage() {
   const [completionPercentage, setCompletionPercentage] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [evaluationType, setEvaluationType] = useState<"performance" | "competency">("performance")
+  const [historyRecords, setHistoryRecords] = useState<any[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState<string | null>(null)
 
   // Mock evaluation history
   const evaluationHistory = [
@@ -332,21 +335,104 @@ export default function SelfEvaluationPage() {
         : getCompetencyQuestions(currentUser.role.id)
     setQuestions(questionsToLoad)
 
-    // Load current evaluation or create new one
-    const mockCurrentEvaluation: SelfEvaluationData = {
-      id: `${evaluationType.toUpperCase()}-2024-CURRENT`,
-      staffId: currentUser.id,
-      evaluationType,
-      assessmentType: evaluationType === "performance" ? "annual" : "skills-validation",
-      status: "draft",
-      completionPercentage: 0,
-      responses: {},
-      lastModified: new Date().toISOString(),
-      dueDate: "2024-02-15",
+    // Load current evaluation from API or create one if none exists
+    const loadEvaluation = async () => {
+      try {
+        const params = new URLSearchParams({
+          staffId: currentUser.id,
+          evaluationType,
+          status: "draft",
+        })
+        const res = await fetch(`/api/self-evaluations?${params.toString()}`)
+        let record: any | null = null
+        if (res.ok) {
+          const json = await res.json()
+          if (json?.evaluations?.length) {
+            record = json.evaluations[0]
+          }
+        }
+        if (!record) {
+          // Create initial draft with a reasonable default due date (14 days from now)
+          const defaultDueDate = new Date()
+          defaultDueDate.setDate(defaultDueDate.getDate() + 14)
+          const createRes = await fetch("/api/self-evaluations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
+            body: JSON.stringify({
+              action: "save-draft",
+              evaluationType,
+              assessmentType: evaluationType === "performance" ? "annual" : "skills-validation",
+              responses: {},
+              completionPercentage: 0,
+              dueDate: defaultDueDate.toISOString().slice(0, 10),
+            }),
+          })
+          if (createRes.ok) {
+            const created = await createRes.json()
+            record = created.evaluation
+          }
+        }
+
+        if (record) {
+          const evalData: SelfEvaluationData = {
+            id: record.id,
+            staffId: record.staff_id,
+            evaluationType: record.evaluation_type,
+            assessmentType: record.assessment_type,
+            status: record.status,
+            completionPercentage: record.completion_percentage || 0,
+            responses: record.responses || {},
+            submittedAt: record.submitted_at || undefined,
+            lastModified: record.last_modified || new Date().toISOString(),
+            dueDate: record.due_date || new Date().toISOString().slice(0, 10),
+          }
+          setCurrentEvaluation(evalData)
+          setResponses(evalData.responses || {})
+        } else {
+          // Fallback minimal client-side state
+          const fallback: SelfEvaluationData = {
+            id: `${evaluationType}-${Date.now()}`,
+            staffId: currentUser.id,
+            evaluationType,
+            assessmentType: evaluationType === "performance" ? "annual" : "skills-validation",
+            status: "draft",
+            completionPercentage: 0,
+            responses: {},
+            lastModified: new Date().toISOString(),
+            dueDate: new Date().toISOString().slice(0, 10),
+          }
+          setCurrentEvaluation(fallback)
+          setResponses({})
+        }
+      } catch (e) {
+        console.error("Failed to load evaluation", e)
+      }
     }
-    setCurrentEvaluation(mockCurrentEvaluation)
-    setResponses({}) // Clear responses when switching evaluation types
+
+    loadEvaluation()
   }, [currentUser, evaluationType])
+
+  // Load submitted history for the current user (both types)
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        setHistoryLoading(true)
+        setHistoryError(null)
+        const res = await fetch(`/api/self-evaluations?status=submitted`, {
+          headers: { "x-user-id": currentUser.id },
+        })
+        if (!res.ok) throw new Error("Failed to load history")
+        const json = await res.json()
+        setHistoryRecords(Array.isArray(json?.evaluations) ? json.evaluations : [])
+      } catch (e: any) {
+        setHistoryError(e?.message || "Failed to load evaluation history")
+        setHistoryRecords([])
+      } finally {
+        setHistoryLoading(false)
+      }
+    }
+    loadHistory()
+  }, [currentUser.id])
 
   useEffect(() => {
     // Calculate completion percentage
@@ -364,11 +450,41 @@ export default function SelfEvaluationPage() {
   }
 
   const handleSaveDraft = async () => {
-    setIsSubmitting(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    setIsSubmitting(false)
-    // Show success message
+    try {
+      setIsSubmitting(true)
+      const res = await fetch("/api/self-evaluations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
+        body: JSON.stringify({
+          action: "save-draft",
+          id: currentEvaluation?.id?.startsWith("PERF") || currentEvaluation?.id?.startsWith("COMP") ? undefined : currentEvaluation?.id,
+          evaluationType,
+          assessmentType: currentEvaluation?.assessmentType,
+          responses,
+          completionPercentage,
+          dueDate: currentEvaluation?.dueDate,
+        }),
+      })
+      if (!res.ok) throw new Error("Failed to save draft")
+      const data = await res.json()
+      if (data?.evaluation?.id) {
+        setCurrentEvaluation((prev) =>
+          prev
+            ? {
+                ...prev,
+                id: data.evaluation.id,
+                status: data.evaluation.status,
+                lastModified: new Date().toISOString(),
+              }
+            : prev,
+        )
+      }
+    } catch (e) {
+      console.error(e)
+      alert("Failed to save draft. Please try again.")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleSubmitEvaluation = async () => {
@@ -377,11 +493,41 @@ export default function SelfEvaluationPage() {
       return
     }
 
-    setIsSubmitting(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setIsSubmitting(false)
-    // Show success message and redirect
+    try {
+      setIsSubmitting(true)
+      const res = await fetch("/api/self-evaluations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
+        body: JSON.stringify({
+          action: "submit",
+          id: currentEvaluation?.id?.startsWith("PERF") || currentEvaluation?.id?.startsWith("COMP") ? undefined : currentEvaluation?.id,
+          evaluationType,
+          assessmentType: currentEvaluation?.assessmentType,
+          responses,
+          completionPercentage,
+          dueDate: currentEvaluation?.dueDate,
+        }),
+      })
+      if (!res.ok) throw new Error("Failed to submit evaluation")
+      const data = await res.json()
+      setCurrentEvaluation((prev) =>
+        prev
+          ? {
+              ...prev,
+              id: data.evaluation?.id || prev.id,
+              status: "submitted",
+              submittedAt: new Date().toISOString(),
+              lastModified: new Date().toISOString(),
+            }
+          : prev,
+      )
+      alert("Evaluation submitted successfully.")
+    } catch (e) {
+      console.error(e)
+      alert("Submission failed. Please try again.")
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const renderQuestion = (question: PerformanceQuestion) => {
@@ -484,6 +630,15 @@ export default function SelfEvaluationPage() {
     )
   }
 
+  // Sync active tab with evaluation type so competency is immediately functional
+  useEffect(() => {
+    if (activeTab === "competency" && evaluationType !== "competency") {
+      setEvaluationType("competency")
+    } else if (activeTab === "performance" && evaluationType !== "performance") {
+      setEvaluationType("performance")
+    }
+  }, [activeTab])
+
   const groupedQuestions = questions.reduce(
     (acc, question) => {
       if (!acc[question.category]) {
@@ -495,8 +650,8 @@ export default function SelfEvaluationPage() {
     {} as Record<string, PerformanceQuestion[]>,
   )
 
-  const performanceHistory = evaluationHistory.filter((e) => e.evaluationType === "performance")
-  const competencyHistory = evaluationHistory.filter((e) => e.evaluationType === "competency")
+  const performanceHistory = historyRecords.filter((e) => e.evaluation_type === "performance")
+  const competencyHistory = historyRecords.filter((e) => e.evaluation_type === "competency")
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -590,7 +745,8 @@ export default function SelfEvaluationPage() {
                       {getStatusBadge(currentEvaluation.status)}
                     </CardTitle>
                     <CardDescription>
-                      Annual Performance Review • Due: {new Date(currentEvaluation.dueDate).toLocaleDateString()}
+                      {currentEvaluation.assessmentType.replace(/\b\w/g, (c) => c.toUpperCase()).replace(/-/g, " ")}
+                      {" "}• Due: {new Date(currentEvaluation.dueDate).toLocaleDateString()}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -716,20 +872,8 @@ export default function SelfEvaluationPage() {
               </CardContent>
             </Card>
 
-            {/* Switch to Competency Questions */}
-            <div className="flex justify-center">
-              <Button
-                onClick={() => setEvaluationType("competency")}
-                className="bg-blue-600 hover:bg-blue-700"
-                disabled={evaluationType === "competency"}
-              >
-                <Target className="h-4 w-4 mr-2" />
-                {evaluationType === "competency" ? "Competency Assessment Active" : "Start Competency Assessment"}
-              </Button>
-            </div>
-
             {/* Competency Assessment Form */}
-            {evaluationType === "competency" && currentEvaluation && (
+            {currentEvaluation && evaluationType === "competency" && (
               <>
                 {/* Progress Card */}
                 <Card>
@@ -739,7 +883,8 @@ export default function SelfEvaluationPage() {
                       {getStatusBadge(currentEvaluation.status)}
                     </CardTitle>
                     <CardDescription>
-                      Skills Validation Assessment • Due: {new Date(currentEvaluation.dueDate).toLocaleDateString()}
+                      {currentEvaluation.assessmentType.replace(/\b\w/g, (c) => c.toUpperCase()).replace(/-/g, " ")}
+                      {" "}• Due: {new Date(currentEvaluation.dueDate).toLocaleDateString()}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
@@ -834,28 +979,28 @@ export default function SelfEvaluationPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {performanceHistory.map((evaluation) => (
+                    {historyLoading && <div className="text-sm text-gray-600">Loading...</div>}
+                    {historyError && <div className="text-sm text-red-600">{historyError}</div>}
+                    {!historyLoading && !historyError && performanceHistory.length === 0 && (
+                      <div className="text-sm text-gray-600">No submitted performance evaluations yet.</div>
+                    )}
+                    {!historyLoading && !historyError && performanceHistory.map((evaluation: any) => (
                       <div key={evaluation.id} className="flex items-center justify-between p-4 border rounded-lg">
                         <div className="flex items-center space-x-4">
                           <div className="p-2 bg-green-100 rounded-lg">
                             <TrendingUp className="h-5 w-5 text-green-600" />
                           </div>
                           <div>
-                            <h3 className="font-medium">{evaluation.type}</h3>
+                            <h3 className="font-medium">
+                              {String(evaluation.assessment_type || "Performance Evaluation").replace(/\b\w/g, (c) => c.toUpperCase()).replace(/-/g, " ")}
+                            </h3>
                             <p className="text-sm text-gray-600">
-                              Submitted: {new Date(evaluation.submittedAt).toLocaleDateString()}
+                              Submitted: {evaluation.submitted_at ? new Date(evaluation.submitted_at).toLocaleDateString() : "—"}
                             </p>
-                            <p className="text-sm text-gray-600">Approved by: {evaluation.approvedBy}</p>
+                            <p className="text-sm text-gray-600">Status: {evaluation.status}</p>
                           </div>
                         </div>
                         <div className="flex items-center space-x-4">
-                          <div className="text-right">
-                            <div className="flex items-center space-x-2">
-                              <Star className="h-4 w-4 text-yellow-500" />
-                              <span className="font-medium">{evaluation.score}</span>
-                            </div>
-                            <p className="text-xs text-gray-500">Overall Score</p>
-                          </div>
                           {getStatusBadge(evaluation.status)}
                           <Button variant="outline" size="sm">
                             View Details
@@ -878,28 +1023,28 @@ export default function SelfEvaluationPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {competencyHistory.map((evaluation) => (
+                    {historyLoading && <div className="text-sm text-gray-600">Loading...</div>}
+                    {historyError && <div className="text-sm text-red-600">{historyError}</div>}
+                    {!historyLoading && !historyError && competencyHistory.length === 0 && (
+                      <div className="text-sm text-gray-600">No submitted competency assessments yet.</div>
+                    )}
+                    {!historyLoading && !historyError && competencyHistory.map((evaluation: any) => (
                       <div key={evaluation.id} className="flex items-center justify-between p-4 border rounded-lg">
                         <div className="flex items-center space-x-4">
                           <div className="p-2 bg-blue-100 rounded-lg">
                             <Target className="h-5 w-5 text-blue-600" />
                           </div>
                           <div>
-                            <h3 className="font-medium">{evaluation.type}</h3>
+                            <h3 className="font-medium">
+                              {String(evaluation.assessment_type || "Competency Assessment").replace(/\b\w/g, (c) => c.toUpperCase()).replace(/-/g, " ")}
+                            </h3>
                             <p className="text-sm text-gray-600">
-                              Submitted: {new Date(evaluation.submittedAt).toLocaleDateString()}
+                              Submitted: {evaluation.submitted_at ? new Date(evaluation.submitted_at).toLocaleDateString() : "—"}
                             </p>
-                            <p className="text-sm text-gray-600">Approved by: {evaluation.approvedBy}</p>
+                            <p className="text-sm text-gray-600">Status: {evaluation.status}</p>
                           </div>
                         </div>
                         <div className="flex items-center space-x-4">
-                          <div className="text-right">
-                            <div className="flex items-center space-x-2">
-                              <Star className="h-4 w-4 text-yellow-500" />
-                              <span className="font-medium">{evaluation.score}</span>
-                            </div>
-                            <p className="text-xs text-gray-500">Overall Score</p>
-                          </div>
                           {getStatusBadge(evaluation.status)}
                           <Button variant="outline" size="sm">
                             View Details

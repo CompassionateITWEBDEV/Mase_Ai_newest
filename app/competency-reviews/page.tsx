@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -70,8 +70,68 @@ export default function CompetencyReviewsPage() {
   const [supervisorNotes, setSupervisorNotes] = useState("")
   const [isReviewing, setIsReviewing] = useState(false)
 
-  // Mock evaluation reviews data
-  const evaluationReviews: EvaluationReview[] = [
+  // Loaded from API: submitted competency and performance evaluations pending review
+  const [evaluationReviews, setEvaluationReviews] = useState<EvaluationReview[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setLoading(true)
+        setError(null)
+        // Load submitted evaluations; supervisors will filter as needed
+        const res = await fetch(`/api/self-evaluations?status=submitted`)
+        if (!res.ok) throw new Error("Failed to load evaluations")
+        const json = await res.json()
+        const rows = Array.isArray(json?.evaluations) ? json.evaluations : []
+        // Lookup staff names/roles
+        const uniqueIds = Array.from(new Set(rows.map((r: any) => r.staff_id).filter(Boolean)))
+        let idToStaff: Record<string, { name?: string; role_id?: string; email?: string }> = {}
+        if (uniqueIds.length) {
+          const lookupRes = await fetch(`/api/staff/lookup?ids=${encodeURIComponent(uniqueIds.join(','))}`)
+          if (lookupRes.ok) {
+            const lookupJson = await lookupRes.json()
+            const list = Array.isArray(lookupJson?.staff) ? lookupJson.staff : []
+            idToStaff = list.reduce((acc: any, s: any) => {
+              acc[s.id] = { name: s.name, role_id: s.role_id, email: s.email }
+              return acc
+            }, {})
+          }
+        }
+
+        const mapped: EvaluationReview[] = rows.map((r: any) => ({
+          id: r.id,
+          staffId: r.staff_id,
+          staffName: idToStaff[r.staff_id]?.name || r.staff_id,
+          staffRole: idToStaff[r.staff_id]?.role_id || "",
+          department: "",
+          evaluationType: r.evaluation_type,
+          assessmentType: r.assessment_type,
+          submittedAt: r.submitted_at || r.updated_at || r.created_at,
+          dueDate: r.due_date || r.updated_at || r.created_at,
+          priority: "medium",
+          status: "pending",
+          selfAssessmentScore: undefined,
+          supervisorScore: undefined,
+          overallScore: undefined,
+          supervisorNotes: undefined,
+          staffResponses: r.responses || {},
+          reviewerName: undefined,
+          completedAt: undefined,
+        }))
+        setEvaluationReviews(mapped)
+      } catch (e: any) {
+        setError(e?.message || "Failed to load reviews")
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+  }, [currentUser.id])
+
+  // Mock evaluation reviews data (kept for empty state examples)
+  const seedReviews: EvaluationReview[] = [
     {
       id: "REV-2024-001",
       staffId: "STAFF-001",
@@ -185,33 +245,35 @@ export default function CompetencyReviewsPage() {
 
   // Check if current user can review evaluations for specific roles
   const canReviewRole = (staffRole: string): boolean => {
-    const userRole = currentUser.role.id
+    const userRole = (currentUser.role.id || '').toLowerCase()
 
-    // RN Supervisors can review RN, LPN, and HHA evaluations
-    if (userRole === "RN" && ["RN", "LPN", "HHA"].includes(staffRole)) {
-      return true
-    }
+    // Admins and directors can review everything
+    const adminLike = [
+      'super_admin',
+      'admin',
+      'hr_director',
+      'clinical_director',
+      'staff_admin',
+      'staff_manage',
+    ]
+    if (adminLike.includes(userRole)) return true
 
-    // PT Supervisors can only review PT evaluations
-    if (userRole === "PT" && staffRole === "PT") {
-      return true
-    }
+    // Nurse managers can review nursing roles
+    if (userRole === 'nurse_manager' && ['RN', 'LPN', 'HHA'].includes(staffRole)) return true
 
-    // OT Supervisors can only review OT evaluations
-    if (userRole === "OT" && staffRole === "OT") {
-      return true
-    }
+    // Role-specific supervisors
+    if (userRole === 'rn' && ['RN', 'LPN', 'HHA'].includes(staffRole)) return true
+    if (userRole === 'pt' && staffRole === 'PT') return true
+    if (userRole === 'ot' && staffRole === 'OT') return true
 
-    // Clinical Directors can review all evaluations
-    if (userRole === "Clinical Director") {
-      return true
-    }
-
+    // Default: allow if role is unknown (fallback to show rather than hide)
+    if (!staffRole) return true
     return false
   }
 
   // Filter reviews based on user permissions and search criteria
-  const filteredReviews = evaluationReviews.filter((review) => {
+  const sourceReviews = evaluationReviews.length ? evaluationReviews : seedReviews
+  const filteredReviews = sourceReviews.filter((review) => {
     // Check role-based permissions
     if (!canReviewRole(review.staffRole)) {
       return false
@@ -285,11 +347,17 @@ export default function CompetencyReviewsPage() {
     if (!selectedReview) return
 
     setIsReviewing(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    // Optionally add reviewer notes to record
+    try {
+      await fetch(`/api/self-evaluations`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
+        body: JSON.stringify({ action: "add-notes", id: selectedReview.id, reviewerNotes: supervisorNotes }),
+      })
+    } catch {}
 
     // Update the review status
-    const updatedReviews = evaluationReviews.map((review) =>
+    const updatedReviews = sourceReviews.map((review) =>
       review.id === selectedReview.id
         ? {
             ...review,
@@ -302,18 +370,30 @@ export default function CompetencyReviewsPage() {
           }
         : review,
     )
-
+    setEvaluationReviews(updatedReviews)
     setIsReviewing(false)
     setSelectedReview(null)
-    // Show success message
   }
 
   const handleApproveReview = async (reviewId: string) => {
-    setIsReviewing(true)
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    setIsReviewing(false)
-    // Show success message
+    try {
+      setIsReviewing(true)
+      const res = await fetch(`/api/self-evaluations`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
+        body: JSON.stringify({ action: "approve", id: reviewId }),
+      })
+      if (!res.ok) throw new Error("Approval failed")
+      const json = await res.json()
+      const updated = json?.evaluation
+      setEvaluationReviews((prev) =>
+        prev.map((r) => (r.id === reviewId ? { ...r, status: "approved", reviewerName: currentUser.name } : r)),
+      )
+    } catch (e) {
+      // Optionally show error toast
+    } finally {
+      setIsReviewing(false)
+    }
   }
 
   // Separate reviews by status
@@ -503,7 +583,9 @@ export default function CompetencyReviewsPage() {
 
                 {/* Pending Reviews List */}
                 <div className="space-y-4">
-                  {pendingReviews.map((review) => {
+                  {loading && <div className="text-sm text-gray-600">Loading...</div>}
+                  {error && <div className="text-sm text-red-600">{error}</div>}
+                  {!loading && !error && pendingReviews.map((review) => {
                     const daysUntilDue = getDaysUntilDue(review.dueDate)
                     const isOverdue = daysUntilDue < 0
 

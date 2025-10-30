@@ -7,3 +7,4 @@ FROM information_schema.columns
 WHERE table_name = 'application_forms' 
 ORDER BY ordinal_position;
 
+

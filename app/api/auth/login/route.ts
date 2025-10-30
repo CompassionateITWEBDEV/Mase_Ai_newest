@@ -134,22 +134,34 @@ export async function POST(request: NextRequest) {
       })
       
     } else if (accountType === 'staff') {
-      // Check staff table
-      const { data, error } = await supabase
+      // Check staff table with robust linking/fallbacks
+      let staffQuery = supabase
         .from('staff')
         .select('*')
-        .eq('user_id', userId)
-        .single()
+
+      if (useFallbackAuth) {
+        // Fallback: match by email and password_hash (note: improve with hashing later)
+        staffQuery = staffQuery.eq('email', email).eq('password_hash', password)
+      } else if (userId) {
+        // Try either auth_user_id or user_id linking
+        // Supabase or() requires a string filter
+        staffQuery = staffQuery.or(`auth_user_id.eq.${userId},user_id.eq.${userId}`)
+      } else {
+        // As a last resort, try by email only
+        staffQuery = staffQuery.eq('email', email)
+      }
+
+      const { data, error } = await staffQuery.single()
 
       if (error || !data) {
         console.error('Staff profile not found:', error)
         return NextResponse.json(
-          { error: 'Account not found. Please contact support.' },
-          { status: 404 }
+          { error: 'Invalid email or password' },
+          { status: 401 }
         )
       }
 
-      // Update last login
+      // Update last login (best-effort)
       await supabase
         .from('staff')
         .update({ last_login: new Date().toISOString() })

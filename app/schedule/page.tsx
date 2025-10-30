@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -725,41 +725,174 @@ function EventForm({ onSave }: { onSave: () => void }) {
 
 // Staff Schedule View Component
 function StaffScheduleView() {
-  const staffSchedules = [
-    {
-      name: "Dr. Wilson",
-      role: "Medical Director",
-      schedule: [
-        { day: "Monday", shifts: [{ start: "08:00", end: "17:00", type: "office" }] },
-        { day: "Tuesday", shifts: [{ start: "08:00", end: "17:00", type: "office" }] },
-        { day: "Wednesday", shifts: [{ start: "08:00", end: "17:00", type: "office" }] },
-        { day: "Thursday", shifts: [{ start: "08:00", end: "17:00", type: "office" }] },
-        { day: "Friday", shifts: [{ start: "08:00", end: "15:00", type: "office" }] },
-      ],
-    },
-    {
-      name: "Sarah Johnson",
-      role: "Registered Nurse",
-      schedule: [
-        { day: "Monday", shifts: [{ start: "07:00", end: "19:00", type: "field" }] },
-        { day: "Tuesday", shifts: [{ start: "07:00", end: "19:00", type: "field" }] },
-        { day: "Wednesday", shifts: [{ start: "07:00", end: "19:00", type: "field" }] },
-        { day: "Thursday", shifts: [] },
-        { day: "Friday", shifts: [{ start: "07:00", end: "19:00", type: "field" }] },
-      ],
-    },
-    {
-      name: "Michael Chen",
-      role: "Physical Therapist",
-      schedule: [
-        { day: "Monday", shifts: [{ start: "09:00", end: "17:00", type: "field" }] },
-        { day: "Tuesday", shifts: [{ start: "09:00", end: "17:00", type: "field" }] },
-        { day: "Wednesday", shifts: [{ start: "09:00", end: "17:00", type: "field" }] },
-        { day: "Thursday", shifts: [{ start: "09:00", end: "17:00", type: "field" }] },
-        { day: "Friday", shifts: [] },
-      ],
-    },
-  ]
+  const [staff, setStaff] = useState<any[]>([])
+  const [shiftsByStaff, setShiftsByStaff] = useState<Record<string, any[]>>({})
+  const [cancelRequests, setCancelRequests] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [isEditOpen, setIsEditOpen] = useState(false)
+  const [isPickerOpen, setIsPickerOpen] = useState(false)
+  const [targetStaff, setTargetStaff] = useState<any | null>(null)
+  const [newShift, setNewShift] = useState({ day_of_week: 0, start_time: "08:00", end_time: "17:00", shift_type: "office", location: "", notes: "", facility: "", unit: "" })
+  const [editingShift, setEditingShift] = useState<any | null>(null)
+  const [pickerShifts, setPickerShifts] = useState<any[]>([])
+
+  const formatFacilityUnit = (locationValue?: string) => {
+    const raw = String(locationValue || '')
+    const beforeComma = raw.split(',')[0] || ''
+    const [facility, unit] = beforeComma.split(' | ')
+    return [facility, unit].filter(Boolean).join(' — ')
+  }
+
+  // Limit display and selection to Monday–Friday only
+  const days = ["Monday","Tuesday","Wednesday","Thursday","Friday"]
+  // Full week names for displaying details (e.g., pending requests referencing any dow)
+  const fullWeekDays = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        setIsLoading(true)
+        const staffRes = await fetch('/api/staff/list', { cache: 'no-store' })
+        const staffData = await staffRes.json()
+        const staffList = staffData.success ? staffData.staff : []
+        setStaff(staffList)
+        // fetch shifts per staff
+        const entries: Record<string, any[]> = {}
+        await Promise.all((staffList || []).map(async (s: any) => {
+          const r = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(s.id)}`, { cache: 'no-store' })
+          const d = await r.json()
+          entries[s.id] = d.success ? (d.shifts || []) : []
+        }))
+        setShiftsByStaff(entries)
+        // load pending cancellation requests
+        try {
+          const reqRes = await fetch('/api/staff/cancel-requests?status=pending', { cache: 'no-store' })
+          if (reqRes.ok) {
+            const reqData = await reqRes.json()
+            setCancelRequests(reqData.success ? (reqData.requests || []) : [])
+          } else {
+            console.error('Failed to load cancel requests', reqRes.status)
+            setCancelRequests([])
+          }
+        } catch (e) {
+          console.error('Cancel requests load error', e)
+          setCancelRequests([])
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    init()
+    // poll pending requests periodically
+    const interval = setInterval(async () => {
+      try {
+        const reqRes = await fetch('/api/staff/cancel-requests?status=pending', { cache: 'no-store' })
+        if (reqRes.ok) {
+          const reqData = await reqRes.json()
+          setCancelRequests(reqData.success ? (reqData.requests || []) : [])
+        }
+      } catch {}
+    }, 10000)
+    return () => clearInterval(interval)
+  }, [])
+
+  const openAddShift = (s: any) => {
+    setTargetStaff(s)
+    setNewShift({ day_of_week: 0, start_time: "08:00", end_time: "17:00", shift_type: "office", location: "", notes: "", facility: "", unit: "" })
+    setIsDialogOpen(true)
+  }
+
+  const openEditShift = (s: any, shift: any) => {
+    setTargetStaff(s)
+    const [facilityPart, unitPart] = (shift.location || '').split(' | ')
+    setEditingShift(shift)
+    setNewShift({
+      day_of_week: shift.day_of_week,
+      start_time: shift.start_time,
+      end_time: shift.end_time,
+      shift_type: shift.shift_type || 'office',
+      location: shift.location || '',
+      notes: shift.notes || '',
+      facility: facilityPart || '',
+      unit: unitPart || ''
+    })
+    setIsEditOpen(true)
+  }
+
+  const openEditSchedule = (s: any) => {
+    setTargetStaff(s)
+    const list = (shiftsByStaff[s.id] || []).filter((sh) => sh.day_of_week >= 0 && sh.day_of_week <= 4)
+    if (list.length === 0) {
+      openAddShift(s)
+      return
+    }
+    if (list.length === 1) {
+      openEditShift(s, list[0])
+      return
+    }
+    setPickerShifts(list)
+    setIsPickerOpen(true)
+  }
+
+  const saveShift = async () => {
+    if (!targetStaff) return
+    const composedLocation = [newShift.facility, newShift.unit].filter(Boolean).join(' | ')
+    const res = await fetch('/api/staff/shifts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staff_id: targetStaff.id, day_of_week: newShift.day_of_week, start_time: newShift.start_time, end_time: newShift.end_time, shift_type: newShift.shift_type, location: composedLocation, notes: newShift.notes })
+    })
+    const data = await res.json()
+    if (data.success) {
+      const r = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(targetStaff.id)}`, { cache: 'no-store' })
+      const d = await r.json()
+      setShiftsByStaff(prev => ({ ...prev, [targetStaff.id]: d.success ? (d.shifts || []) : [] }))
+      setIsDialogOpen(false)
+    } else {
+      alert(data.error || 'Failed to save shift')
+    }
+  }
+
+  const updateShift = async () => {
+    if (!targetStaff || !editingShift) return
+    const composedLocation = [newShift.facility, newShift.unit].filter(Boolean).join(' | ')
+    const res = await fetch('/api/staff/shifts', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: editingShift.id, day_of_week: newShift.day_of_week, start_time: newShift.start_time, end_time: newShift.end_time, shift_type: newShift.shift_type, location: composedLocation, notes: newShift.notes })
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      alert(err.error || 'Failed to update shift')
+      return
+    }
+    const data = await res.json()
+    if (data.success) {
+      const r = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(targetStaff.id)}`, { cache: 'no-store' })
+      const d = await r.json()
+      setShiftsByStaff(prev => ({ ...prev, [targetStaff.id]: d.success ? (d.shifts || []) : [] }))
+      setIsEditOpen(false)
+      setEditingShift(null)
+    } else {
+      alert(data.error || 'Failed to update shift')
+    }
+  }
+
+  const deleteShift = async () => {
+    if (!targetStaff || !editingShift) return
+    const res = await fetch(`/api/staff/shifts?id=${encodeURIComponent(editingShift.id)}`, { method: 'DELETE', cache: 'no-store' })
+    const data = await res.json()
+    if (data.success) {
+      const r = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(targetStaff.id)}`, { cache: 'no-store' })
+      const d = await r.json()
+      setShiftsByStaff(prev => ({ ...prev, [targetStaff.id]: d.success ? (d.shifts || []) : [] }))
+      setIsEditOpen(false)
+      setEditingShift(null)
+    } else {
+      alert(data.error || 'Failed to delete shift')
+    }
+  }
 
   return (
     <Card>
@@ -769,32 +902,97 @@ function StaffScheduleView() {
       </CardHeader>
       <CardContent>
         <div className="space-y-6">
-          {staffSchedules.map((staff) => (
-            <div key={staff.name} className="border rounded-lg p-4">
+          {/* Pending cancellation requests */}
+          {cancelRequests.length > 0 && (
+            <div className="p-4 border rounded-lg">
+              <div className="font-medium mb-3">Pending Cancellation Requests</div>
+              <div className="space-y-2">
+                {cancelRequests.map((r) => {
+                  const st = staff.find((x) => x.id === r.staff_id)
+                  const staffShifts = shiftsByStaff[r.staff_id] || []
+                  const sh = staffShifts.find((x: any) => x.id === r.shift_id)
+                  return (
+                    <div key={r.id} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+                      <div>
+                        <div className="text-sm font-medium">{st?.name || r.staff_id}</div>
+                        {sh && (
+                          <div className="text-xs text-gray-700">
+                            {fullWeekDays[sh.day_of_week] || `Day ${sh.day_of_week}`} • {sh.start_time} - {sh.end_time}
+                            {sh.location && <span> — {formatFacilityUnit(sh.location)}</span>}
+                          </div>
+                        )}
+                        {r.reason && <div className="text-xs text-gray-600">Reason: {r.reason}</div>}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={async () => {
+                          const res = await fetch('/api/staff/cancel-requests', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: r.id, action: 'approve' }) })
+                          if (!res.ok) { console.error('Approve HTTP error', res.status); alert('Failed to approve'); return }
+                          const d = await res.json().catch(() => ({}))
+                          if (!d.success) { alert(d.error || 'Failed to approve'); return }
+                          // refresh
+                          try {
+                            const reqRes2 = await fetch('/api/staff/cancel-requests?status=pending', { cache: 'no-store' })
+                            const reqData2 = reqRes2.ok ? await reqRes2.json() : { success: false }
+                            setCancelRequests(reqData2.success ? (reqData2.requests || []) : [])
+                          } catch {}
+                          // also refresh shifts for that staff
+                          const rsh = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(r.staff_id)}`, { cache: 'no-store' })
+                          const dd = rsh.ok ? await rsh.json() : { success: false }
+                          setShiftsByStaff(prev => ({ ...prev, [r.staff_id]: dd.success ? (dd.shifts || []) : [] }))
+                        }}>Approve</Button>
+                        <Button size="sm" variant="outline" onClick={async () => {
+                          const res = await fetch('/api/staff/cancel-requests', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: r.id, action: 'decline' }) })
+                          if (!res.ok) { console.error('Decline HTTP error', res.status); alert('Failed to decline'); return }
+                          const d = await res.json().catch(() => ({}))
+                          if (!d.success) { alert(d.error || 'Failed to decline'); return }
+                          try {
+                            const reqRes2 = await fetch('/api/staff/cancel-requests?status=pending', { cache: 'no-store' })
+                            const reqData2 = reqRes2.ok ? await reqRes2.json() : { success: false }
+                            setCancelRequests(reqData2.success ? (reqData2.requests || []) : [])
+                          } catch {}
+                        }}>Decline</Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+          {isLoading && <div className="p-4 text-sm text-gray-500">Loading staff schedules...</div>}
+          {staff.map((s) => (
+            <div key={s.id} className="border rounded-lg p-4">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h3 className="font-medium">{staff.name}</h3>
-                  <p className="text-sm text-gray-600">{staff.role}</p>
+                  <h3 className="font-medium">{s.name}</h3>
+                  <p className="text-sm text-gray-600">{s.department || 'Staff'}</p>
                 </div>
-                <Button size="sm" variant="outline">
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={() => openAddShift(s)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Shift
+                  </Button>
+                <Button size="sm" variant="outline" onClick={() => openEditSchedule(s)}>
                   <Edit className="h-4 w-4 mr-2" />
                   Edit Schedule
                 </Button>
+                </div>
               </div>
               <div className="grid grid-cols-5 gap-2">
-                {staff.schedule.map((day) => (
-                  <div key={day.day} className="text-center">
-                    <div className="text-sm font-medium mb-2">{day.day.slice(0, 3)}</div>
+                {days.map((day, idx) => {
+                  const dayShifts = (shiftsByStaff[s.id] || []).filter((sh) => sh.day_of_week === idx)
+                  return (
+                    <div key={day} className="text-center">
+                      <div className="text-sm font-medium mb-2">{day.slice(0, 3)}</div>
                     <div className="space-y-1">
-                      {day.shifts.length > 0 ? (
-                        day.shifts.map((shift, index) => (
-                          <div
-                            key={index}
-                            className={`text-xs p-2 rounded ${
-                              shift.type === "office" ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"
-                            }`}
-                          >
-                            {shift.start} - {shift.end}
+                        {dayShifts.length > 0 ? (
+                          dayShifts.map((shift) => (
+                            <div key={shift.id} onClick={() => openEditShift(s, shift)} className={`cursor-pointer text-xs p-2 rounded ${shift.shift_type === 'office' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                              {shift.start_time} - {shift.end_time}
+                              {shift.location && (
+                                <div className="text-[10px] text-gray-700 mt-0.5">
+                                  {formatFacilityUnit(shift.location)}
+                                </div>
+                              )}
                           </div>
                         ))
                       ) : (
@@ -802,12 +1000,170 @@ function StaffScheduleView() {
                       )}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           ))}
         </div>
       </CardContent>
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Shift {targetStaff ? `for ${targetStaff.name}` : ''}</DialogTitle>
+            <DialogDescription>Create a new shift for the selected staff member</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Day</Label>
+              <Select value={String(newShift.day_of_week)} onValueChange={(v) => setNewShift({ ...newShift, day_of_week: Number.parseInt(v) })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {days.map((d, i) => (
+                    <SelectItem key={i} value={String(i)}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Facility</Label>
+                <Input value={newShift.facility} onChange={(e) => setNewShift({ ...newShift, facility: e.target.value })} placeholder="e.g., Sunrise Senior Living" />
+              </div>
+              <div>
+                <Label>Unit / Department</Label>
+                <Input value={newShift.unit} onChange={(e) => setNewShift({ ...newShift, unit: e.target.value })} placeholder="e.g., ICU" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Start Time</Label>
+                <Input type="time" value={newShift.start_time} onChange={(e) => setNewShift({ ...newShift, start_time: e.target.value })} />
+              </div>
+              <div>
+                <Label>End Time</Label>
+                <Input type="time" value={newShift.end_time} onChange={(e) => setNewShift({ ...newShift, end_time: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <Label>Type</Label>
+                <Select value={newShift.shift_type} onValueChange={(v) => setNewShift({ ...newShift, shift_type: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="office">Office</SelectItem>
+                    <SelectItem value="field">Field</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea rows={2} value={newShift.notes} onChange={(e) => setNewShift({ ...newShift, notes: e.target.value })} />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+              <Button onClick={saveShift}>Save Shift</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit shift dialog */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Shift {targetStaff ? `for ${targetStaff.name}` : ''}</DialogTitle>
+            <DialogDescription>Update or delete this shift</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Day</Label>
+              <Select value={String(newShift.day_of_week)} onValueChange={(v) => setNewShift({ ...newShift, day_of_week: Number.parseInt(v) })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {days.map((d, i) => (
+                    <SelectItem key={i} value={String(i)}>{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Facility</Label>
+                <Input value={newShift.facility} onChange={(e) => setNewShift({ ...newShift, facility: e.target.value })} placeholder="e.g., Sunrise Senior Living" />
+              </div>
+              <div>
+                <Label>Unit / Department</Label>
+                <Input value={newShift.unit} onChange={(e) => setNewShift({ ...newShift, unit: e.target.value })} placeholder="e.g., ICU" />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Start Time</Label>
+                <Input type="time" value={newShift.start_time} onChange={(e) => setNewShift({ ...newShift, start_time: e.target.value })} />
+              </div>
+              <div>
+                <Label>End Time</Label>
+                <Input type="time" value={newShift.end_time} onChange={(e) => setNewShift({ ...newShift, end_time: e.target.value })} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3">
+              <div>
+                <Label>Type</Label>
+                <Select value={newShift.shift_type} onValueChange={(v) => setNewShift({ ...newShift, shift_type: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="office">Office</SelectItem>
+                    <SelectItem value="field">Field</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Notes</Label>
+              <Textarea rows={2} value={newShift.notes} onChange={(e) => setNewShift({ ...newShift, notes: e.target.value })} />
+            </div>
+            <div className="flex justify-between gap-2">
+              <Button variant="destructive" onClick={deleteShift}>Delete</Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+                <Button onClick={updateShift}>Save Changes</Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Picker dialog: choose a day that has a shift */}
+      <Dialog open={isPickerOpen} onOpenChange={setIsPickerOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Select a day to edit {targetStaff ? `for ${targetStaff.name}` : ''}</DialogTitle>
+            <DialogDescription>Only days with existing shifts are shown</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            {pickerShifts.map((sh) => (
+              <div key={sh.id} className="flex items-center justify-between p-3 border rounded-lg">
+                <div>
+                  <div className="text-sm font-medium">{days[sh.day_of_week]}</div>
+                  <div className="text-xs text-gray-600">{sh.start_time} - {sh.end_time}</div>
+                  {sh.location && <div className="text-[10px] text-gray-600">{formatFacilityUnit(sh.location)}</div>}
+                </div>
+                <Button size="sm" onClick={() => { if (targetStaff) { setIsPickerOpen(false); openEditShift(targetStaff, sh) } }}>Edit</Button>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }

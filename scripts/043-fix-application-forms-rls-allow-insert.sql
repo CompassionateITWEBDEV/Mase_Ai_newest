@@ -23,3 +23,4 @@ GRANT INSERT ON public.application_forms TO authenticated;
 COMMENT ON POLICY "Allow inserts for application forms" ON public.application_forms IS 'Allows insertion of application forms for any existing job application';
 
 
+
