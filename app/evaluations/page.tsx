@@ -631,14 +631,51 @@ export default function EvaluationsPage() {
           }
           
           // Update live insights
-          const insights = result.data.competencyScores?.slice(0, 2).map((score: any) => 
-            `✅ ${score.category}: ${score.score}% (Confidence: ${score.confidence}%)`
-          ) || []
+          // Add competency scores to insights
+          if (result.data.competencyScores && result.data.competencyScores.length > 0) {
+            result.data.competencyScores.slice(0, 3).forEach((score: any) => {
+              const insightText = `✅ ${score.category}: ${score.score}% (Confidence: ${score.confidence}%)`
+              setAiInsights(prev => {
+                // Avoid duplicate insights for same category
+                const filtered = prev.filter(i => !i.includes(`${score.category}:`))
+                return [...filtered, insightText].slice(-10) // Keep last 10 insights
+              })
+            })
+          }
           
+          // Add observations to insights
+          if (result.data.competencyScores && result.data.competencyScores.length > 0) {
+            result.data.competencyScores.forEach((score: any) => {
+              if (score.observations && score.observations.length > 0) {
+                // Add first observation from each category
+                const observation = score.observations[0]
+                if (observation && observation.length > 0) {
+                  setAiInsights(prev => {
+                    // Check if this observation is already there
+                    if (!prev.some(i => i.includes(observation.substring(0, 30)))) {
+                      return [...prev, `📋 ${score.category}: ${observation}`].slice(-10)
+                    }
+                    return prev
+                  })
+                }
+              }
+            })
+          }
+          
+          // Add strengths to insights
           if (result.data.strengths && result.data.strengths.length > 0) {
             result.data.strengths.slice(0, 2).forEach((strength: string) => {
               if (!aiInsights.some(i => i.includes(strength))) {
-                setAiInsights(prev => [...prev, `✅ ${strength}`].slice(0, 10))
+                setAiInsights(prev => [...prev, `✨ ${strength}`].slice(-10))
+              }
+            })
+          }
+          
+          // Add development areas as warnings
+          if (result.data.developmentAreas && result.data.developmentAreas.length > 0) {
+            result.data.developmentAreas.slice(0, 1).forEach((area: string) => {
+              if (!aiInsights.some(i => i.includes(area.substring(0, 20)))) {
+                setAiInsights(prev => [...prev, `⚠️ Area for improvement: ${area}`].slice(-10))
               }
             })
           }
@@ -1394,53 +1431,87 @@ export default function EvaluationsPage() {
                   <div className="space-y-4">
                     <Card>
                       <CardHeader className="pb-3">
-                        <CardTitle className="text-base flex items-center">
-                          <Activity className="h-4 w-4 mr-2 text-purple-600" />
-                          AI Insights
+                        <CardTitle className="text-base flex items-center justify-between">
+                          <div className="flex items-center">
+                            <Activity className="h-4 w-4 mr-2 text-purple-600" />
+                            AI Insights
+                          </div>
+                          {isAnalyzing && (
+                            <Badge variant="outline" className="text-xs">
+                              Live Analysis
+                            </Badge>
+                          )}
                         </CardTitle>
+                        {isAnalyzing && aiInsights.length > 0 && (
+                          <CardDescription className="text-xs">
+                            {aiInsights.length} insights detected
+                          </CardDescription>
+                        )}
                       </CardHeader>
                       <CardContent>
                         {isAnalyzing ? (
-                          <div className="space-y-2">
+                          <div className="space-y-2 max-h-96 overflow-y-auto">
                             {aiInsights.length > 0 ? (
                               aiInsights.map((insight, idx) => (
                                 <div 
                                   key={idx}
-                                  className={`p-2 border rounded text-xs ${
+                                  className={`p-3 border rounded text-xs animate-in slide-in-from-top-2 ${
                                     insight.includes('✅') ? 'bg-green-50 border-green-200' :
                                     insight.includes('⚠️') ? 'bg-yellow-50 border-yellow-200' :
-                                    'bg-blue-50 border-blue-200'
+                                    insight.includes('📋') ? 'bg-blue-50 border-blue-200' :
+                                    insight.includes('✨') ? 'bg-purple-50 border-purple-200' :
+                                    'bg-gray-50 border-gray-200'
                                   }`}
                                 >
-                                  <span className={`font-medium ${
+                                  <span className={`${
                                     insight.includes('✅') ? 'text-green-800' :
                                     insight.includes('⚠️') ? 'text-yellow-800' :
-                                    'text-blue-800'
+                                    insight.includes('📋') ? 'text-blue-800' :
+                                    insight.includes('✨') ? 'text-purple-800' :
+                                    'text-gray-800'
                                   }`}>
                                     {insight}
                                   </span>
                                 </div>
                               ))
                             ) : (
-                              <div className="flex items-center space-x-2 text-sm text-gray-500">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                <span>Analyzing video feed...</span>
+                              <div className="flex flex-col items-center justify-center py-8 text-center">
+                                <Loader2 className="h-8 w-8 animate-spin text-purple-600 mb-3" />
+                                <span className="text-sm font-medium text-gray-700">Analyzing video feed...</span>
+                                <span className="text-xs text-gray-500 mt-1">AI insights will appear here</span>
                               </div>
                             )}
                           </div>
                         ) : (
                           <>
-                            <p className="text-sm text-gray-600 mb-4">AI analysis will appear during recording</p>
+                            <div className="text-center py-6">
+                              <Activity className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                              <p className="text-sm text-gray-600 mb-2">AI analysis will appear during recording</p>
+                              <p className="text-xs text-gray-500">Start recording to see real-time insights</p>
+                            </div>
                             {evaluationResult && (
-                              <div className="space-y-2">
-                                <div className="p-2 bg-green-50 border border-green-200 rounded">
-                                  <p className="text-xs font-medium text-green-800">
+                              <div className="mt-4 space-y-2 border-t pt-4">
+                                <div className="p-3 bg-green-50 border border-green-200 rounded">
+                                  <p className="text-sm font-medium text-green-800 mb-1">
+                                    Final Assessment Complete
+                                  </p>
+                                  <p className="text-xs text-green-700">
                                     Overall Score: {evaluationResult.overallScore}%
                                   </p>
                                   <p className="text-xs text-green-700">
                                     AI Confidence: {evaluationResult.aiConfidence}%
                                   </p>
                                 </div>
+                                {evaluationResult.competencyScores && evaluationResult.competencyScores.length > 0 && (
+                                  <div className="space-y-1">
+                                    {evaluationResult.competencyScores.slice(0, 4).map((score: any, idx: number) => (
+                                      <div key={idx} className="flex items-center justify-between text-xs p-2 bg-gray-50 rounded">
+                                        <span className="font-medium text-gray-700">{score.category}</span>
+                                        <span className="text-gray-600">{score.score}%</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
                             )}
                           </>
