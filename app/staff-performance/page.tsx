@@ -8,7 +8,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
-import { Clock, Route, Users, Timer, Search, Filter, Download } from "lucide-react"
+import { Clock, Route, Users, Timer, Search, Filter, Download, Target, Award, BookOpen } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
 interface StaffPerformance {
   id: string
@@ -33,6 +34,7 @@ interface StaffPerformance {
     totalVisitTime: number
     avgVisitDuration: number
     efficiencyScore: number
+    costPerMile: number
     totalCost: number
   }
   visits: Array<{
@@ -60,197 +62,160 @@ export default function StaffPerformancePage() {
   const [timeRange, setTimeRange] = useState("today")
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState("all")
+  const [activeTab, setActiveTab] = useState("performance")
+  
+  // Professional Development Plan state
+  const [pipGoals, setPipGoals] = useState<{
+    performanceGoals: any[]
+    competencyGoals: any[]
+    totalPips: number
+  }>({
+    performanceGoals: [],
+    competencyGoals: [],
+    totalPips: 0
+  })
+  const [pipLoading, setPipLoading] = useState(false)
+  const [pipError, setPipError] = useState<string | null>(null)
 
   useEffect(() => {
-    // Simulate fetching staff performance data
-    const mockData: StaffPerformance[] = [
-      {
-        id: "RN-2024-001",
-        name: "Sarah Johnson",
-        role: "Registered Nurse",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "on_visit",
-        todayStats: {
-          totalDriveTime: 127, // 2h 7m
-          totalVisits: 6,
-          totalMiles: 47.3,
-          totalVisitTime: 285, // 4h 45m
-          avgVisitDuration: 47.5,
-          efficiencyScore: 94,
-          costPerMile: 0.67,
-          totalCost: 31.69,
-        },
-        weekStats: {
-          totalDriveTime: 642, // 10h 42m
-          totalVisits: 28,
-          totalMiles: 234.7,
-          totalVisitTime: 1380, // 23h
-          avgVisitDuration: 49.3,
-          efficiencyScore: 91,
-          totalCost: 157.25,
-        },
-        visits: [
-          {
-            id: "V001",
-            patientName: "Margaret Anderson",
-            address: "123 Oak St, Los Angeles, CA",
-            startTime: "08:30",
-            endTime: "09:15",
-            duration: 45,
-            driveTime: 18,
-            distance: 5.2,
-            visitType: "Wound Care",
-          },
-          {
-            id: "V002",
-            patientName: "Robert Chen",
-            address: "456 Pine Ave, Beverly Hills, CA",
-            startTime: "10:00",
-            endTime: "10:50",
-            duration: 50,
-            driveTime: 22,
-            distance: 7.8,
-            visitType: "Medication Management",
-          },
-          {
-            id: "V003",
-            patientName: "Elena Rodriguez",
-            address: "789 Maple Dr, Santa Monica, CA",
-            startTime: "11:30",
-            endTime: "12:20",
-            duration: 50,
-            driveTime: 25,
-            distance: 9.1,
-            visitType: "Physical Assessment",
-          },
-        ],
-        currentLocation: {
-          lat: 34.0522,
-          lng: -118.2437,
-          lastUpdate: new Date().toISOString(),
-        },
-      },
-      {
-        id: "PT-2024-001",
-        name: "Michael Chen",
-        role: "Physical Therapist",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "driving",
-        todayStats: {
-          totalDriveTime: 98,
-          totalVisits: 4,
-          totalMiles: 32.1,
-          totalVisitTime: 240,
-          avgVisitDuration: 60,
-          efficiencyScore: 89,
-          costPerMile: 0.67,
-          totalCost: 21.51,
-        },
-        weekStats: {
-          totalDriveTime: 520,
-          totalVisits: 20,
-          totalMiles: 178.4,
-          totalVisitTime: 1200,
-          avgVisitDuration: 60,
-          efficiencyScore: 87,
-          totalCost: 119.53,
-        },
-        visits: [
-          {
-            id: "V004",
-            patientName: "James Wilson",
-            address: "321 Cedar Blvd, Pasadena, CA",
-            startTime: "09:00",
-            endTime: "10:00",
-            duration: 60,
-            driveTime: 20,
-            distance: 6.5,
-            visitType: "Physical Therapy",
-          },
-          {
-            id: "V005",
-            patientName: "Mary Thompson",
-            address: "654 Elm St, Glendale, CA",
-            startTime: "10:45",
-            endTime: "11:45",
-            duration: 60,
-            driveTime: 25,
-            distance: 8.2,
-            visitType: "Mobility Assessment",
-          },
-        ],
-      },
-      {
-        id: "OT-2024-001",
-        name: "Emily Davis",
-        role: "Occupational Therapist",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "active",
-        todayStats: {
-          totalDriveTime: 85,
-          totalVisits: 5,
-          totalMiles: 28.7,
-          totalVisitTime: 275,
-          avgVisitDuration: 55,
-          efficiencyScore: 96,
-          costPerMile: 0.67,
-          totalCost: 19.23,
-        },
-        weekStats: {
-          totalDriveTime: 445,
-          totalVisits: 23,
-          totalMiles: 156.2,
-          totalVisitTime: 1265,
-          avgVisitDuration: 55,
-          efficiencyScore: 93,
-          totalCost: 104.65,
-        },
-        visits: [
-          {
-            id: "V006",
-            patientName: "Dorothy Kim",
-            address: "987 Birch Ave, Burbank, CA",
-            startTime: "08:15",
-            endTime: "09:10",
-            duration: 55,
-            driveTime: 15,
-            distance: 4.3,
-            visitType: "ADL Training",
-          },
-        ],
-      },
-      {
-        id: "LPN-2024-001",
-        name: "Lisa Garcia",
-        role: "Licensed Practical Nurse",
-        avatar: "/placeholder.svg?height=40&width=40",
-        status: "offline",
-        todayStats: {
-          totalDriveTime: 156,
-          totalVisits: 8,
-          totalMiles: 62.4,
-          totalVisitTime: 320,
-          avgVisitDuration: 40,
-          efficiencyScore: 82,
-          costPerMile: 0.67,
-          totalCost: 41.81,
-        },
-        weekStats: {
-          totalDriveTime: 780,
-          totalVisits: 35,
-          totalMiles: 287.6,
-          totalVisitTime: 1400,
-          avgVisitDuration: 40,
-          efficiencyScore: 85,
-          totalCost: 192.69,
-        },
-        visits: [],
-      },
-    ]
+    const loadStaffPerformance = async () => {
+      try {
+        // Get all staff
+        const staffRes = await fetch('/api/staff/list', { cache: 'no-store' })
+        const staffData = await staffRes.json()
+        const staffList = staffData.success ? staffData.staff : []
 
-    setStaffData(mockData)
-    setSelectedStaff(mockData[0])
+        // Get performance stats for each staff
+        const performanceData: StaffPerformance[] = await Promise.all(
+          staffList.map(async (staff: any) => {
+            try {
+              const statsRes = await fetch(`/api/staff-performance/stats?staff_id=${staff.id}&period=day`, { cache: 'no-store' })
+              const stats = await statsRes.json()
+              
+              if (stats.success) {
+                return {
+                  id: staff.id,
+                  name: staff.name,
+                  role: staff.department || 'Staff',
+                  avatar: '/placeholder.svg?height=40&width=40',
+                  status: stats.status || 'active',
+                  todayStats: {
+                    totalDriveTime: stats.todayStats.totalDriveTime,
+                    totalVisits: stats.todayStats.totalVisits,
+                    totalMiles: stats.todayStats.totalMiles,
+                    totalVisitTime: stats.todayStats.totalVisitTime,
+                    avgVisitDuration: stats.todayStats.avgVisitDuration,
+                    efficiencyScore: stats.todayStats.efficiencyScore,
+                    costPerMile: stats.todayStats.costPerMile,
+                    totalCost: stats.todayStats.totalCost
+                  },
+                  weekStats: {
+                    totalDriveTime: stats.weekStats.totalDriveTime,
+                    totalVisits: stats.weekStats.totalVisits,
+                    totalMiles: stats.weekStats.totalMiles,
+                    totalVisitTime: stats.weekStats.totalVisitTime,
+                    avgVisitDuration: stats.weekStats.avgVisitDuration,
+                    efficiencyScore: stats.weekStats.efficiencyScore,
+                    costPerMile: stats.weekStats.costPerMile || 0.67,
+                    totalCost: stats.weekStats.totalCost
+                  },
+                  visits: stats.visits || []
+                }
+              }
+            } catch (e) {
+              console.error(`Failed to load stats for ${staff.name}:`, e)
+            }
+            
+            // Return empty stats if failed
+            return {
+              id: staff.id,
+              name: staff.name,
+              role: staff.department || 'Staff',
+              avatar: '/placeholder.svg?height=40&width=40',
+              status: 'offline' as const,
+              todayStats: {
+                totalDriveTime: 0,
+                totalVisits: 0,
+                totalMiles: 0,
+                totalVisitTime: 0,
+                avgVisitDuration: 0,
+                efficiencyScore: 0,
+                costPerMile: 0.67,
+                totalCost: 0
+              },
+              weekStats: {
+                totalDriveTime: 0,
+                totalVisits: 0,
+                totalMiles: 0,
+                totalVisitTime: 0,
+                avgVisitDuration: 0,
+                efficiencyScore: 0,
+                costPerMile: 0.67,
+                totalCost: 0
+              },
+              visits: []
+            }
+          })
+        )
+
+        setStaffData(performanceData.filter(Boolean))
+        if (performanceData.length > 0) {
+          setSelectedStaff(performanceData[0])
+        } else {
+          // No staff data available - set empty state
+          setStaffData([])
+          setSelectedStaff(null)
+        }
+      } catch (e) {
+        console.error('Failed to load staff performance:', e)
+        // No fallback data - just set empty state
+        setStaffData([])
+        setSelectedStaff(null)
+      }
+    }
+    loadStaffPerformance()
   }, [])
+  
+  // Load Professional Development Plan data when staff is selected
+  useEffect(() => {
+    const loadPipGoals = async () => {
+      if (!selectedStaff?.id) {
+        setPipGoals({ performanceGoals: [], competencyGoals: [], totalPips: 0 })
+        return
+      }
+      
+      try {
+        setPipLoading(true)
+        setPipError(null)
+        
+        const res = await fetch(`/api/staff-performance/pip-goals?staffId=${encodeURIComponent(selectedStaff.id)}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.success) {
+            setPipGoals({
+              performanceGoals: data.performanceGoals || [],
+              competencyGoals: data.competencyGoals || [],
+              totalPips: data.totalPips || 0
+            })
+          } else {
+            setPipError(data.message || "Failed to load development plan")
+            setPipGoals({ performanceGoals: [], competencyGoals: [], totalPips: 0 })
+          }
+        } else {
+          setPipError("Failed to load development plan")
+          setPipGoals({ performanceGoals: [], competencyGoals: [], totalPips: 0 })
+        }
+      } catch (e: any) {
+        console.error("Error loading PIP goals:", e)
+        setPipError(e.message || "Failed to load development plan")
+        setPipGoals({ performanceGoals: [], competencyGoals: [], totalPips: 0 })
+      } finally {
+        setPipLoading(false)
+      }
+    }
+    
+    loadPipGoals()
+  }, [selectedStaff?.id])
 
   const filteredStaff = staffData.filter((staff) => {
     const matchesSearch =
@@ -391,6 +356,13 @@ export default function StaffPerformancePage() {
         {/* Main Content */}
         <div className="lg:col-span-3">
           {selectedStaff && (
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="performance">Performance Metrics</TabsTrigger>
+                <TabsTrigger value="development">Professional Development Plan</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="performance" className="space-y-6">
             <div className="space-y-6">
               {/* Staff Header */}
               <Card>
@@ -595,6 +567,209 @@ export default function StaffPerformancePage() {
                 </CardContent>
               </Card>
             </div>
+              </TabsContent>
+              
+              <TabsContent value="development" className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center">
+                      <BookOpen className="h-5 w-5 mr-2" />
+                      Professional Development Plan
+                    </CardTitle>
+                    <CardDescription>
+                      Performance Improvement Plans and development goals for {selectedStaff.name}
+                      {pipGoals.totalPips > 0 && ` • ${pipGoals.totalPips} active PIP${pipGoals.totalPips !== 1 ? 's' : ''}`}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {pipLoading && (
+                      <div className="text-center py-8">
+                        <div className="text-sm text-gray-600">Loading development plan...</div>
+                      </div>
+                    )}
+                    
+                    {pipError && (
+                      <div className="text-center py-8">
+                        <div className="text-sm text-red-600">{pipError}</div>
+                      </div>
+                    )}
+                    
+                    {!pipLoading && !pipError && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Performance Goals */}
+                        <Card>
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base flex items-center">
+                              <Award className="h-4 w-4 mr-2" />
+                              Performance Goals
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-3">
+                              {pipGoals.performanceGoals.length > 0 ? (
+                                pipGoals.performanceGoals.map((goal: any, idx: number) => (
+                                  <div 
+                                    key={goal.id || idx} 
+                                    className={`p-3 border rounded-lg ${
+                                      goal.completed ? 'bg-green-50 border-green-200' :
+                                      goal.progress >= 75 ? 'bg-blue-50 border-blue-200' :
+                                      goal.progress >= 50 ? 'bg-yellow-50 border-yellow-200' :
+                                      'bg-gray-50 border-gray-200'
+                                    }`}
+                                  >
+                                    <h4 className="font-medium text-sm">{goal.description || 'Performance Goal'}</h4>
+                                    <p className="text-xs text-gray-600 mt-1">
+                                      {goal.targetDate ? (
+                                        <>Target: {new Date(goal.targetDate).toLocaleDateString()}</>
+                                      ) : (
+                                        <>Target: Not set</>
+                                      )}
+                                      {goal.completed && <span className="ml-2 text-green-600 font-medium">✓ Completed</span>}
+                                    </p>
+                                    <div className="mt-2">
+                                      <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                        <span>Progress</span>
+                                        <span>{goal.progress || 0}%</span>
+                                      </div>
+                                      <Progress value={goal.progress || 0} className="h-2" />
+                                    </div>
+                                    {goal.actions && Array.isArray(goal.actions) && goal.actions.length > 0 && (
+                                      <div className="mt-2">
+                                        <p className="text-xs font-medium text-gray-700 mb-1">Action Items:</p>
+                                        <ul className="text-xs text-gray-600 space-y-1">
+                                          {goal.actions.slice(0, 3).map((action: string, actionIdx: number) => (
+                                            <li key={actionIdx} className="flex items-start">
+                                              <span className="mr-1">•</span>
+                                              <span>{action}</span>
+                                            </li>
+                                          ))}
+                                          {goal.actions.length > 3 && (
+                                            <li className="text-gray-500 italic">+ {goal.actions.length - 3} more</li>
+                                          )}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {goal.supervisor && (
+                                      <div className="mt-2 flex items-center space-x-1">
+                                        <span className="text-xs font-medium text-gray-700">Supervisor:</span>
+                                        <span className="text-xs text-gray-600">{goal.supervisor}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                  <p className="text-xs text-gray-600">
+                                    No active performance improvement goals at this time.
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                        
+                        {/* Competency Goals */}
+                        <Card>
+                          <CardHeader className="pb-3">
+                            <CardTitle className="text-base flex items-center">
+                              <Target className="h-4 w-4 mr-2" />
+                              Competency Goals
+                            </CardTitle>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-3">
+                              {pipGoals.competencyGoals.length > 0 ? (
+                                pipGoals.competencyGoals.map((goal: any, idx: number) => (
+                                  <div 
+                                    key={goal.id || idx} 
+                                    className={`p-3 border rounded-lg ${
+                                      goal.completed ? 'bg-green-50 border-green-200' :
+                                      goal.progress >= 75 ? 'bg-blue-50 border-blue-200' :
+                                      goal.progress >= 50 ? 'bg-yellow-50 border-yellow-200' :
+                                      'bg-gray-50 border-gray-200'
+                                    }`}
+                                  >
+                                    <h4 className="font-medium text-sm">{goal.description || 'Competency Goal'}</h4>
+                                    <p className="text-xs text-gray-600 mt-1">
+                                      {goal.targetDate ? (
+                                        <>Target: {new Date(goal.targetDate).toLocaleDateString()}</>
+                                      ) : (
+                                        <>Target: Not set</>
+                                      )}
+                                      {goal.completed && <span className="ml-2 text-green-600 font-medium">✓ Completed</span>}
+                                    </p>
+                                    <div className="mt-2">
+                                      <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                        <span>Progress</span>
+                                        <span>{goal.progress || 0}%</span>
+                                      </div>
+                                      <Progress value={goal.progress || 0} className="h-2" />
+                                    </div>
+                                    {goal.actions && Array.isArray(goal.actions) && goal.actions.length > 0 && (
+                                      <div className="mt-2">
+                                        <p className="text-xs font-medium text-gray-700 mb-1">Action Items:</p>
+                                        <ul className="text-xs text-gray-600 space-y-1">
+                                          {goal.actions.slice(0, 3).map((action: string, actionIdx: number) => (
+                                            <li key={actionIdx} className="flex items-start">
+                                              <span className="mr-1">•</span>
+                                              <span>{action}</span>
+                                            </li>
+                                          ))}
+                                          {goal.actions.length > 3 && (
+                                            <li className="text-gray-500 italic">+ {goal.actions.length - 3} more</li>
+                                          )}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {goal.supervisor && (
+                                      <div className="mt-2 flex items-center space-x-1">
+                                        <span className="text-xs font-medium text-gray-700">Supervisor:</span>
+                                        <span className="text-xs text-gray-600">{goal.supervisor}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                                  <p className="text-xs text-gray-600">
+                                    No active competency improvement goals at this time.
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    )}
+                    
+                    {/* Summary Stats */}
+                    {!pipLoading && !pipError && (pipGoals.performanceGoals.length > 0 || pipGoals.competencyGoals.length > 0) && (
+                      <Card className="mt-6">
+                        <CardHeader>
+                          <CardTitle className="text-base">Development Plan Summary</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="grid grid-cols-3 gap-4">
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-blue-600">{pipGoals.totalPips}</div>
+                              <div className="text-xs text-gray-600">Active PIPs</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-purple-600">{pipGoals.performanceGoals.length}</div>
+                              <div className="text-xs text-gray-600">Performance Goals</div>
+                            </div>
+                            <div className="text-center">
+                              <div className="text-2xl font-bold text-green-600">{pipGoals.competencyGoals.length}</div>
+                              <div className="text-xs text-gray-600">Competency Goals</div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           )}
         </div>
       </div>

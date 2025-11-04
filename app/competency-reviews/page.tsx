@@ -68,6 +68,7 @@ export default function CompetencyReviewsPage() {
   const [filterPriority, setFilterPriority] = useState("all")
   const [selectedReview, setSelectedReview] = useState<EvaluationReview | null>(null)
   const [supervisorNotes, setSupervisorNotes] = useState("")
+  const [supervisorScore, setSupervisorScore] = useState<number | null>(null)
   const [isReviewing, setIsReviewing] = useState(false)
 
   // Loaded from API: submitted competency and performance evaluations pending review
@@ -80,48 +81,198 @@ export default function CompetencyReviewsPage() {
       try {
         setLoading(true)
         setError(null)
-        // Load submitted evaluations; supervisors will filter as needed
-        const res = await fetch(`/api/self-evaluations?status=submitted`)
-        if (!res.ok) throw new Error("Failed to load evaluations")
-        const json = await res.json()
-        const rows = Array.isArray(json?.evaluations) ? json.evaluations : []
-        // Lookup staff names/roles
-        const uniqueIds = Array.from(new Set(rows.map((r: any) => r.staff_id).filter(Boolean)))
-        let idToStaff: Record<string, { name?: string; role_id?: string; email?: string }> = {}
-        if (uniqueIds.length) {
-          const lookupRes = await fetch(`/api/staff/lookup?ids=${encodeURIComponent(uniqueIds.join(','))}`)
-          if (lookupRes.ok) {
-            const lookupJson = await lookupRes.json()
-            const list = Array.isArray(lookupJson?.staff) ? lookupJson.staff : []
-            idToStaff = list.reduce((acc: any, s: any) => {
-              acc[s.id] = { name: s.name, role_id: s.role_id, email: s.email }
-              return acc
-            }, {})
-          }
-        }
+        
+        // Load real data from multiple sources
+        const allReviews: EvaluationReview[] = []
+        
+        // 1. Load submitted self-evaluations and in-progress reviews (submitted with reviewer notes)
+        try {
+          // Load all evaluations (not just submitted) to get in-progress and completed ones too
+          const selfEvalRes = await fetch(`/api/self-evaluations`)
+          if (selfEvalRes.ok) {
+            const selfEvalJson = await selfEvalRes.json()
+            const allEvalRows = Array.isArray(selfEvalJson?.evaluations) ? selfEvalJson.evaluations : []
+            // Filter to only include submitted, in-progress (has reviewer_notes), or approved evaluations
+            const selfEvalRows = allEvalRows.filter((r: any) => 
+              r.status === 'submitted' || r.status === 'approved' || (r.reviewer_notes && r.status !== 'draft')
+            )
+            
+            // Lookup staff names/roles
+            const uniqueIds = Array.from(new Set(selfEvalRows.map((r: any) => r.staff_id).filter(Boolean)))
+            let idToStaff: Record<string, { name?: string; role_id?: string; department?: string }> = {}
+            
+            if (uniqueIds.length) {
+              try {
+                // Use staff/list API and filter by IDs
+                const lookupRes = await fetch(`/api/staff/list`)
+                if (lookupRes.ok) {
+                  const lookupJson = await lookupRes.json()
+                  const allStaff = Array.isArray(lookupJson?.staff) ? lookupJson.staff : []
+                  const filteredStaff = allStaff.filter((s: any) => uniqueIds.includes(s.id))
+                  idToStaff = filteredStaff.reduce((acc: any, s: any) => {
+                    acc[s.id] = { name: s.name, role_id: s.role_id, department: s.department }
+                    return acc
+                  }, {})
+                }
+              } catch (lookupError) {
+                console.error('Error looking up staff:', lookupError)
+              }
+            }
 
-        const mapped: EvaluationReview[] = rows.map((r: any) => ({
-          id: r.id,
-          staffId: r.staff_id,
-          staffName: idToStaff[r.staff_id]?.name || r.staff_id,
-          staffRole: idToStaff[r.staff_id]?.role_id || "",
-          department: "",
-          evaluationType: r.evaluation_type,
-          assessmentType: r.assessment_type,
-          submittedAt: r.submitted_at || r.updated_at || r.created_at,
-          dueDate: r.due_date || r.updated_at || r.created_at,
-          priority: "medium",
-          status: "pending",
-          selfAssessmentScore: undefined,
-          supervisorScore: undefined,
-          overallScore: undefined,
-          supervisorNotes: undefined,
-          staffResponses: r.responses || {},
-          reviewerName: undefined,
-          completedAt: undefined,
-        }))
-        setEvaluationReviews(mapped)
+            const selfEvalMapped: EvaluationReview[] = selfEvalRows.map((r: any) => {
+              // Determine status based on evaluation state:
+              // - "pending": submitted but not yet viewed/started (no reviewer_notes)
+              // - "in-progress": submitted and has reviewer_notes but not yet approved
+              // - "approved": evaluation has been approved
+              // - "completed": evaluation is completed
+              let reviewStatus: "pending" | "in-progress" | "completed" | "approved" = "pending"
+              
+              if (r.status === 'approved') {
+                // Already approved - show in completed tab
+                reviewStatus = "approved"
+              } else if (r.reviewer_notes && r.status === 'submitted') {
+                // Has reviewer notes but not approved = in progress (na-start na pero wala pa na-complete)
+                reviewStatus = "in-progress"
+              } else if (r.status === 'submitted' && !r.reviewer_notes) {
+                // Submitted but no reviewer notes = pending (wala pa nakita/na-view)
+                reviewStatus = "pending"
+              } else if (r.status === 'submitted') {
+                // Fallback: submitted status
+                reviewStatus = "pending"
+              } else {
+                reviewStatus = r.status as any
+              }
+              
+              return {
+                id: r.id,
+                staffId: r.staff_id,
+                staffName: idToStaff[r.staff_id]?.name || 'Unknown Staff',
+                staffRole: idToStaff[r.staff_id]?.role_id || 'Staff',
+                department: idToStaff[r.staff_id]?.department || 'Unknown',
+                evaluationType: r.evaluation_type as "performance" | "competency",
+                assessmentType: r.assessment_type as any,
+                submittedAt: r.submitted_at || r.updated_at || r.created_at,
+                dueDate: r.due_date || r.updated_at || r.created_at,
+                priority: (r.due_date && new Date(r.due_date) < new Date()) ? "high" as const : "medium" as const,
+                status: reviewStatus,
+                selfAssessmentScore: r.completion_percentage ? r.completion_percentage / 20 : undefined,
+                supervisorScore: r.overall_score ? r.overall_score : undefined,
+                overallScore: r.overall_score ? parseFloat(r.overall_score.toString()) : undefined,
+                supervisorNotes: r.reviewer_notes || undefined,
+                staffResponses: r.responses || {},
+                reviewerName: r.approved_by_name || undefined,
+                completedAt: r.approved_at || (r.status === 'approved' ? r.updated_at : undefined),
+              }
+            })
+            
+            allReviews.push(...selfEvalMapped)
+          }
+        } catch (selfEvalError) {
+          console.error('Error loading self-evaluations:', selfEvalError)
+        }
+        
+        // 2. Load competency evaluations that need review (status: draft, in-progress, or with self_evaluation_status: submitted)
+        try {
+          const competencyRes = await fetch(`/api/staff-performance/competency`)
+          if (competencyRes.ok) {
+            const competencyJson = await competencyRes.json()
+            const competencyRecords = Array.isArray(competencyJson?.records) ? competencyJson.records : []
+            
+            // Get unique staff IDs
+            const competencyStaffIds = Array.from(new Set(competencyRecords.map((r: any) => r.staffId).filter(Boolean)))
+            let competencyStaffMap: Record<string, { name?: string; role?: string; department?: string }> = {}
+            
+            if (competencyStaffIds.length) {
+              try {
+                const staffRes = await fetch(`/api/staff/list`)
+                if (staffRes.ok) {
+                  const staffJson = await staffRes.json()
+                  const staffList = Array.isArray(staffJson?.staff) ? staffJson.staff : []
+                  competencyStaffMap = staffList.reduce((acc: any, s: any) => {
+                    if (competencyStaffIds.includes(s.id)) {
+                      acc[s.id] = { name: s.name, role: s.role_id, department: s.department }
+                    }
+                    return acc
+                  }, {})
+                }
+              } catch (staffError) {
+                console.error('Error loading staff for competency:', staffError)
+              }
+            }
+            
+            // Map competency evaluations that need review
+            const competencyReviews: EvaluationReview[] = competencyRecords
+              .filter((r: any) => {
+                // Include if status is draft/in-progress or if self_evaluation_status is submitted
+                const status = r.status?.toLowerCase() || ''
+                const selfEvalStatus = r.selfEvaluationStatus?.toLowerCase() || ''
+                return status === 'draft' || status === 'in-progress' || selfEvalStatus === 'submitted' || status === 'competent' || status === 'not-competent' || status === 'needs-improvement'
+              })
+              .map((r: any) => {
+                // Determine status for competency evaluations:
+                // - "pending": submitted but no notes yet (wala pa nakita)
+                // - "in-progress": has notes but not completed (na-start na pero wala pa na-complete)
+                // - "completed": status is completed
+                let reviewStatus: "pending" | "in-progress" | "completed" | "approved" = "pending"
+                
+                if (r.status === 'completed' || r.status === 'competent') {
+                  reviewStatus = "completed"
+                } else if (r.status === 'needs-improvement' || (r.notes && r.status !== 'completed')) {
+                  // Has notes or marked as needs-improvement = in progress
+                  reviewStatus = "in-progress"
+                } else if (!r.notes && (r.status === 'draft' || r.selfEvaluationStatus === 'submitted')) {
+                  // No notes and submitted = pending (wala pa nakita)
+                  reviewStatus = "pending"
+                } else {
+                  reviewStatus = "pending"
+                }
+                
+                return {
+                  id: r.id,
+                  staffId: r.staffId,
+                  staffName: competencyStaffMap[r.staffId]?.name || r.staffName || 'Unknown Staff',
+                  staffRole: competencyStaffMap[r.staffId]?.role || r.staffRole || 'Staff',
+                  department: competencyStaffMap[r.staffId]?.department || r.department || 'Unknown',
+                  evaluationType: "competency" as const,
+                  assessmentType: (r.evaluationType || 'skills-validation') as any,
+                  submittedAt: r.evaluationDate || r.createdAt || new Date().toISOString(),
+                  dueDate: r.nextEvaluationDue || r.evaluationDate || new Date().toISOString(),
+                  priority: (r.nextEvaluationDue && new Date(r.nextEvaluationDue) < new Date()) ? "high" as const : "medium" as const,
+                  status: reviewStatus,
+                  selfAssessmentScore: r.overallScore ? r.overallScore / 20 : undefined,
+                  supervisorScore: r.overallScore,
+                  overallScore: r.overallScore,
+                  supervisorNotes: r.notes || undefined,
+                  staffResponses: {},
+                  reviewerName: r.evaluatorName || undefined,
+                  completedAt: r.status === 'completed' ? r.evaluationDate : undefined,
+                }
+              })
+            
+            allReviews.push(...competencyReviews)
+          }
+        } catch (competencyError) {
+          console.error('Error loading competency evaluations:', competencyError)
+        }
+        
+        // Remove duplicates and sort by submitted date (newest first)
+        // Use a Set to track unique combinations of id + evaluationType
+        const seenKeys = new Set<string>()
+        const uniqueReviews = allReviews.filter((review: EvaluationReview) => {
+          const key = `${review.id}-${review.evaluationType}`
+          if (seenKeys.has(key)) {
+            console.warn('⚠️ [Duplicate Review] Skipping duplicate:', key, review)
+            return false
+          }
+          seenKeys.add(key)
+          return true
+        })
+        
+        uniqueReviews.sort((a, b) => new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime())
+        
+        setEvaluationReviews(uniqueReviews)
       } catch (e: any) {
+        console.error('Error loading reviews:', e)
         setError(e?.message || "Failed to load reviews")
       } finally {
         setLoading(false)
@@ -130,7 +281,10 @@ export default function CompetencyReviewsPage() {
     load()
   }, [currentUser.id])
 
-  // Mock evaluation reviews data (kept for empty state examples)
+  // Mock evaluation reviews data (removed - using real data only)
+  // Keeping structure for reference but not using
+  const seedReviews: EvaluationReview[] = [] // Empty - no mock data
+  /* Previous mock data removed - now using real data from database:
   const seedReviews: EvaluationReview[] = [
     {
       id: "REV-2024-001",
@@ -242,6 +396,7 @@ export default function CompetencyReviewsPage() {
       },
     },
   ]
+  */
 
   // Check if current user can review evaluations for specific roles
   const canReviewRole = (staffRole: string): boolean => {
@@ -272,8 +427,8 @@ export default function CompetencyReviewsPage() {
   }
 
   // Filter reviews based on user permissions and search criteria
-  const sourceReviews = evaluationReviews.length ? evaluationReviews : seedReviews
-  const filteredReviews = sourceReviews.filter((review) => {
+  // Use only real data - no fallback to mock data
+  const filteredReviews = evaluationReviews.filter((review) => {
     // Check role-based permissions
     if (!canReviewRole(review.staffRole)) {
       return false
@@ -337,42 +492,237 @@ export default function CompetencyReviewsPage() {
     return Math.ceil(diffTime / (1000 * 60 * 60 * 24))
   }
 
-  const handleStartReview = (review: EvaluationReview) => {
+  const handleStartReview = async (review: EvaluationReview) => {
+    console.log('🔵 [Start Review] Opening review dialog for:', review.id)
     setSelectedReview(review)
     setSupervisorNotes(review.supervisorNotes || "")
-    setIsReviewing(true)
+    // Initialize supervisor score based on self-assessment score if available
+    const initialScore = review.selfAssessmentScore 
+      ? Math.min(5, Math.max(1, review.selfAssessmentScore + 0.3))
+      : review.supervisorScore || 4.5
+    setSupervisorScore(initialScore)
+    setIsReviewing(false) // Reset reviewing state when opening
+    
+    // Update status to "in-progress" when starting review (only if currently pending)
+    if (review.status === "pending") {
+      try {
+        // Update local state immediately
+        const updatedReviews = evaluationReviews.map((r: EvaluationReview) =>
+          r.id === review.id && r.evaluationType === review.evaluationType
+            ? { ...r, status: "in-progress" as const, reviewerName: currentUser.name || 'Supervisor' }
+            : r,
+        )
+        setEvaluationReviews(updatedReviews)
+        
+        // Optionally update in backend (add notes only, status update happens on completion)
+        if (review.evaluationType === 'competency') {
+          try {
+            await fetch(`/api/staff-performance/competency`, {
+              method: "PATCH",
+              headers: { 
+                "Content-Type": "application/json",
+                "x-user-id": currentUser.id 
+              },
+              body: JSON.stringify({
+                action: "update-review",
+                evaluationId: review.id,
+                status: "needs-improvement", // Map to in-progress equivalent
+                reviewerId: currentUser.id,
+                reviewerName: currentUser.name || 'Supervisor'
+              }),
+            })
+          } catch (e) {
+            console.warn('Could not update backend status:', e)
+          }
+        }
+      } catch (e) {
+        console.warn('Could not update review status:', e)
+      }
+    }
+  }
+
+  // Save notes automatically without completing the review (for in-progress reviews)
+  const handleSaveNotes = async (notes: string, score: number | null) => {
+    if (!selectedReview || !notes.trim()) {
+      return // Don't save if no review selected or notes are empty
+    }
+
+    try {
+      console.log('💾 [Save Notes] Saving reviewer notes for:', selectedReview.id)
+      
+      // Save notes to self-evaluation
+      if (selectedReview.evaluationType === 'performance' || selectedReview.evaluationType === 'competency') {
+        await fetch(`/api/self-evaluations`, {
+          method: "PATCH",
+          headers: { 
+            "Content-Type": "application/json", 
+            "x-user-id": currentUser.id,
+            "x-staff-id": currentUser.id 
+          },
+          body: JSON.stringify({ 
+            action: "add-notes", 
+            id: selectedReview.id, 
+            reviewerNotes: notes
+          }),
+        })
+      }
+
+      // Save notes to competency evaluation if applicable
+      if (selectedReview.evaluationType === 'competency') {
+        try {
+          await fetch(`/api/staff-performance/competency`, {
+            method: "PATCH",
+            headers: { 
+              "Content-Type": "application/json",
+              "x-user-id": currentUser.id 
+            },
+            body: JSON.stringify({
+              action: "update-review",
+              evaluationId: selectedReview.id,
+              supervisorNotes: notes,
+              supervisorScore: score,
+              reviewerId: currentUser.id,
+              reviewerName: currentUser.name || 'Supervisor'
+            }),
+          })
+        } catch (e) {
+          console.warn('Could not update competency notes:', e)
+        }
+      }
+
+      // Update local state
+      const updatedReviews = evaluationReviews.map((r: EvaluationReview) =>
+        r.id === selectedReview.id && r.evaluationType === selectedReview.evaluationType
+          ? {
+              ...r,
+              supervisorNotes: notes,
+              supervisorScore: score || r.supervisorScore,
+              status: r.status === "pending" ? "in-progress" as const : r.status,
+              reviewerName: currentUser.name || 'Supervisor'
+            }
+          : r,
+      )
+      setEvaluationReviews(updatedReviews)
+      
+      console.log('✅ [Save Notes] Notes saved successfully')
+    } catch (e: any) {
+      console.error('❌ [Save Notes] Error saving notes:', e)
+    }
   }
 
   const handleCompleteReview = async () => {
-    if (!selectedReview) return
+    if (!selectedReview) {
+      console.error('❌ [Complete Review] No review selected')
+      return
+    }
 
-    setIsReviewing(true)
-    // Optionally add reviewer notes to record
+    if (!supervisorNotes.trim()) {
+      alert('Please provide supervisor notes before completing the review.')
+      return
+    }
+
     try {
-      await fetch(`/api/self-evaluations`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
-        body: JSON.stringify({ action: "add-notes", id: selectedReview.id, reviewerNotes: supervisorNotes }),
-      })
-    } catch {}
+      setIsReviewing(true)
+      console.log('🔵 [Complete Review] Starting review completion for:', selectedReview.id)
 
-    // Update the review status
-    const updatedReviews = sourceReviews.map((review) =>
-      review.id === selectedReview.id
-        ? {
-            ...review,
-            status: "completed" as const,
-            supervisorScore: 4.5, // Mock supervisor score
-            overallScore: ((review.selfAssessmentScore || 0) + 4.5) / 2,
-            reviewerName: currentUser.name,
-            completedAt: new Date().toISOString(),
-            supervisorNotes,
+      // Use the supervisor score from the input field
+      const finalSupervisorScore = supervisorScore !== null ? supervisorScore : 4.5
+      
+      if (!finalSupervisorScore || finalSupervisorScore < 1 || finalSupervisorScore > 5) {
+        alert('Please enter a valid supervisor score between 1 and 5.')
+        return
+      }
+      
+      const overallScore = ((selectedReview.selfAssessmentScore || 4) + finalSupervisorScore) / 2
+
+      // Update self-evaluation with supervisor notes, overall score, and approve it
+      if (selectedReview.evaluationType === 'performance' || selectedReview.evaluationType === 'competency' || selectedReview.id.startsWith('PERF') || selectedReview.id.startsWith('COMP')) {
+        console.log('🔵 [Complete Review] Approving self-evaluation with overall score')
+        const selfEvalRes = await fetch(`/api/self-evaluations`, {
+          method: "PATCH",
+          headers: { 
+            "Content-Type": "application/json", 
+            "x-user-id": currentUser.id,
+            "x-staff-id": currentUser.id 
+          },
+          body: JSON.stringify({ 
+            action: "approve-with-score", 
+            id: selectedReview.id, 
+            reviewerNotes: supervisorNotes,
+            overallScore: overallScore,
+            supervisorScore: finalSupervisorScore
+          }),
+        })
+        
+        if (!selfEvalRes.ok) {
+          const errorText = await selfEvalRes.text()
+          console.error('❌ [Complete Review] Failed to approve self-evaluation:', errorText)
+          throw new Error(`Failed to approve self-evaluation: ${errorText}`)
+        }
+        console.log('✅ [Complete Review] Self-evaluation approved with overall score:', overallScore)
+      }
+
+      // Update competency evaluation if this is a competency review
+      if (selectedReview.evaluationType === 'competency') {
+        console.log('🔵 [Complete Review] Updating competency evaluation')
+        try {
+          const competencyRes = await fetch(`/api/staff-performance/competency`, {
+            method: "PATCH",
+            headers: { 
+              "Content-Type": "application/json",
+              "x-user-id": currentUser.id 
+            },
+            body: JSON.stringify({
+              action: "update-review",
+              evaluationId: selectedReview.id,
+              supervisorScore: finalSupervisorScore,
+              overallScore: overallScore,
+              supervisorNotes: supervisorNotes,
+              status: "completed",
+              reviewerId: currentUser.id,
+              reviewerName: currentUser.name || 'Supervisor'
+            }),
+          })
+          
+          if (!competencyRes.ok) {
+            const errorText = await competencyRes.text()
+            console.warn('⚠️ [Complete Review] Failed to update competency evaluation:', errorText)
+            // Continue anyway - we've updated the self-evaluation
+          } else {
+            console.log('✅ [Complete Review] Competency evaluation updated')
           }
-        : review,
-    )
-    setEvaluationReviews(updatedReviews)
-    setIsReviewing(false)
-    setSelectedReview(null)
+        } catch (competencyError) {
+          console.warn('⚠️ [Complete Review] Error updating competency evaluation:', competencyError)
+          // Continue anyway
+        }
+      }
+
+      // Update local state - change status to "approved" instead of "completed"
+      const updatedReviews = evaluationReviews.map((review: EvaluationReview) =>
+        review.id === selectedReview.id && review.evaluationType === selectedReview.evaluationType
+          ? {
+              ...review,
+              status: "approved" as const,
+              supervisorScore: finalSupervisorScore,
+              overallScore: overallScore,
+              reviewerName: currentUser.name || 'Supervisor',
+              completedAt: new Date().toISOString(),
+              supervisorNotes,
+            }
+          : review,
+      )
+      setEvaluationReviews(updatedReviews)
+      
+      console.log('✅ [Complete Review] Review approved successfully with overall score:', overallScore)
+      alert(`Review approved successfully! Overall Score: ${overallScore.toFixed(1)}`)
+      
+    } catch (e: any) {
+      console.error('❌ [Complete Review] Error:', e)
+      alert(`Failed to complete review: ${e.message || 'Unknown error'}`)
+    } finally {
+      setIsReviewing(false)
+      setSelectedReview(null)
+    }
   }
 
   const handleApproveReview = async (reviewId: string) => {
@@ -397,10 +747,13 @@ export default function CompetencyReviewsPage() {
   }
 
   // Separate reviews by status
-  const pendingReviews = filteredReviews.filter((r) => r.status === "pending")
-  const inProgressReviews = filteredReviews.filter((r) => r.status === "in-progress")
-  const completedReviews = filteredReviews.filter((r) => r.status === "completed")
-  const approvedReviews = filteredReviews.filter((r) => r.status === "approved")
+  const pendingReviews = filteredReviews.filter((r: EvaluationReview) => r.status === "pending")
+  const inProgressReviews = filteredReviews.filter((r: EvaluationReview) => r.status === "in-progress")
+  const completedReviews = filteredReviews.filter((r: EvaluationReview) => r.status === "completed")
+  const approvedReviews = filteredReviews.filter((r: EvaluationReview) => r.status === "approved")
+  
+  // Combine completed and approved for display (no duplicates)
+  const completedAndApprovedReviews = [...completedReviews, ...approvedReviews]
 
   const getOverviewStats = () => {
     const totalReviews = filteredReviews.length
@@ -590,7 +943,7 @@ export default function CompetencyReviewsPage() {
                     const isOverdue = daysUntilDue < 0
 
                     return (
-                      <Card key={review.id} className={isOverdue ? "border-red-200 bg-red-50" : ""}>
+                      <Card key={`${review.id}-${review.evaluationType}-pending`} className={isOverdue ? "border-red-200 bg-red-50" : ""}>
                         <CardContent className="p-6">
                           <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center space-x-4">
@@ -735,7 +1088,7 @@ export default function CompetencyReviewsPage() {
               <CardContent>
                 <div className="space-y-4">
                   {inProgressReviews.map((review) => (
-                    <Card key={review.id}>
+                    <Card key={`${review.id}-${review.evaluationType}-in-progress`}>
                       <CardContent className="p-6">
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center space-x-4">
@@ -765,12 +1118,112 @@ export default function CompetencyReviewsPage() {
                           </div>
                         </div>
 
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                          <div>
+                            <Label className="text-xs">Started</Label>
+                            <p className="text-sm">{review.submittedAt ? new Date(review.submittedAt).toLocaleDateString() : 'N/A'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Reviewer</Label>
+                            <p className="text-sm">{review.reviewerName || 'In Progress'}</p>
+                          </div>
+                          <div>
+                            <Label className="text-xs">Progress</Label>
+                            <div className="flex items-center space-x-2">
+                              {review.supervisorScore ? (
+                                <>
+                                  <span className="text-sm font-medium">{review.supervisorScore.toFixed(1)}</span>
+                                  <span className="text-gray-400">/ 5.0</span>
+                                </>
+                              ) : (
+                                <span className="text-sm text-gray-500">Not scored yet</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
                         <div className="flex justify-end space-x-2">
-                          <Button variant="outline" size="sm">
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Progress
-                          </Button>
-                          <Button size="sm" className="bg-blue-600 hover:bg-blue-700">
+                          <Dialog>
+                            <DialogTrigger asChild>
+                              <Button variant="outline" size="sm">
+                                <Eye className="h-4 w-4 mr-2" />
+                                View Details
+                              </Button>
+                            </DialogTrigger>
+                            <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+                              <DialogHeader>
+                                <DialogTitle className="flex items-center">
+                                  {getEvaluationTypeIcon(review.evaluationType)}
+                                  <span className="ml-2">
+                                    {review.staffName} -{" "}
+                                    {review.evaluationType === "competency"
+                                      ? "Competency Assessment"
+                                      : "Performance Evaluation"}
+                                  </span>
+                                </DialogTitle>
+                                <DialogDescription>
+                                  Review the staff member's self-assessment responses and continue your evaluation
+                                </DialogDescription>
+                              </DialogHeader>
+                              <div className="space-y-6">
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <Label className="text-sm font-medium">Staff Information</Label>
+                                    <div className="mt-1 text-sm text-gray-600">
+                                      <p>{review.staffName}</p>
+                                      <p>{review.staffRole} • {review.department}</p>
+                                      <p>Submitted: {new Date(review.submittedAt).toLocaleDateString()}</p>
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <Label className="text-sm font-medium">Scores</Label>
+                                    <div className="mt-1 space-y-2">
+                                      <div className="flex items-center space-x-2">
+                                        <span className="text-sm">Self Assessment:</span>
+                                        <Star className="h-4 w-4 text-yellow-500" />
+                                        <span className="text-sm font-medium">{review.selfAssessmentScore?.toFixed(1) || 'N/A'}</span>
+                                      </div>
+                                      {review.supervisorScore && (
+                                        <div className="flex items-center space-x-2">
+                                          <span className="text-sm">Supervisor Score:</span>
+                                          <Star className="h-4 w-4 text-blue-500" />
+                                          <span className="text-sm font-medium">{review.supervisorScore.toFixed(1)}</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <Label className="text-sm font-medium">Staff Responses</Label>
+                                  <div className="mt-2 space-y-3">
+                                    {Object.entries(review.staffResponses).map(([key, value]) => (
+                                      <div key={key} className="p-3 bg-gray-50 rounded-lg">
+                                        <h4 className="font-medium text-sm capitalize mb-1">
+                                          {key.replace(/-/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}
+                                        </h4>
+                                        <p className="text-sm text-gray-700">{value}</p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {review.supervisorNotes && (
+                                  <div>
+                                    <Label className="text-sm font-medium">Current Supervisor Notes</Label>
+                                    <div className="mt-1 p-3 bg-blue-50 rounded-lg">
+                                      <p className="text-sm text-gray-700">{review.supervisorNotes}</p>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            </DialogContent>
+                          </Dialog>
+                          <Button 
+                            size="sm" 
+                            className="bg-blue-600 hover:bg-blue-700"
+                            onClick={() => handleStartReview(review)}
+                          >
                             <PenTool className="h-4 w-4 mr-2" />
                             Continue Review
                           </Button>
@@ -802,8 +1255,8 @@ export default function CompetencyReviewsPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {[...completedReviews, ...approvedReviews].map((review) => (
-                    <Card key={review.id}>
+                  {completedAndApprovedReviews.map((review) => (
+                    <Card key={`${review.id}-${review.evaluationType}-${review.status}`}>
                       <CardContent className="p-6">
                         <div className="flex items-center justify-between mb-4">
                           <div className="flex items-center space-x-4">
@@ -861,7 +1314,7 @@ export default function CompetencyReviewsPage() {
                     </Card>
                   ))}
 
-                  {[...completedReviews, ...approvedReviews].length === 0 && (
+                  {completedAndApprovedReviews.length === 0 && (
                     <div className="text-center py-12">
                       <CheckCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                       <h3 className="text-lg font-medium text-gray-900 mb-2">No Completed Reviews</h3>
@@ -874,116 +1327,331 @@ export default function CompetencyReviewsPage() {
           </TabsContent>
 
           <TabsContent value="analytics" className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Target className="h-5 w-5 mr-2" />
-                    Review Performance
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Average Review Time</span>
-                      <span className="font-bold">3.2 days</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Reviews This Month</span>
-                      <span className="font-bold">12</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">On-Time Completion Rate</span>
-                      <span className="font-bold text-green-600">94%</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Average Overall Score</span>
-                      <span className="font-bold text-blue-600">4.3</span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            {(() => {
+              // Calculate analytics from actual data
+              const allReviews = evaluationReviews
+              const completedAndApproved = allReviews.filter(r => r.status === "completed" || r.status === "approved")
+              
+              // Average Review Time (days between submitted and completed)
+              const reviewTimes = completedAndApproved
+                .filter(r => r.completedAt && r.submittedAt)
+                .map(r => {
+                  const submitted = new Date(r.submittedAt).getTime()
+                  const completed = new Date(r.completedAt!).getTime()
+                  return (completed - submitted) / (1000 * 60 * 60 * 24) // days
+                })
+              const avgReviewTime = reviewTimes.length > 0
+                ? (reviewTimes.reduce((a, b) => a + b, 0) / reviewTimes.length).toFixed(1)
+                : "0.0"
+              
+              // Reviews this month
+              const now = new Date()
+              const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+              const reviewsThisMonth = allReviews.filter(r => {
+                const reviewDate = r.completedAt ? new Date(r.completedAt) : new Date(r.submittedAt)
+                return reviewDate >= firstDayOfMonth
+              }).length
+              
+              // On-time completion rate (reviews completed before or on due date)
+              const onTimeReviews = completedAndApproved.filter(r => {
+                if (!r.completedAt) return false
+                const completed = new Date(r.completedAt)
+                const due = new Date(r.dueDate)
+                return completed <= due
+              })
+              const onTimeRate = completedAndApproved.length > 0
+                ? Math.round((onTimeReviews.length / completedAndApproved.length) * 100)
+                : 0
+              
+              // Average overall score
+              const scoresWithOverall = completedAndApproved
+                .filter(r => r.overallScore !== undefined && r.overallScore !== null)
+                .map(r => r.overallScore!)
+              const avgOverallScore = scoresWithOverall.length > 0
+                ? (scoresWithOverall.reduce((a, b) => a + b, 0) / scoresWithOverall.length).toFixed(1)
+                : "0.0"
+              
+              // Evaluation type breakdown
+              const performanceCount = allReviews.filter(r => r.evaluationType === "performance").length
+              const competencyCount = allReviews.filter(r => r.evaluationType === "competency").length
+              
+              // High priority reviews
+              const highPriorityCount = allReviews.filter(r => r.priority === "high").length
+              
+              // Staff requiring development (score < 3.5)
+              const lowScoreReviews = completedAndApproved.filter(r => {
+                const score = r.overallScore || r.supervisorScore || r.selfAssessmentScore || 5
+                return score < 3.5
+              })
+              
+              // Distribution by role - normalize role values first
+              const roleCounts: Record<string, number> = {}
+              
+              // Function to normalize role ID to display role
+              const normalizeRole = (roleId: string): string => {
+                if (!roleId) return 'Other'
+                const roleLower = roleId.toLowerCase().trim()
+                
+                // Map database role_id values to display roles
+                const roleMapping: Record<string, string> = {
+                  'rn': 'RN',
+                  'registered_nurse': 'RN',
+                  'staff_nurse': 'RN', // staff_nurse typically means RN
+                  'nurse': 'RN',
+                  'lpn': 'LPN',
+                  'licensed_practical_nurse': 'LPN',
+                  'practical_nurse': 'LPN',
+                  'hha': 'HHA',
+                  'home_health_aide': 'HHA',
+                  'health_aide': 'HHA',
+                  'aide': 'HHA',
+                  'pt': 'PT',
+                  'physical_therapist': 'PT',
+                  'therapist_pt': 'PT',
+                  'ot': 'OT',
+                  'occupational_therapist': 'OT',
+                  'therapist_ot': 'OT',
+                  'msw': 'MSW',
+                  'medical_social_worker': 'MSW',
+                  'social_worker': 'MSW',
+                  'st': 'ST',
+                  'speech_therapist': 'ST',
+                  'therapist_st': 'ST',
+                }
+                
+                // Try exact match first
+                if (roleMapping[roleLower]) {
+                  return roleMapping[roleLower]
+                }
+                
+                // Try partial match
+                for (const [key, value] of Object.entries(roleMapping)) {
+                  if (roleLower.includes(key) || key.includes(roleLower)) {
+                    return value
+                  }
+                }
+                
+                // If it's already uppercase (RN, LPN, etc.), return as is
+                if (roleId === roleId.toUpperCase() && roleId.length <= 5) {
+                  return roleId
+                }
+                
+                // Default fallback
+                return roleId
+              }
+              
+              // Count reviews by role - each review is counted once
+              allReviews.forEach(r => {
+                const normalizedRole = normalizeRole(r.staffRole)
+                roleCounts[normalizedRole] = (roleCounts[normalizedRole] || 0) + 1
+              })
+              
+              // Calculate total - should be sum of all role counts
+              const totalByRole = Object.values(roleCounts).reduce((a, b) => a + b, 0)
+              
+              // Debug: Log the counts to verify
+              console.log('📊 [Analytics] Role distribution:', {
+                roleCounts,
+                totalByRole,
+                allReviewsCount: allReviews.length
+              })
+              
+              return (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center">
+                          <Target className="h-5 w-5 mr-2" />
+                          Review Performance
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Average Review Time</span>
+                            <span className="font-bold">{avgReviewTime} days</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Reviews This Month</span>
+                            <span className="font-bold">{reviewsThisMonth}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">On-Time Completion Rate</span>
+                            <span className={`font-bold ${onTimeRate >= 90 ? 'text-green-600' : onTimeRate >= 70 ? 'text-yellow-600' : 'text-red-600'}`}>
+                              {onTimeRate}%
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Average Overall Score</span>
+                            <span className="font-bold text-blue-600">{avgOverallScore}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Award className="h-5 w-5 mr-2" />
-                    Evaluation Insights
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Performance Evaluations</span>
-                      <span className="font-bold">8</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Competency Assessments</span>
-                      <span className="font-bold">7</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">High Priority Reviews</span>
-                      <span className="font-bold text-red-600">2</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm">Staff Requiring Development</span>
-                      <span className="font-bold text-yellow-600">3</span>
-                    </div>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="flex items-center">
+                          <Award className="h-5 w-5 mr-2" />
+                          Evaluation Insights
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Performance Evaluations</span>
+                            <span className="font-bold">{performanceCount}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Competency Assessments</span>
+                            <span className="font-bold">{competencyCount}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">High Priority Reviews</span>
+                            <span className="font-bold text-red-600">{highPriorityCount}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm">Staff Requiring Development</span>
+                            <span className="font-bold text-yellow-600">{lowScoreReviews.length}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Review Distribution by Role</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm">Registered Nurses (RN)</span>
-                      <span className="text-sm font-medium">40%</span>
-                    </div>
-                    <Progress value={40} className="h-2" />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm">Licensed Practical Nurses (LPN)</span>
-                      <span className="text-sm font-medium">25%</span>
-                    </div>
-                    <Progress value={25} className="h-2" />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm">Home Health Aides (HHA)</span>
-                      <span className="text-sm font-medium">20%</span>
-                    </div>
-                    <Progress value={20} className="h-2" />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm">Physical Therapists (PT)</span>
-                      <span className="text-sm font-medium">10%</span>
-                    </div>
-                    <Progress value={10} className="h-2" />
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm">Occupational Therapists (OT)</span>
-                      <span className="text-sm font-medium">5%</span>
-                    </div>
-                    <Progress value={5} className="h-2" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Review Distribution by Role</CardTitle>
+                      <CardDescription>Based on {totalByRole} total reviews</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      {totalByRole > 0 ? (
+                        <div className="space-y-4">
+                          {Object.entries(roleCounts)
+                            .sort((a, b) => b[1] - a[1])
+                            .map(([role, count]) => {
+                              // Calculate percentage correctly: (count for this role / total reviews) * 100
+                              // Example: 2 RN reviews out of 4 total = 50%, not 100%
+                              const percentage = totalByRole > 0 
+                                ? Math.round((count / totalByRole) * 100) 
+                                : 0
+                              
+                              // Get full role names for display (using the normalized role codes)
+                              const roleDisplayNames: Record<string, string> = {
+                                'RN': 'Registered Nurses (RN)',
+                                'LPN': 'Licensed Practical Nurses (LPN)',
+                                'HHA': 'Home Health Aides (HHA)',
+                                'PT': 'Physical Therapists (PT)',
+                                'OT': 'Occupational Therapists (OT)',
+                                'MSW': 'Medical Social Workers (MSW)',
+                                'ST': 'Speech Therapists (ST)',
+                                'Other': 'Other Roles'
+                              }
+                              const roleDisplayName = roleDisplayNames[role] || role
+                              
+                              return (
+                                <div key={role}>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center space-x-2">
+                                      <span className="text-sm font-medium">{roleDisplayName}</span>
+                                      <span className="text-xs text-gray-500">({count} review{count !== 1 ? 's' : ''})</span>
+                                    </div>
+                                    <span className="text-sm font-medium">{percentage}%</span>
+                                  </div>
+                                  <Progress value={percentage} className="h-3" />
+                                </div>
+                              )
+                            })}
+                        </div>
+                      ) : (
+                        <div className="text-center py-8 text-gray-500">
+                          <p>No review data available to display distribution</p>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Score Distribution Chart */}
+                  {scoresWithOverall.length > 0 && (
+                    <Card>
+                      <CardHeader>
+                        <CardTitle>Score Distribution</CardTitle>
+                        <CardDescription>Overall scores from completed reviews</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm">Excellent (4.5 - 5.0)</span>
+                              <span className="text-sm font-medium">
+                                {scoresWithOverall.filter(s => s >= 4.5).length} reviews
+                              </span>
+                            </div>
+                            <Progress 
+                              value={(scoresWithOverall.filter(s => s >= 4.5).length / scoresWithOverall.length) * 100} 
+                              className="h-2" 
+                            />
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm">Good (4.0 - 4.4)</span>
+                              <span className="text-sm font-medium">
+                                {scoresWithOverall.filter(s => s >= 4.0 && s < 4.5).length} reviews
+                              </span>
+                            </div>
+                            <Progress 
+                              value={(scoresWithOverall.filter(s => s >= 4.0 && s < 4.5).length / scoresWithOverall.length) * 100} 
+                              className="h-2" 
+                            />
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm">Satisfactory (3.0 - 3.9)</span>
+                              <span className="text-sm font-medium">
+                                {scoresWithOverall.filter(s => s >= 3.0 && s < 4.0).length} reviews
+                              </span>
+                            </div>
+                            <Progress 
+                              value={(scoresWithOverall.filter(s => s >= 3.0 && s < 4.0).length / scoresWithOverall.length) * 100} 
+                              className="h-2" 
+                            />
+                          </div>
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="text-sm">Needs Improvement (&lt; 3.0)</span>
+                              <span className="text-sm font-medium text-red-600">
+                                {scoresWithOverall.filter(s => s < 3.0).length} reviews
+                              </span>
+                            </div>
+                            <Progress 
+                              value={(scoresWithOverall.filter(s => s < 3.0).length / scoresWithOverall.length) * 100} 
+                              className="h-2" 
+                            />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </>
+              )
+            })()}
           </TabsContent>
         </Tabs>
 
         {/* Review Dialog */}
         {selectedReview && (
-          <Dialog open={!!selectedReview} onOpenChange={() => setSelectedReview(null)}>
+          <Dialog open={!!selectedReview && !isReviewing} onOpenChange={async (open) => {
+            if (!open && !isReviewing) {
+              // Save notes before closing if notes were entered
+              if (supervisorNotes.trim()) {
+                await handleSaveNotes(supervisorNotes, supervisorScore)
+              }
+              setSelectedReview(null)
+              setSupervisorNotes("")
+              setSupervisorScore(null)
+            }
+          }}>
             <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="flex items-center">
@@ -1015,8 +1683,51 @@ export default function CompetencyReviewsPage() {
                     <Label className="text-sm font-medium">Self Assessment Score</Label>
                     <div className="mt-1 flex items-center space-x-2">
                       <Star className="h-5 w-5 text-yellow-500" />
-                      <span className="text-lg font-medium">{selectedReview.selfAssessmentScore}</span>
+                      <span className="text-lg font-medium">{selectedReview.selfAssessmentScore?.toFixed(1) || 'N/A'}</span>
                     </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="supervisor-score" className="text-sm font-medium">
+                      Supervisor Score <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="supervisor-score"
+                      type="number"
+                      min="1"
+                      max="5"
+                      step="0.1"
+                      value={supervisorScore !== null ? supervisorScore : ''}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value)
+                        if (!isNaN(value)) {
+                          setSupervisorScore(Math.min(5, Math.max(1, value)))
+                        } else if (e.target.value === '') {
+                          setSupervisorScore(null)
+                        }
+                      }}
+                      placeholder="Enter score (1-5)"
+                      className="mt-1"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Rate from 1 (Poor) to 5 (Excellent)
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium">Calculated Overall Score</Label>
+                    <div className="mt-1 flex items-center space-x-2">
+                      <Star className="h-5 w-5 text-blue-500" />
+                      <span className="text-lg font-bold text-blue-600">
+                        {supervisorScore !== null && selectedReview.selfAssessmentScore
+                          ? (((selectedReview.selfAssessmentScore || 4) + supervisorScore) / 2).toFixed(1)
+                          : '—'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Average of self-assessment and supervisor score
+                    </p>
                   </div>
                 </div>
 
@@ -1039,24 +1750,61 @@ export default function CompetencyReviewsPage() {
                   <Textarea
                     id="supervisor-notes"
                     value={supervisorNotes}
-                    onChange={(e) => setSupervisorNotes(e.target.value)}
+                    onChange={(e) => {
+                      setSupervisorNotes(e.target.value)
+                      // Auto-save notes after user stops typing (debounced)
+                      // This ensures notes are saved even if user closes modal without completing
+                    }}
+                    onBlur={() => {
+                      // Save notes when user leaves the textarea
+                      if (supervisorNotes.trim()) {
+                        handleSaveNotes(supervisorNotes, supervisorScore)
+                      }
+                    }}
                     placeholder="Provide your assessment, feedback, and recommendations..."
                     className="min-h-[120px] mt-1"
                   />
+                  <div className="space-y-1">
+                    {supervisorNotes.trim() && (
+                      <p className="text-xs text-gray-500">💾 Notes will be saved automatically when you close this dialog</p>
+                    )}
+                    {!supervisorNotes.trim() && (
+                      <p className="text-xs text-red-600">Supervisor notes are required to complete the review.</p>
+                    )}
+                    {(supervisorScore === null || supervisorScore < 1 || supervisorScore > 5) && (
+                      <p className="text-xs text-red-600">Supervisor score (1-5) is required to complete the review.</p>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex justify-end space-x-3">
-                  <Button variant="outline" onClick={() => setSelectedReview(null)}>
-                    Cancel
-                  </Button>
-                  <Button
-                    onClick={handleCompleteReview}
-                    disabled={isReviewing || !supervisorNotes.trim()}
-                    className="bg-indigo-600 hover:bg-indigo-700"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    {isReviewing ? "Completing Review..." : "Complete Review"}
-                  </Button>
+                <div className="space-y-3">
+                  <div className="flex justify-end space-x-3">
+                    <Button 
+                      variant="outline" 
+                      onClick={async () => {
+                          if (!isReviewing) {
+                            // Save notes before closing
+                            if (supervisorNotes.trim()) {
+                              await handleSaveNotes(supervisorNotes, supervisorScore)
+                            }
+                            setSelectedReview(null)
+                            setSupervisorNotes("")
+                            setSupervisorScore(null)
+                          }
+                      }}
+                      disabled={isReviewing}
+                    >
+                      {supervisorNotes.trim() ? "Save & Close" : "Cancel"}
+                    </Button>
+                    <Button
+                      onClick={handleCompleteReview}
+                      disabled={isReviewing || !supervisorNotes.trim() || supervisorScore === null || supervisorScore < 1 || supervisorScore > 5}
+                      className="bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      {isReviewing ? "Completing Review..." : "Complete Review"}
+                    </Button>
+                  </div>
                 </div>
               </div>
             </DialogContent>

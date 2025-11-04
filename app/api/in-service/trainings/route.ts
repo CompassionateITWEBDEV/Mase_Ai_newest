@@ -1,162 +1,263 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
+
+// Helper to get service role client (bypasses RLS)
+function getServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+}
+
+// Helper to get regular client (respects RLS)
+function getClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  return createClient(supabaseUrl, supabaseAnonKey)
+}
 
 export async function GET(request: NextRequest) {
   try {
+    console.log("=== GET /api/in-service/trainings - START ===")
+    console.log("Request URL:", request.url)
+    
+    // Use service role client to bypass RLS for GET requests (admin endpoint)
+    // This ensures trainings are always visible regardless of RLS policies
+    let supabase = getServiceClient()
+    console.log("Supabase client created (service role), URL:", process.env.NEXT_PUBLIC_SUPABASE_URL ? "SET" : "MISSING")
+    console.log("Service key:", process.env.SUPABASE_SERVICE_ROLE_KEY ? "SET" : "MISSING")
+
     const { searchParams } = new URL(request.url)
     const category = searchParams.get("category")
     const role = searchParams.get("role")
     const mandatory = searchParams.get("mandatory")
+    const trainingId = searchParams.get("trainingId")
+    const limit = searchParams.get("limit") ? parseInt(searchParams.get("limit")!) : 100 // Default limit to 100
+    const offset = searchParams.get("offset") ? parseInt(searchParams.get("offset")!) : 0
+    
+    console.log("Query params:", { category, role, mandatory, trainingId, limit, offset })
 
-    // Mock in-service training data
-    const trainings = [
-      {
-        id: "IS-001",
-        title: "Advanced Wound Care Management",
-        category: "Clinical Skills",
-        type: "video_course",
-        duration: 120,
-        ceuHours: 2.0,
-        description:
-          "Comprehensive training on advanced wound assessment, treatment protocols, and documentation requirements",
-        targetRoles: ["RN", "LPN"],
-        difficulty: "Advanced",
-        prerequisites: ["Basic Wound Care"],
-        accreditation: "ANCC",
-        expiryMonths: 24,
-        mandatory: true,
-        status: "active",
-        enrolledCount: 45,
-        completedCount: 32,
-        averageScore: 87,
-        createdDate: "2024-01-01",
-        lastUpdated: "2024-01-15",
-      },
-      {
-        id: "IS-002",
-        title: "Medication Administration Safety",
-        category: "Patient Safety",
-        type: "interactive_course",
-        duration: 90,
-        ceuHours: 1.5,
-        description: "Essential training on safe medication practices, error prevention, and documentation",
-        targetRoles: ["RN", "LPN", "CNA"],
-        difficulty: "Intermediate",
-        prerequisites: [],
-        accreditation: "Joint Commission",
-        expiryMonths: 12,
-        mandatory: true,
-        status: "active",
-        enrolledCount: 78,
-        completedCount: 65,
-        averageScore: 92,
-        createdDate: "2024-01-01",
-        lastUpdated: "2024-01-10",
-      },
-      {
-        id: "IS-003",
-        title: "Infection Control & Prevention",
-        category: "Safety & Compliance",
-        type: "blended_learning",
-        duration: 75,
-        ceuHours: 1.25,
-        description: "Updated CDC guidelines for infection prevention in healthcare settings",
-        targetRoles: ["All"],
-        difficulty: "Basic",
-        prerequisites: [],
-        accreditation: "CDC",
-        expiryMonths: 12,
-        mandatory: true,
-        status: "active",
-        enrolledCount: 156,
-        completedCount: 142,
-        averageScore: 89,
-        createdDate: "2023-12-01",
-        lastUpdated: "2024-01-05",
-      },
-      {
-        id: "IS-004",
-        title: "HIPAA Privacy & Security Update",
-        category: "Compliance",
-        type: "online_course",
-        duration: 60,
-        ceuHours: 1.0,
-        description: "Annual HIPAA training with latest privacy and security requirements",
-        targetRoles: ["All"],
-        difficulty: "Basic",
-        prerequisites: [],
-        accreditation: "HHS",
-        expiryMonths: 12,
-        mandatory: true,
-        status: "active",
-        enrolledCount: 156,
-        completedCount: 156,
-        averageScore: 94,
-        createdDate: "2023-11-01",
-        lastUpdated: "2024-01-01",
-      },
-      {
-        id: "IS-005",
-        title: "Physical Therapy Techniques",
-        category: "Clinical Skills",
-        type: "hands_on_workshop",
-        duration: 180,
-        ceuHours: 3.0,
-        description: "Advanced physical therapy techniques and patient mobility training",
-        targetRoles: ["PT", "PTA"],
-        difficulty: "Advanced",
-        prerequisites: ["Basic PT Principles"],
-        accreditation: "APTA",
-        expiryMonths: 24,
-        mandatory: false,
-        status: "active",
-        enrolledCount: 12,
-        completedCount: 8,
-        averageScore: 85,
-        createdDate: "2024-01-15",
-        lastUpdated: "2024-01-20",
-      },
-    ]
-
-    let filteredTrainings = trainings
+    // Build query - don't filter by status, show all trainings
+    // Add pagination to prevent timeouts
+    let query = supabase.from("in_service_trainings").select("*").limit(limit).range(offset, offset + limit - 1)
+    console.log("Initial query built with pagination:", { limit, offset })
 
     // Apply filters
-    if (category && category !== "all") {
-      filteredTrainings = filteredTrainings.filter((t) => t.category === category)
+    if (trainingId) {
+      query = query.eq("id", trainingId)
+      console.log("Applied trainingId filter:", trainingId)
     }
 
-    if (role && role !== "all") {
-      filteredTrainings = filteredTrainings.filter((t) => t.targetRoles.includes(role) || t.targetRoles.includes("All"))
+    if (category && category !== "all") {
+      query = query.eq("category", category)
+      console.log("Applied category filter:", category)
     }
 
     if (mandatory !== null) {
       const isMandatory = mandatory === "true"
-      filteredTrainings = filteredTrainings.filter((t) => t.mandatory === isMandatory)
+      query = query.eq("mandatory", isMandatory)
+      console.log("Applied mandatory filter:", isMandatory)
     }
 
-    return NextResponse.json({
-      success: true,
-      trainings: filteredTrainings,
-      total: filteredTrainings.length,
-      summary: {
-        totalTrainings: trainings.length,
-        activeTrainings: trainings.filter((t) => t.status === "active").length,
-        mandatoryTrainings: trainings.filter((t) => t.mandatory).length,
-        totalEnrolled: trainings.reduce((sum, t) => sum + t.enrolledCount, 0),
-        totalCompleted: trainings.reduce((sum, t) => sum + t.completedCount, 0),
-        averageCompletionRate:
-          Math.round(
-            (trainings.reduce((sum, t) => sum + (t.completedCount / t.enrolledCount) * 100, 0) / trainings.length) * 10,
-          ) / 10,
-      },
+    console.log("Executing query...")
+    const { data: trainings, error } = await query.order("created_at", { ascending: false })
+    console.log("Query executed. Results:", { 
+      count: trainings?.length || 0, 
+      hasError: !!error,
+      errorMessage: error?.message,
+      errorCode: error?.code
     })
-  } catch (error) {
-    console.error("Error fetching trainings:", error)
-    return NextResponse.json({ error: "Failed to fetch trainings" }, { status: 500 })
+
+    if (error) {
+      console.error("❌ ERROR fetching trainings:", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+        fullError: JSON.stringify(error, null, 2)
+      })
+      
+      // Check if table doesn't exist
+      if (error.code === "42P01" || error.message?.includes("does not exist")) {
+        console.error("❌ Table does not exist!")
+        return NextResponse.json({ 
+          success: false,
+          error: "Database table 'in_service_trainings' does not exist. Please run the migration script: scripts/060-create-in-service-training-tables.sql",
+          code: error.code,
+          hint: "Run the SQL script in your Supabase SQL editor",
+          trainings: [], // Return empty array so frontend doesn't break
+        }, { status: 200 }) // Return 200 so frontend can show the error message
+      }
+      
+      console.error("❌ Returning error response")
+      return NextResponse.json({ 
+        success: false,
+        error: "Failed to fetch trainings: " + error.message,
+        code: error.code,
+        trainings: [],
+      }, { status: 500 })
+    }
+    
+    console.log(`✅ Fetched ${trainings?.length || 0} trainings from database`)
+    
+    // Log sample training if found
+    if (trainings && trainings.length > 0) {
+      console.log("Sample training:", {
+        id: trainings[0].id,
+        title: trainings[0].title,
+        category: trainings[0].category,
+        status: trainings[0].status
+      })
+    }
+
+    // Get enrollments and completions counts efficiently (only 2 queries total)
+    const trainingIds = (trainings || []).map((t: any) => t.id)
+    console.log(`Calculating counts for ${trainingIds.length} trainings`)
+    
+    let enrollmentsCount: Record<string, number> = {}
+    let completionsCount: Record<string, number> = {}
+    
+    if (trainingIds.length > 0 && trainingIds.length <= 200) {
+      // Only fetch counts if reasonable number of trainings (prevent timeout)
+      try {
+        console.log("Fetching enrollment and completion counts...")
+        
+        // Fetch enrollments in one query and group in memory
+        const { data: enrollments, error: enrollError } = await supabase
+          .from("in_service_enrollments")
+          .select("training_id")
+          .in("training_id", trainingIds)
+        
+        if (!enrollError && enrollments) {
+          enrollmentsCount = enrollments.reduce((acc: Record<string, number>, e: any) => {
+            acc[e.training_id] = (acc[e.training_id] || 0) + 1
+            return acc
+          }, {})
+          console.log(`✅ Counted enrollments for ${Object.keys(enrollmentsCount).length} trainings`)
+        }
+        
+        // Fetch completions in one query and group in memory
+        const { data: completions, error: completeError } = await supabase
+          .from("in_service_completions")
+          .select("training_id")
+          .in("training_id", trainingIds)
+        
+        if (!completeError && completions) {
+          completionsCount = completions.reduce((acc: Record<string, number>, c: any) => {
+            acc[c.training_id] = (acc[c.training_id] || 0) + 1
+            return acc
+          }, {})
+          console.log(`✅ Counted completions for ${Object.keys(completionsCount).length} trainings`)
+        }
+      } catch (countError: any) {
+        console.warn("⚠️ Error calculating counts (non-critical):", countError.message)
+        // If count queries fail, skip them - trainings will show 0 counts
+      }
+    } else if (trainingIds.length > 200) {
+      console.warn(`⚠️ Too many trainings (${trainingIds.length}) - skipping count queries to prevent timeout`)
+    }
+
+    // Filter by role if specified
+    let filteredTrainings = trainings || []
+    if (role && role !== "all") {
+      filteredTrainings = filteredTrainings.filter(
+        (t) => t.target_roles.includes(role) || t.target_roles.includes("All")
+      )
+    }
+
+    // Transform data to match frontend expectations
+    console.log("Transforming trainings data...")
+    const transformedTrainings = filteredTrainings.map((t) => {
+      try {
+        const transformed = {
+          id: t.id,
+          training_code: t.training_code,
+          title: t.title,
+          category: t.category,
+          type: t.type,
+          duration: t.duration,
+          ceuHours: parseFloat(t.ceu_hours?.toString() || "0"),
+          description: t.description,
+          targetRoles: Array.isArray(t.target_roles) ? t.target_roles : (t.target_roles ? [t.target_roles] : []),
+          difficulty: t.difficulty,
+          prerequisites: t.prerequisites || [],
+          accreditation: t.accreditation,
+          expiryMonths: t.expiry_months,
+          mandatory: t.mandatory || false,
+          dueDate: t.due_date,
+          status: t.status || "active",
+          enrolledCount: enrollmentsCount[t.id] || t.enrolled_count || 0,
+          completedCount: completionsCount[t.id] || t.completed_count || 0,
+          averageScore: parseFloat(t.average_score?.toString() || "0"),
+          modules: Array.isArray(t.modules) ? t.modules : (t.modules ? [t.modules] : []),
+          quiz: t.quiz_config || { questions: 10, passingScore: 80, attempts: 3 },
+          createdDate: t.created_at,
+          lastUpdated: t.updated_at,
+        }
+        return transformed
+      } catch (transformError: any) {
+        console.error("❌ Error transforming training:", t.id, transformError.message)
+        return null
+      }
+    }).filter((t): t is NonNullable<typeof t> => t !== null)
+    
+    console.log(`✅ Transformed ${transformedTrainings.length} trainings`)
+
+    // Calculate summary statistics
+    const summary = {
+      totalTrainings: transformedTrainings.length,
+      activeTrainings: transformedTrainings.filter((t) => t.status === "active").length,
+      mandatoryTrainings: transformedTrainings.filter((t) => t.mandatory).length,
+      totalEnrolled: transformedTrainings.reduce((sum, t) => sum + t.enrolledCount, 0),
+      totalCompleted: transformedTrainings.reduce((sum, t) => sum + t.completedCount, 0),
+      averageCompletionRate:
+        transformedTrainings.length > 0
+          ? Math.round(
+              (transformedTrainings.reduce(
+                (sum, t) => sum + (t.enrolledCount > 0 ? (t.completedCount / t.enrolledCount) * 100 : 0),
+                0,
+              ) /
+                transformedTrainings.length) *
+                10,
+            ) / 10
+          : 0,
+    }
+
+    const response = {
+      success: true,
+      trainings: transformedTrainings || [],
+      total: transformedTrainings?.length || 0,
+      summary,
+    }
+    
+    console.log("=== GET /api/in-service/trainings - SUCCESS ===")
+    console.log(`Returning ${response.trainings.length} trainings`)
+    
+    return NextResponse.json(response)
+  } catch (error: any) {
+    console.error("=== GET /api/in-service/trainings - EXCEPTION ===")
+    console.error("Error:", error.message)
+    console.error("Stack:", error.stack)
+    console.error("Full error:", JSON.stringify(error, null, 2))
+    
+    return NextResponse.json({ 
+      success: false,
+      error: "Failed to fetch trainings: " + (error.message || "Unknown error"),
+      trainings: [],
+      total: 0,
+    }, { status: 500 })
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    // Use service role client to bypass RLS for admin operations
+    const supabase = getServiceClient()
+
     const trainingData = await request.json()
 
     // Validate required fields
@@ -167,29 +268,123 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create new training
-    const newTraining = {
-      id: `IS-${Date.now()}`,
-      ...trainingData,
-      status: "draft",
-      enrolledCount: 0,
-      completedCount: 0,
-      averageScore: 0,
-      createdDate: new Date().toISOString(),
-      lastUpdated: new Date().toISOString(),
+    // Generate training code if not provided
+    const trainingCode = trainingData.training_code || `IS-${Date.now()}`
+
+    // Prepare data for database
+    const dbData = {
+      training_code: trainingCode,
+      title: trainingData.title,
+      category: trainingData.category,
+      type: trainingData.type || "online_course",
+      duration: parseInt(trainingData.duration),
+      ceu_hours: parseFloat(trainingData.ceuHours),
+      description: trainingData.description,
+      target_roles: Array.isArray(trainingData.targetRoles) ? trainingData.targetRoles : [trainingData.targetRoles],
+      difficulty: trainingData.difficulty || "Basic",
+      prerequisites: trainingData.prerequisites || [],
+      accreditation: trainingData.accreditation || null,
+      expiry_months: trainingData.expiryMonths || null,
+      mandatory: trainingData.mandatory || false,
+      due_date: trainingData.dueDate || null,
+      status: trainingData.status || "draft",
       modules: trainingData.modules || [],
-      quiz: trainingData.quiz || {
+      quiz_config: trainingData.quiz || {
         questions: 10,
         passingScore: 80,
         attempts: 3,
       },
+      enrolled_count: 0,
+      completed_count: 0,
+      average_score: 0,
     }
 
-    console.log(`New in-service training created: ${newTraining.title} (${newTraining.id})`)
+    console.log("Attempting to insert training:", { 
+      training_code: dbData.training_code, 
+      title: dbData.title,
+      modules_count: Array.isArray(dbData.modules) ? dbData.modules.length : 0,
+    })
+    if (Array.isArray(dbData.modules) && dbData.modules.length > 0) {
+      console.log("Modules to save:", dbData.modules.map((m: any) => ({
+        id: m.id,
+        title: m.title,
+        duration: m.duration,
+        fileName: m.fileName,
+        fileUrl: m.fileUrl ? "SET" : "MISSING",
+      })))
+    }
+    
+    const { data: newTraining, error } = await supabase
+      .from("in_service_trainings")
+      .insert(dbData)
+      .select()
+      .single()
+
+    if (error) {
+      console.error("Error creating training:", {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      })
+      
+      // Check if table doesn't exist
+      if (error.code === "42P01" || error.message?.includes("does not exist")) {
+        return NextResponse.json({ 
+          error: "Database table 'in_service_trainings' does not exist. Please run the migration script: scripts/060-create-in-service-training-tables.sql",
+          code: error.code,
+          hint: "Run the SQL script in your Supabase SQL editor",
+        }, { status: 500 })
+      }
+      
+      return NextResponse.json({ 
+        error: "Failed to create training: " + error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      }, { status: 500 })
+    }
+    
+    console.log("Training created successfully:", newTraining.id)
+    console.log("Saved modules:", {
+      count: Array.isArray(newTraining.modules) ? newTraining.modules.length : 0,
+      modules: Array.isArray(newTraining.modules) ? newTraining.modules.map((m: any) => ({
+        title: m.title,
+        fileUrl: m.fileUrl ? "SET" : "MISSING",
+        fileName: m.fileName,
+      })) : []
+    })
+
+    // Transform response
+    const transformedTraining = {
+      id: newTraining.id,
+      training_code: newTraining.training_code,
+      title: newTraining.title,
+      category: newTraining.category,
+      type: newTraining.type,
+      duration: newTraining.duration,
+      ceuHours: parseFloat(newTraining.ceu_hours.toString()),
+      description: newTraining.description,
+      targetRoles: newTraining.target_roles || [],
+      difficulty: newTraining.difficulty,
+      prerequisites: newTraining.prerequisites || [],
+      accreditation: newTraining.accreditation,
+      expiryMonths: newTraining.expiry_months,
+      mandatory: newTraining.mandatory,
+      dueDate: newTraining.due_date,
+      status: newTraining.status,
+      enrolledCount: newTraining.enrolled_count || 0,
+      completedCount: newTraining.completed_count || 0,
+      averageScore: parseFloat(newTraining.average_score?.toString() || "0"),
+      modules: Array.isArray(newTraining.modules) ? newTraining.modules : (newTraining.modules ? [newTraining.modules] : []),
+      quiz: newTraining.quiz_config || { questions: 10, passingScore: 80, attempts: 3 },
+      createdDate: newTraining.created_at,
+      lastUpdated: newTraining.updated_at,
+    }
 
     return NextResponse.json({
       success: true,
-      training: newTraining,
+      training: transformedTraining,
       message: "Training created successfully",
     })
   } catch (error) {
@@ -200,24 +395,79 @@ export async function POST(request: NextRequest) {
 
 export async function PUT(request: NextRequest) {
   try {
+    // Use service role client to bypass RLS for admin operations
+    const supabase = getServiceClient()
+
     const { trainingId, ...updateData } = await request.json()
 
     if (!trainingId) {
       return NextResponse.json({ error: "Training ID required" }, { status: 400 })
     }
 
-    // Mock update logic
-    const updatedTraining = {
-      id: trainingId,
-      ...updateData,
-      lastUpdated: new Date().toISOString(),
+    // Transform frontend data to database format
+    const dbUpdateData: any = {
+      updated_at: new Date().toISOString(),
     }
 
-    console.log(`Training updated: ${trainingId}`)
+    if (updateData.title) dbUpdateData.title = updateData.title
+    if (updateData.category) dbUpdateData.category = updateData.category
+    if (updateData.type) dbUpdateData.type = updateData.type
+    if (updateData.duration) dbUpdateData.duration = parseInt(updateData.duration)
+    if (updateData.ceuHours) dbUpdateData.ceu_hours = parseFloat(updateData.ceuHours)
+    if (updateData.description) dbUpdateData.description = updateData.description
+    if (updateData.targetRoles) dbUpdateData.target_roles = Array.isArray(updateData.targetRoles) ? updateData.targetRoles : [updateData.targetRoles]
+    if (updateData.difficulty) dbUpdateData.difficulty = updateData.difficulty
+    if (updateData.prerequisites) dbUpdateData.prerequisites = updateData.prerequisites
+    if (updateData.accreditation !== undefined) dbUpdateData.accreditation = updateData.accreditation
+    if (updateData.expiryMonths !== undefined) dbUpdateData.expiry_months = updateData.expiryMonths
+    if (updateData.mandatory !== undefined) dbUpdateData.mandatory = updateData.mandatory
+    if (updateData.dueDate !== undefined) dbUpdateData.due_date = updateData.dueDate
+    if (updateData.status) dbUpdateData.status = updateData.status
+    if (updateData.modules) dbUpdateData.modules = updateData.modules
+    if (updateData.quiz) dbUpdateData.quiz_config = updateData.quiz
+
+    const { data: updatedTraining, error } = await supabase
+      .from("in_service_trainings")
+      .update(dbUpdateData)
+      .eq("id", trainingId)
+      .select()
+      .single()
+
+    if (error) {
+      console.error("Error updating training:", error)
+      return NextResponse.json({ error: "Failed to update training: " + error.message }, { status: 500 })
+    }
+
+    // Transform response
+    const transformedTraining = {
+      id: updatedTraining.id,
+      training_code: updatedTraining.training_code,
+      title: updatedTraining.title,
+      category: updatedTraining.category,
+      type: updatedTraining.type,
+      duration: updatedTraining.duration,
+      ceuHours: parseFloat(updatedTraining.ceu_hours.toString()),
+      description: updatedTraining.description,
+      targetRoles: updatedTraining.target_roles || [],
+      difficulty: updatedTraining.difficulty,
+      prerequisites: updatedTraining.prerequisites || [],
+      accreditation: updatedTraining.accreditation,
+      expiryMonths: updatedTraining.expiry_months,
+      mandatory: updatedTraining.mandatory,
+      dueDate: updatedTraining.due_date,
+      status: updatedTraining.status,
+      enrolledCount: updatedTraining.enrolled_count || 0,
+      completedCount: updatedTraining.completed_count || 0,
+      averageScore: parseFloat(updatedTraining.average_score?.toString() || "0"),
+      modules: updatedTraining.modules || [],
+      quiz: updatedTraining.quiz_config || { questions: 10, passingScore: 80, attempts: 3 },
+      createdDate: updatedTraining.created_at,
+      lastUpdated: updatedTraining.updated_at,
+    }
 
     return NextResponse.json({
       success: true,
-      training: updatedTraining,
+      training: transformedTraining,
       message: "Training updated successfully",
     })
   } catch (error) {

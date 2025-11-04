@@ -38,6 +38,7 @@ import {
   Loader2,
 } from "lucide-react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { StaffSupplyAnalyzer } from "@/components/staff-supply-analyzer"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
@@ -68,11 +69,136 @@ export default function StaffDashboard() {
   const [activeTab, setActiveTab] = useState("overview")
   const [searchTerm, setSearchTerm] = useState("")
   const searchParams = useSearchParams()
+  const router = useRouter()
+
+  // Authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null)
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  const [isCheckingAuth, setIsCheckingAuth] = useState(true)
 
   // Load staff from database to make header info accurate
   const [staffList, setStaffList] = useState<any[]>([])
   const [isLoadingStaff, setIsLoadingStaff] = useState(true)
   const staffIdFromQuery = searchParams?.get("staff_id") || undefined
+
+  // Load upcoming shifts for selected staff from staff_shifts table
+  const [upcomingShifts, setUpcomingShifts] = useState<Array<{ id: string; date: string; time: string; location: string; unit: string; day_of_week: number; start_time: string; end_time: string; shift_type: string; notes?: string }>>([])
+  const [isLoadingShifts, setIsLoadingShifts] = useState<boolean>(false)
+  const { toast } = useToast()
+  const [pendingCancelShiftIds, setPendingCancelShiftIds] = useState<string[]>([])
+  const [isCancelOpen, setIsCancelOpen] = useState<boolean>(false)
+  const [cancelReason, setCancelReason] = useState<string>("")
+  const [cancelTarget, setCancelTarget] = useState<any | null>(null)
+  const [isDetailsOpen, setIsDetailsOpen] = useState<boolean>(false)
+  const [detailsShift, setDetailsShift] = useState<any | null>(null)
+  const [isEditOpen, setIsEditOpen] = useState<boolean>(false)
+  const [editingShift, setEditingShift] = useState<any | null>(null)
+  const days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
+  const [newShift, setNewShift] = useState({ day_of_week: 0, start_time: "08:00", end_time: "17:00", shift_type: "office", facility: "", unit: "", notes: "" })
+
+  // Fetch real training data from in-service API
+  const [realTrainingModules, setRealTrainingModules] = useState<Array<{
+    id: string
+    name: string
+    progress: number
+    completed: boolean
+    dueDate: string
+    trainingId?: string
+    status?: string
+    category?: string
+    ceuHours?: number
+  }>>([])
+  const [isLoadingTrainings, setIsLoadingTrainings] = useState(false)
+
+  // Load certifications/licenses from applicant documents by staff email
+  const [certsFromDocs, setCertsFromDocs] = useState<Array<{ name: string; status: string; expires: string }>>([])
+  const [isLoadingCerts, setIsLoadingCerts] = useState<boolean>(false)
+
+  // Enhanced pending onboarding patients with automatic eligibility checking and auth management
+  const [pendingOnboardingPatients, setPendingOnboardingPatients] = useState<PendingOnboardingPatient[]>([
+    {
+      id: "PAT-001",
+      name: "Margaret Anderson",
+      phone: "(248) 555-0123",
+      address: "123 Oak Street, Detroit, MI 48201",
+      firstVisitScheduled: "2024-07-06 10:00 AM",
+      assignedNurse: "Sarah Johnson",
+      services: ["SN", "PT"],
+      priority: "high",
+      status: "pending_onboarding",
+      acceptedDate: "2024-07-05",
+      eligibilityStatus: "verified",
+      authorizationStatus: "approved",
+      insuranceProvider: "Medicare Part A",
+      estimatedAuthDays: 0,
+      socRequired: true,
+      authRequiredBefore: false,
+    },
+    {
+      id: "PAT-002",
+      name: "Robert Miller",
+      phone: "(248) 555-0124",
+      address: "456 Pine Avenue, Southfield, MI 48075",
+      firstVisitScheduled: "2024-07-06 2:00 PM",
+      assignedNurse: "Sarah Johnson",
+      services: ["SN", "CHHA", "PT"],
+      priority: "high",
+      status: "pending_onboarding",
+      acceptedDate: "2024-07-04",
+      eligibilityStatus: "verified",
+      authorizationStatus: "pending",
+      insuranceProvider: "Aetna Better Health (Medicaid)",
+      estimatedAuthDays: 3,
+      socRequired: true,
+      authRequiredBefore: true,
+    },
+    {
+      id: "PAT-003",
+      name: "Dorothy Williams",
+      phone: "(248) 555-0125",
+      address: "789 Elm Street, Troy, MI 48084",
+      firstVisitScheduled: "2024-07-07 11:00 AM",
+      assignedNurse: "Sarah Johnson",
+      services: ["SN", "OT"],
+      priority: "medium",
+      status: "pending_onboarding",
+      acceptedDate: "2024-07-05",
+      eligibilityStatus: "checking",
+      authorizationStatus: "not_required",
+      insuranceProvider: "Blue Cross Blue Shield",
+      estimatedAuthDays: 0,
+      socRequired: true,
+      authRequiredBefore: false,
+    },
+  ])
+
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = () => {
+      try {
+        const storedUser = localStorage.getItem('currentUser')
+        if (storedUser) {
+          const user = JSON.parse(storedUser)
+          // Verify it's a staff user
+          if (user && user.accountType === 'staff') {
+            setCurrentUser(user)
+            setIsAuthenticated(true)
+          } else {
+            setIsAuthenticated(false)
+          }
+        } else {
+          setIsAuthenticated(false)
+        }
+      } catch (error) {
+        console.error('Error checking authentication:', error)
+        setIsAuthenticated(false)
+      } finally {
+        setIsCheckingAuth(false)
+      }
+    }
+
+    checkAuth()
+  }, [])
 
   useEffect(() => {
     const loadStaff = async () => {
@@ -94,21 +220,7 @@ export default function StaffDashboard() {
 
   const selectedStaff = staffList.find((s) => s.id === staffIdFromQuery) || staffList[0]
 
-  // Load upcoming shifts for selected staff from staff_shifts table
-  const [upcomingShifts, setUpcomingShifts] = useState<Array<{ id: string; date: string; time: string; location: string; unit: string; day_of_week: number; start_time: string; end_time: string; shift_type: string; notes?: string }>>([])
-  const [isLoadingShifts, setIsLoadingShifts] = useState<boolean>(false)
-  const { toast } = useToast()
-  const [pendingCancelShiftIds, setPendingCancelShiftIds] = useState<string[]>([])
-  const [isCancelOpen, setIsCancelOpen] = useState<boolean>(false)
-  const [cancelReason, setCancelReason] = useState<string>("")
-  const [cancelTarget, setCancelTarget] = useState<any | null>(null)
-  const [isDetailsOpen, setIsDetailsOpen] = useState<boolean>(false)
-  const [detailsShift, setDetailsShift] = useState<any | null>(null)
-  const [isEditOpen, setIsEditOpen] = useState<boolean>(false)
-  const [editingShift, setEditingShift] = useState<any | null>(null)
-  const days = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]
-  const [newShift, setNewShift] = useState({ day_of_week: 0, start_time: "08:00", end_time: "17:00", shift_type: "office", facility: "", unit: "", notes: "" })
-
+  // Helper functions (must be declared before conditional returns)
   const formatFacilityUnit = (locationValue?: string) => {
     const raw = String(locationValue || '')
     const beforeComma = raw.split(',')[0] || ''
@@ -125,6 +237,52 @@ export default function StaffDashboard() {
     dt.setDate(now.getDate() + delta)
     return dt
   }
+
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = () => {
+      try {
+        const storedUser = localStorage.getItem('currentUser')
+        if (storedUser) {
+          const user = JSON.parse(storedUser)
+          // Verify it's a staff user
+          if (user && user.accountType === 'staff') {
+            setCurrentUser(user)
+            setIsAuthenticated(true)
+          } else {
+            setIsAuthenticated(false)
+          }
+        } else {
+          setIsAuthenticated(false)
+        }
+      } catch (error) {
+        console.error('Error checking authentication:', error)
+        setIsAuthenticated(false)
+      } finally {
+        setIsCheckingAuth(false)
+      }
+    }
+
+    checkAuth()
+  }, [])
+
+  useEffect(() => {
+    const loadStaff = async () => {
+      try {
+        setIsLoadingStaff(true)
+        const res = await fetch('/api/staff/list')
+        const data = await res.json()
+        if (data.success && Array.isArray(data.staff)) {
+          setStaffList(data.staff)
+        }
+      } catch (e) {
+        console.error('Failed to load staff for dashboard', e)
+      } finally {
+        setIsLoadingStaff(false)
+      }
+    }
+    loadStaff()
+  }, [])
 
   useEffect(() => {
     const loadShifts = async () => {
@@ -175,6 +333,334 @@ export default function StaffDashboard() {
     }
     loadShifts()
   }, [selectedStaff?.id])
+
+  useEffect(() => {
+    const loadTrainings = async () => {
+      if (!selectedStaff?.id) {
+        console.log("Staff Dashboard: No staff ID available, skipping training load")
+        setRealTrainingModules([])
+        return
+      }
+
+      console.log("Staff Dashboard: Loading trainings for staff ID:", selectedStaff.id)
+      
+      try {
+        setIsLoadingTrainings(true)
+        // Fetch employee progress for this staff member
+        const url = `/api/in-service/employee-progress?employeeId=${encodeURIComponent(selectedStaff.id)}`
+        console.log("Staff Dashboard: Fetching from:", url)
+        
+        const response = await fetch(url, {
+          cache: "no-store",
+        })
+        
+        console.log("Staff Dashboard: Response status:", response.status)
+        
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.error("Staff Dashboard: Failed to fetch training data:", response.status, errorText)
+          setRealTrainingModules([])
+          return
+        }
+
+        const contentType = response.headers.get("content-type")
+        if (!contentType || !contentType.includes("application/json")) {
+          const text = await response.text()
+          console.error("Staff Dashboard: Invalid response format:", text.substring(0, 200))
+          setRealTrainingModules([])
+          return
+        }
+
+        const data = await response.json()
+        console.log("Staff Dashboard: Training data received:", {
+          success: data.success,
+          employeeCount: data.employees?.length,
+          hasEmployees: !!data.employees,
+        })
+        
+        if (data.success && data.employees && data.employees.length > 0) {
+          const employee = data.employees[0] // Should only be one employee
+          
+          console.log("Staff Dashboard: Employee training data:", {
+            assignedCount: employee.assignedTrainings?.length || 0,
+            inProgressCount: employee.inProgressTrainings?.length || 0,
+            completedCount: employee.completedTrainings?.length || 0,
+            upcomingCount: employee.upcomingDeadlines?.length || 0,
+          })
+          
+          // Combine all trainings: assigned, in-progress, and completed
+          const allTrainings: Array<{
+            id: string
+            name: string
+            progress: number
+            completed: boolean
+            dueDate: string
+            trainingId?: string
+            status?: string
+            category?: string
+            ceuHours?: number
+          }> = []
+
+          // Helper function to format due date with days until due
+          const formatDueDate = (dueDateString: string | null | undefined): string => {
+            if (!dueDateString) return "No deadline"
+            
+            try {
+              const dueDate = new Date(dueDateString)
+              const today = new Date()
+              today.setHours(0, 0, 0, 0)
+              dueDate.setHours(0, 0, 0, 0)
+              
+              const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+              const formattedDate = dueDate.toLocaleDateString()
+              
+              if (daysUntilDue < 0) {
+                return `${formattedDate} (Overdue by ${Math.abs(daysUntilDue)} day${Math.abs(daysUntilDue) !== 1 ? "s" : ""})`
+              } else if (daysUntilDue === 0) {
+                return `${formattedDate} (Due today)`
+              } else if (daysUntilDue === 1) {
+                return `${formattedDate} (Due tomorrow)`
+              } else if (daysUntilDue <= 7) {
+                return `${formattedDate} (${daysUntilDue} days)`
+              } else {
+                return formattedDate
+              }
+            } catch (error) {
+              return "Invalid date"
+            }
+          }
+
+          // Add assigned trainings (not started)
+          if (employee.assignedTrainings && Array.isArray(employee.assignedTrainings)) {
+            employee.assignedTrainings.forEach((training: any) => {
+              allTrainings.push({
+                id: training.enrollmentId || training.id || `assigned-${training.trainingId}`,
+                name: training.title || training.training || "Unknown Training",
+                progress: 0,
+                completed: false,
+                dueDate: formatDueDate(training.dueDate),
+                trainingId: training.trainingId || training.id,
+                status: "assigned",
+                category: training.category,
+                ceuHours: training.ceuHours,
+              })
+            })
+          }
+
+          // Add in-progress trainings
+          if (employee.inProgressTrainings && Array.isArray(employee.inProgressTrainings)) {
+            employee.inProgressTrainings.forEach((training: any) => {
+              allTrainings.push({
+                id: training.enrollmentId || training.id || `inprogress-${training.trainingId}`,
+                name: training.title || training.training || "Unknown Training",
+                progress: training.progress || 0,
+                completed: false,
+                dueDate: formatDueDate(training.dueDate),
+                trainingId: training.trainingId || training.id,
+                status: "in_progress",
+                category: training.category,
+                ceuHours: training.ceuHours,
+              })
+            })
+          }
+
+          // Add completed trainings
+          if (employee.completedTrainings && Array.isArray(employee.completedTrainings)) {
+            employee.completedTrainings.forEach((training: any) => {
+              allTrainings.push({
+                id: training.enrollmentId || training.id || `completed-${training.trainingId}`,
+                name: training.title || training.training || "Unknown Training",
+                progress: 100,
+                completed: true,
+                dueDate: training.completionDate ? `Completed ${new Date(training.completionDate).toLocaleDateString()}` : "Completed",
+                trainingId: training.trainingId || training.id,
+                status: "completed",
+                category: training.category,
+                ceuHours: training.ceuHours,
+              })
+            })
+          }
+
+          // Add upcoming deadlines (within 1 week)
+          if (employee.upcomingDeadlines && Array.isArray(employee.upcomingDeadlines)) {
+            employee.upcomingDeadlines.forEach((deadline: any) => {
+              // Check if this training is already in the list
+              const existing = allTrainings.find(t => t.trainingId === deadline.trainingId)
+              if (!existing) {
+                allTrainings.push({
+                  id: deadline.assignmentId || deadline.enrollmentId || `deadline-${deadline.trainingId}`,
+                  name: deadline.training || deadline.title || "Unknown Training",
+                  progress: 0,
+                  completed: false,
+                  dueDate: formatDueDate(deadline.dueDate),
+                  trainingId: deadline.trainingId,
+                  status: "upcoming",
+                  category: deadline.category,
+                  ceuHours: deadline.ceuHours,
+                })
+              }
+            })
+          }
+
+          console.log("Staff Dashboard: Total trainings to display:", allTrainings.length)
+          setRealTrainingModules(allTrainings)
+        } else {
+          console.log("Staff Dashboard: No employee data found or empty response")
+          setRealTrainingModules([])
+        }
+      } catch (error: any) {
+        console.error("Staff Dashboard: Error loading trainings:", error)
+        setRealTrainingModules([])
+      } finally {
+        setIsLoadingTrainings(false)
+      }
+    }
+
+    // Load trainings when staff is selected or when training tab is active
+    if (activeTab === "training" || selectedStaff?.id) {
+      loadTrainings()
+    }
+  }, [selectedStaff?.id, activeTab])
+
+  useEffect(() => {
+    const loadCerts = async () => {
+      try {
+        setIsLoadingCerts(true)
+        setCertsFromDocs([])
+        const email = selectedStaff?.email
+        if (!email) return
+        const res = await fetch(`/api/applicants/documents/by-email?email=${encodeURIComponent(email)}`)
+        const data = await res.json()
+        if (data.success && Array.isArray(data.documents)) {
+          const mapped = data.documents
+            .filter((d: any) => d.document_type === 'license' || d.document_type === 'certification')
+            .map((d: any) => {
+              const baseName = (d.file_name || d.document_type || '').replace(/\.[^/.]+$/, '')
+              const name = d.document_type === 'license' ? (baseName || 'License') : (baseName || 'Certification')
+              const status = d.status === 'verified' ? 'Active' : (d.status === 'pending' ? 'Pending' : 'Needs Review')
+              const expires = d.expiration_date ? new Date(d.expiration_date).toISOString().split('T')[0] : '—'
+              return { name, status, expires }
+            })
+          setCertsFromDocs(mapped)
+        }
+      } catch (e) {
+        console.error('Failed to load certificates/licenses from documents', e)
+      } finally {
+        setIsLoadingCerts(false)
+      }
+    }
+    loadCerts()
+  }, [selectedStaff?.email])
+
+  // Simulate real-time eligibility checking
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPendingOnboardingPatients((prev) =>
+        prev.map((patient) => {
+          if (patient.eligibilityStatus === "checking") {
+            return {
+              ...patient,
+              eligibilityStatus: "verified" as const,
+              authorizationStatus: patient.insuranceProvider.includes("Medicare")
+                ? ("not_required" as const)
+                : ("pending" as const),
+            }
+          }
+          return patient
+        }),
+      )
+    }, 3000)
+
+    return () => clearInterval(interval)
+  }, [])
+
+  // Load shifts - moved before conditional returns to maintain hooks order
+  useEffect(() => {
+    const loadShifts = async () => {
+      try {
+        setIsLoadingShifts(true)
+        setUpcomingShifts([])
+        if (!selectedStaff?.id) return
+        const r = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(selectedStaff.id)}`, { cache: 'no-store' })
+        const d = await r.json()
+        if (d.success && Array.isArray(d.shifts)) {
+          const mapped = d.shifts
+            .filter((sh: any) => sh.day_of_week >= 0 && sh.day_of_week <= 6)
+            .map((sh: any) => {
+              const nextDate = getNextDateForDow(sh.day_of_week)
+              const { facility, unit } = formatFacilityUnit(sh.location)
+              return {
+                id: sh.id,
+                date: nextDate.toISOString().split('T')[0],
+                time: `${sh.start_time} - ${sh.end_time}`,
+                location: facility,
+                unit: unit,
+                day_of_week: sh.day_of_week,
+                start_time: sh.start_time,
+                end_time: sh.end_time,
+                shift_type: sh.shift_type || 'office',
+                notes: sh.notes || '',
+              }
+            })
+            .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+          setUpcomingShifts(mapped)
+        }
+        // load pending cancel requests for this staff
+        try {
+          const cr = await fetch(`/api/staff/cancel-requests?staff_id=${encodeURIComponent(selectedStaff.id)}&status=pending`, { cache: 'no-store' })
+          if (cr.ok) {
+            const cd = await cr.json()
+            const ids = (cd.requests || []).map((x: any) => x.shift_id)
+            setPendingCancelShiftIds(ids)
+          } else {
+            setPendingCancelShiftIds([])
+          }
+        } catch {
+          setPendingCancelShiftIds([])
+        }
+      } finally {
+        setIsLoadingShifts(false)
+      }
+    }
+    loadShifts()
+  }, [selectedStaff?.id])
+
+  // Show loading state while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Show access denied if not authenticated
+  if (!isAuthenticated || !currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="p-8 text-center">
+            <Shield className="h-16 w-16 text-red-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h1>
+            <p className="text-gray-600 mb-6">
+              You must be logged in to access the Staff Dashboard. Please log in to continue.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Button onClick={() => router.push('/login')} className="w-full">
+                Go to Login
+              </Button>
+              <Button variant="outline" onClick={() => router.push('/')} className="w-full">
+                Back to Home
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   const openEditShift = (sh: any) => {
     const idx = typeof sh.day_of_week === 'number' ? sh.day_of_week : 0
@@ -492,125 +978,48 @@ export default function StaffDashboard() {
     certifications: staffData.certifications,
     upcomingShifts: upcomingShifts.length > 0 ? upcomingShifts : staffData.upcomingShifts,
     recentPayStubs: staffData.recentPayStubs,
-    trainingModules: staffData.trainingModules,
+    trainingModules: realTrainingModules, // Only show real data from API, no mock data fallback
     patientReviews: staffData.patientReviews,
     supplyTransactions: staffData.supplyTransactions,
   }
-
-  // Load certifications/licenses from applicant documents by staff email
-  const [certsFromDocs, setCertsFromDocs] = useState<Array<{ name: string; status: string; expires: string }>>([])
-  const [isLoadingCerts, setIsLoadingCerts] = useState<boolean>(false)
-
-  useEffect(() => {
-    const loadCerts = async () => {
-      try {
-        setIsLoadingCerts(true)
-        setCertsFromDocs([])
-        const email = selectedStaff?.email
-        if (!email) return
-        const res = await fetch(`/api/applicants/documents/by-email?email=${encodeURIComponent(email)}`)
-        const data = await res.json()
-        if (data.success && Array.isArray(data.documents)) {
-          const mapped = data.documents
-            .filter((d: any) => d.document_type === 'license' || d.document_type === 'certification')
-            .map((d: any) => {
-              const baseName = (d.file_name || d.document_type || '').replace(/\.[^/.]+$/, '')
-              const name = d.document_type === 'license' ? (baseName || 'License') : (baseName || 'Certification')
-              const status = d.status === 'verified' ? 'Active' : (d.status === 'pending' ? 'Pending' : 'Needs Review')
-              const expires = d.expiration_date ? new Date(d.expiration_date).toISOString().split('T')[0] : '—'
-              return { name, status, expires }
-            })
-          setCertsFromDocs(mapped)
-        }
-      } catch (e) {
-        console.error('Failed to load certificates/licenses from documents', e)
-      } finally {
-        setIsLoadingCerts(false)
-      }
-    }
-    loadCerts()
-  }, [selectedStaff?.email])
   const certificationsToShow = certsFromDocs
 
-  // Enhanced pending onboarding patients with automatic eligibility checking and auth management
-  const [pendingOnboardingPatients, setPendingOnboardingPatients] = useState<PendingOnboardingPatient[]>([
-    {
-      id: "PAT-001",
-      name: "Margaret Anderson",
-      phone: "(248) 555-0123",
-      address: "123 Oak Street, Detroit, MI 48201",
-      firstVisitScheduled: "2024-07-06 10:00 AM",
-      assignedNurse: "Sarah Johnson",
-      services: ["SN", "PT"],
-      priority: "high",
-      status: "pending_onboarding",
-      acceptedDate: "2024-07-05",
-      eligibilityStatus: "verified",
-      authorizationStatus: "approved",
-      insuranceProvider: "Medicare Part A",
-      estimatedAuthDays: 0,
-      socRequired: true,
-      authRequiredBefore: false,
-    },
-    {
-      id: "PAT-002",
-      name: "Robert Miller",
-      phone: "(248) 555-0124",
-      address: "456 Pine Avenue, Southfield, MI 48075",
-      firstVisitScheduled: "2024-07-06 2:00 PM",
-      assignedNurse: "Sarah Johnson",
-      services: ["SN", "CHHA", "PT"],
-      priority: "high",
-      status: "pending_onboarding",
-      acceptedDate: "2024-07-04",
-      eligibilityStatus: "verified",
-      authorizationStatus: "pending",
-      insuranceProvider: "Aetna Better Health (Medicaid)",
-      estimatedAuthDays: 3,
-      socRequired: true,
-      authRequiredBefore: true,
-    },
-    {
-      id: "PAT-003",
-      name: "Dorothy Williams",
-      phone: "(248) 555-0125",
-      address: "789 Elm Street, Troy, MI 48084",
-      firstVisitScheduled: "2024-07-07 11:00 AM",
-      assignedNurse: "Sarah Johnson",
-      services: ["SN", "OT"],
-      priority: "medium",
-      status: "pending_onboarding",
-      acceptedDate: "2024-07-05",
-      eligibilityStatus: "checking",
-      authorizationStatus: "not_required",
-      insuranceProvider: "Blue Cross Blue Shield",
-      estimatedAuthDays: 0,
-      socRequired: true,
-      authRequiredBefore: false,
-    },
-  ])
+  // Show loading state while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
 
-  // Simulate real-time eligibility checking
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setPendingOnboardingPatients((prev) =>
-        prev.map((patient) => {
-          if (patient.eligibilityStatus === "checking") {
-            return {
-              ...patient,
-              eligibilityStatus: "verified" as const,
-              authorizationStatus: patient.insuranceProvider.includes("Medicare")
-                ? ("not_required" as const)
-                : ("pending" as const),
-            }
-          }
-          return patient
-        }),
-      )
-    }, 3000)
-
-    return () => clearInterval(interval)
-  }, [])
+  // Show access denied if not authenticated
+  if (!isAuthenticated || !currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <Card className="max-w-md w-full">
+          <CardContent className="p-8 text-center">
+            <Shield className="h-16 w-16 text-red-500 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-gray-900 mb-2">Access Denied</h1>
+            <p className="text-gray-600 mb-6">
+              You must be logged in to access the Staff Dashboard. Please log in to continue.
+            </p>
+            <div className="flex flex-col gap-3">
+              <Button onClick={() => router.push('/login')} className="w-full">
+                Go to Login
+              </Button>
+              <Button variant="outline" onClick={() => router.push('/')} className="w-full">
+                Back to Home
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   // Calculate supply analytics
   const supplyAnalytics = {
@@ -1352,41 +1761,210 @@ export default function StaffDashboard() {
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <BookOpen className="h-5 w-5 mr-2" />
-                  Training Modules
+                  All Assigned Trainings
                 </CardTitle>
-                <CardDescription>Complete required training and continuing education</CardDescription>
+                <CardDescription>
+                  View all your training assignments - not started, in progress, and completed
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {displayStaff.trainingModules.map((module, index) => (
-                    <div key={index} className="p-4 border rounded-lg">
-                      <div className="flex items-center justify-between mb-3">
-                        <div>
-                          <h3 className="font-medium">{module.name}</h3>
-                          <p className="text-sm text-gray-600">Due: {module.dueDate}</p>
-                        </div>
-                        <Badge
-                          className={module.completed ? "bg-green-100 text-green-800" : "bg-yellow-100 text-yellow-800"}
-                        >
-                          {module.completed ? "Completed" : "In Progress"}
-                        </Badge>
+                {isLoadingTrainings ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-600 mr-2" />
+                    <span className="text-gray-600">Loading trainings...</span>
+                  </div>
+                ) : displayStaff.trainingModules.length === 0 ? (
+                  <div className="text-center py-8">
+                    <BookOpen className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No trainings assigned</h3>
+                    <p className="text-gray-600">You don't have any training modules assigned at this time.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Summary Stats */}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-yellow-600">
+                          {displayStaff.trainingModules.filter((m: any) => m.status === "assigned").length}
+                        </p>
+                        <p className="text-sm text-gray-600">Not Started</p>
                       </div>
-                      <div className="mb-3">
-                        <div className="flex justify-between text-sm mb-1">
-                          <span>Progress</span>
-                          <span>{module.progress}%</span>
-                        </div>
-                        <Progress value={module.progress} className="h-2" />
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-blue-600">
+                          {displayStaff.trainingModules.filter((m: any) => m.status === "in_progress").length}
+                        </p>
+                        <p className="text-sm text-gray-600">In Progress</p>
                       </div>
-                      {!module.completed && (
-                        <Button size="sm">
-                          Continue Training
-                          <ChevronRight className="h-4 w-4 ml-1" />
-                        </Button>
-                      )}
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-green-600">
+                          {displayStaff.trainingModules.filter((m: any) => m.status === "completed").length}
+                        </p>
+                        <p className="text-sm text-gray-600">Completed</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-2xl font-bold text-gray-900">
+                          {displayStaff.trainingModules.length}
+                        </p>
+                        <p className="text-sm text-gray-600">Total Assigned</p>
+                      </div>
                     </div>
-                  ))}
-                </div>
+
+                    {/* All Trainings List */}
+                    <div className="space-y-4">
+                      {displayStaff.trainingModules.map((module: any, index: number) => {
+                      const getStatusBadge = () => {
+                        if (module.completed || module.status === "completed") {
+                          return <Badge className="bg-green-100 text-green-800 border border-green-300">✓ Completed</Badge>
+                        }
+                        if (module.status === "in_progress") {
+                          return <Badge className="bg-blue-100 text-blue-800 border border-blue-300">⟳ In Progress</Badge>
+                        }
+                        if (module.status === "upcoming") {
+                          return <Badge className="bg-orange-100 text-orange-800 border border-orange-300">⚠ Due Soon</Badge>
+                        }
+                        if (module.status === "assigned") {
+                          return <Badge className="bg-yellow-100 text-yellow-800 border border-yellow-300">○ Not Started</Badge>
+                        }
+                        return <Badge className="bg-gray-100 text-gray-800 border border-gray-300">○ Not Started</Badge>
+                      }
+                      
+                      const getCardBorderColor = () => {
+                        if (module.completed || module.status === "completed") {
+                          return "border-l-4 border-l-green-500"
+                        }
+                        if (module.status === "in_progress") {
+                          return "border-l-4 border-l-blue-500"
+                        }
+                        if (module.status === "upcoming") {
+                          return "border-l-4 border-l-orange-500"
+                        }
+                        return "border-l-4 border-l-yellow-500"
+                      }
+
+                      const handleContinueTraining = async () => {
+                        if (!module.trainingId) {
+                          toast({
+                            title: "Error",
+                            description: "Training ID not found. Please contact support.",
+                            variant: "destructive",
+                          })
+                          return
+                        }
+
+                        if (!selectedStaff?.id) {
+                          toast({
+                            title: "Error",
+                            description: "Staff ID not found. Please refresh the page.",
+                            variant: "destructive",
+                          })
+                          return
+                        }
+
+                        try {
+                          // If training is not started, start it first
+                          if (module.status === "assigned" || !module.status) {
+                            const startResponse = await fetch("/api/in-service/employee-progress", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                employeeId: selectedStaff.id,
+                                trainingId: module.trainingId,
+                                action: "start",
+                              }),
+                            })
+
+                            if (!startResponse.ok) {
+                              const errorData = await startResponse.text()
+                              throw new Error(`Failed to start training: ${errorData}`)
+                            }
+
+                            toast({
+                              title: "Training Started",
+                              description: "Redirecting to training page...",
+                            })
+                          }
+
+                          // Navigate to training detail page
+                          window.location.href = `/staff-training/${module.trainingId}?staffId=${encodeURIComponent(selectedStaff.id)}`
+                        } catch (error: any) {
+                          console.error("Error starting training:", error)
+                          toast({
+                            title: "Error",
+                            description: error.message || "Failed to start training",
+                            variant: "destructive",
+                          })
+                        }
+                      }
+
+                      return (
+                        <div key={module.id || index} className={`p-4 border rounded-lg hover:shadow-md transition-shadow ${getCardBorderColor()}`}>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex-1">
+                              <h3 className="font-medium text-gray-900">{module.name}</h3>
+                              <div className="flex items-center gap-3 mt-1 flex-wrap">
+                                <p className="text-sm text-gray-600">{module.dueDate}</p>
+                                {module.category && (
+                                  <Badge variant="outline" className="text-xs">
+                                    {module.category}
+                                  </Badge>
+                                )}
+                                {module.ceuHours && (
+                                  <span className="text-xs text-gray-500 flex items-center">
+                                    <Award className="h-3 w-3 mr-1" />
+                                    {module.ceuHours} CEU {module.ceuHours === 1 ? "Hour" : "Hours"}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="ml-4">
+                              {getStatusBadge()}
+                            </div>
+                          </div>
+                          <div className="mb-3">
+                            <div className="flex justify-between text-sm mb-1">
+                              <span>Progress</span>
+                              <span className={`font-medium ${
+                                module.progress === 100 ? "text-green-600" : 
+                                module.progress > 0 ? "text-blue-600" : 
+                                "text-gray-600"
+                              }`}>{module.progress}%</span>
+                            </div>
+                            <Progress value={module.progress} className="h-2" />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {!(module.completed || module.status === "completed") && (
+                              <Button 
+                                size="sm" 
+                                onClick={handleContinueTraining}
+                                className="flex-1 sm:flex-initial"
+                              >
+                                {module.status === "assigned" || !module.status ? "Start Training" : "Continue Training"}
+                                <ChevronRight className="h-4 w-4 ml-1" />
+                              </Button>
+                            )}
+                            {(module.completed || module.status === "completed") && (
+                              <>
+                                <div className="flex items-center text-sm text-green-600 flex-1">
+                                  <CheckCircle className="h-4 w-4 mr-1" />
+                                  Training completed successfully
+                                </div>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={handleContinueTraining}
+                                >
+                                  <Eye className="h-4 w-4 mr-1" />
+                                  Review
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )
+                      })}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -1424,25 +2002,6 @@ export default function StaffDashboard() {
               </CardContent>
             </Card>
 
-            {/* Cancel request reason dialog */}
-            <Dialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
-              <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Request Shift Cancellation</DialogTitle>
-                  <DialogDescription>Please provide a reason for cancellation.</DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label>Reason</Label>
-                    <Textarea rows={3} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="e.g., Family emergency, schedule conflict" />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline" onClick={() => setIsCancelOpen(false)}>Close</Button>
-                    <Button onClick={submitCancelRequest} disabled={!cancelReason.trim()}>Submit Request</Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
           </TabsContent>
 
           <TabsContent value="payroll" className="space-y-6">
@@ -1482,6 +2041,30 @@ export default function StaffDashboard() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Cancel request reason dialog - Moved outside TabsContent so it's always available */}
+        <Dialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Request Shift Cancellation</DialogTitle>
+              <DialogDescription>Please provide a reason for cancellation.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>Reason</Label>
+                <Textarea rows={3} value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="e.g., Family emergency, schedule conflict" />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => {
+                  setIsCancelOpen(false)
+                  setCancelReason("")
+                  setCancelTarget(null)
+                }}>Close</Button>
+                <Button onClick={submitCancelRequest} disabled={!cancelReason.trim()}>Submit Request</Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )

@@ -1,146 +1,422 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { createClient } from "@supabase/supabase-js"
+
+// Helper to get service role client (bypasses RLS)
+function getServiceClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+  return createClient(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+}
+
+// Helper to get regular client (respects RLS)
+function getClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  return createClient(supabaseUrl, supabaseAnonKey)
+}
+
+// Helper to get role-based annual requirement
+function getRoleBasedRequirement(role: string): number {
+  const roleUpper = (role || "").toUpperCase()
+  
+  // Different roles may have different requirements
+  // You can customize these based on your organization's needs
+  if (roleUpper.includes("RN") || roleUpper.includes("REGISTERED NURSE")) {
+    return 20.0 // RNs typically need 20 hours
+  } else if (roleUpper.includes("LPN") || roleUpper.includes("LICENSED PRACTICAL NURSE")) {
+    return 20.0 // LPNs typically need 20 hours
+  } else if (roleUpper.includes("PT") || roleUpper.includes("PHYSICAL THERAPIST")) {
+    return 20.0 // PTs typically need 20 hours
+  } else if (roleUpper.includes("PTA") || roleUpper.includes("PHYSICAL THERAPIST ASSISTANT")) {
+    return 20.0 // PTAs typically need 20 hours
+  } else if (roleUpper.includes("OT") || roleUpper.includes("OCCUPATIONAL THERAPIST")) {
+    return 20.0 // OTs typically need 20 hours
+  } else if (roleUpper.includes("CNA") || roleUpper.includes("CERTIFIED NURSING ASSISTANT")) {
+    return 12.0 // CNAs typically need 12 hours
+  } else {
+    return 20.0 // Default for other roles
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {
+    // Use service role client to bypass RLS and ensure all data is accessible
+    const supabase = getServiceClient()
+
     const { searchParams } = new URL(request.url)
     const employeeId = searchParams.get("employeeId")
     const role = searchParams.get("role")
     const status = searchParams.get("status")
 
-    // Mock employee progress data
-    const employeeProgress = [
-      {
-        id: "EMP-001",
-        name: "Sarah Johnson",
-        role: "RN",
-        department: "Home Health",
-        hireDate: "2023-03-15",
-        annualRequirement: 20,
-        completedHours: 14.5,
-        inProgressHours: 3.0,
-        remainingHours: 2.5,
-        complianceStatus: "on_track",
-        lastTrainingDate: "2024-01-15",
-        nextDeadline: "2024-06-30",
-        completedTrainings: [
-          {
-            id: "IS-003",
-            title: "Infection Control & Prevention",
-            completionDate: "2024-01-15",
-            score: 95,
-            ceuHours: 1.25,
-            certificate: "CERT-2024-001",
-          },
-          {
-            id: "IS-004",
-            title: "HIPAA Privacy & Security Update",
-            completionDate: "2024-01-10",
-            score: 98,
-            ceuHours: 1.0,
-            certificate: "CERT-2024-002",
-          },
-        ],
-        inProgressTrainings: [
-          {
-            id: "IS-001",
-            title: "Advanced Wound Care Management",
-            startDate: "2024-01-20",
-            progress: 75,
-            estimatedCompletion: "2024-02-05",
-            ceuHours: 2.0,
-          },
-        ],
-        upcomingDeadlines: [
-          { training: "Medication Safety", dueDate: "2024-06-30", priority: "high" },
-          { training: "Wound Care Update", dueDate: "2024-12-31", priority: "medium" },
-        ],
-      },
-      {
-        id: "EMP-002",
-        name: "Michael Chen",
-        role: "PT",
-        department: "Rehabilitation",
-        hireDate: "2023-01-20",
-        annualRequirement: 24,
-        completedHours: 18.0,
-        inProgressHours: 3.0,
-        remainingHours: 3.0,
-        complianceStatus: "on_track",
-        lastTrainingDate: "2024-01-12",
-        nextDeadline: "2024-08-15",
-        completedTrainings: [
-          {
-            id: "IS-003",
-            title: "Infection Control & Prevention",
-            completionDate: "2024-01-12",
-            score: 88,
-            ceuHours: 1.25,
-            certificate: "CERT-2024-003",
-          },
-          {
-            id: "IS-004",
-            title: "HIPAA Privacy & Security Update",
-            completionDate: "2024-01-08",
-            score: 92,
-            ceuHours: 1.0,
-            certificate: "CERT-2024-004",
-          },
-        ],
-        inProgressTrainings: [
-          {
-            id: "IS-005",
-            title: "Physical Therapy Techniques",
-            startDate: "2024-01-18",
-            progress: 40,
-            estimatedCompletion: "2024-02-15",
-            ceuHours: 3.0,
-          },
-        ],
-        upcomingDeadlines: [{ training: "PT Techniques Advanced", dueDate: "2024-08-15", priority: "medium" }],
-      },
-      {
-        id: "EMP-003",
-        name: "Emily Davis",
-        role: "CNA",
-        department: "Home Health",
-        hireDate: "2024-01-10",
-        annualRequirement: 12,
-        completedHours: 3.25,
-        inProgressHours: 1.5,
-        remainingHours: 7.25,
-        complianceStatus: "behind",
-        lastTrainingDate: "2024-01-10",
-        nextDeadline: "2024-03-31",
-        completedTrainings: [
-          {
-            id: "IS-004",
-            title: "HIPAA Privacy & Security Update",
-            completionDate: "2024-01-10",
-            score: 85,
-            ceuHours: 1.0,
-            certificate: "CERT-2024-005",
-          },
-        ],
-        inProgressTrainings: [
-          {
-            id: "IS-002",
-            title: "Medication Administration Safety",
-            startDate: "2024-01-22",
-            progress: 25,
-            estimatedCompletion: "2024-02-10",
-            ceuHours: 1.5,
-          },
-        ],
-        upcomingDeadlines: [
-          { training: "Medication Safety", dueDate: "2024-06-30", priority: "high" },
-          { training: "Infection Control", dueDate: "2024-03-31", priority: "urgent" },
-        ],
-      },
+    // Get all employees (from staff table and hired applicants)
+    const { data: staffList } = await supabase.from("staff").select("id, name, email, role_id, department, credentials").eq("is_active", true)
+    
+    // Get hired applicants
+    const { data: hiredApps } = await supabase
+      .from("job_applications")
+      .select("applicant_id")
+      .in("status", ["accepted", "hired"])
+
+    const applicantIds = Array.from(new Set((hiredApps || []).map((a: any) => a.applicant_id).filter(Boolean)))
+    
+    let applicantsList: any[] = []
+    if (applicantIds.length > 0) {
+      const { data } = await supabase
+        .from("applicants")
+        .select("id, first_name, last_name, email, profession")
+        .in("id", applicantIds as string[])
+      applicantsList = data || []
+    }
+
+    // Get training requirements for current year
+    const currentYear = new Date().getFullYear()
+    const { data: requirements } = await supabase
+      .from("employee_training_requirements")
+      .select("*")
+      .eq("year", currentYear)
+
+    // Get all enrollments
+    const { data: enrollments } = await supabase
+      .from("in_service_enrollments")
+      .select("*, in_service_trainings(*)")
+
+    // Get all completions
+    const { data: completions } = await supabase
+      .from("in_service_completions")
+      .select("*, in_service_trainings(*)")
+
+    // Get all assignments
+    const { data: assignments } = await supabase
+      .from("in_service_assignments")
+      .select("*, in_service_trainings(*)")
+      .eq("status", "active")
+
+    // Combine staff and applicants into employee list
+    const employees = [
+      ...(staffList || []).map((s: any) => ({
+        id: s.id,
+        name: s.name,
+        role: s.credentials || s.role_id || "Staff",
+        department: s.department || "General",
+        email: s.email,
+        source: "staff",
+      })),
+      ...(applicantsList || []).map((a: any) => ({
+        id: a.id,
+        name: `${a.first_name} ${a.last_name}`.trim(),
+        role: a.profession || "Employee",
+        department: "General",
+        email: a.email,
+        source: "applicant",
+      })),
     ]
 
-    let filteredProgress = employeeProgress
+    // Build employee progress data
+    const employeeProgress = await Promise.all(employees.map(async (emp) => {
+      const req = requirements?.find((r: any) => r.employee_id === emp.id)
+      const empEnrollments = enrollments?.filter((e: any) => e.employee_id === emp.id) || []
+      const empCompletions = completions?.filter((c: any) => c.employee_id === emp.id) || []
+      
+      // Filter assignments for this employee - more robust matching
+      const empAssignments = (assignments || []).filter((a: any) => {
+        // Check if assignment is for "all" employees
+        if (a.assigned_to_type === "all") {
+          return true
+        }
+        
+        // Check if assignment is for this employee's role
+        if (a.assigned_to_type === "role" && a.assigned_to_value) {
+          const assignmentRole = (a.assigned_to_value || "").toUpperCase().trim()
+          const empRole = (emp.role || "").toUpperCase().trim()
+          
+          // Check direct match
+          if (assignmentRole === empRole) {
+            return true
+          }
+          
+          // Check if role contains the assignment role (e.g., "RN" in "REGISTERED NURSE")
+          if (empRole.includes(assignmentRole) || assignmentRole.includes(empRole)) {
+            return true
+          }
+          
+          // For staff, check credentials and role_id separately
+          if (emp.source === "staff") {
+            const staffData = staffList?.find((s: any) => s.id === emp.id)
+            if (staffData) {
+              const credentials = (staffData.credentials || "").toUpperCase().trim()
+              const roleId = (staffData.role_id || "").toUpperCase().trim()
+              
+              if (credentials === assignmentRole || roleId === assignmentRole) {
+                return true
+              }
+              if (credentials.includes(assignmentRole) || assignmentRole.includes(credentials)) {
+                return true
+              }
+            }
+          }
+          
+          // For applicants, check profession
+          if (emp.source === "applicant") {
+            const applicantData = applicantsList?.find((a: any) => a.id === emp.id)
+            if (applicantData) {
+              const profession = (applicantData.profession || "").toUpperCase().trim()
+              if (profession === assignmentRole || profession.includes(assignmentRole) || assignmentRole.includes(profession)) {
+                return true
+              }
+            }
+          }
+        }
+        
+        // Check if assignment is for individual employees (by ID)
+        if (a.assigned_to_type === "individual" && Array.isArray(a.assigned_employee_ids)) {
+          return a.assigned_employee_ids.some((id: string) => id === emp.id)
+        }
+        
+        return false
+      })
+      
+      console.log(`Employee ${emp.name} (${emp.id}):`, {
+        totalAssignments: assignments?.length || 0,
+        matchedAssignments: empAssignments.length,
+        empRole: emp.role,
+        source: emp.source,
+      })
+
+      // Get completed trainings
+      const completedTrainings = empCompletions.map((c: any) => ({
+        id: c.training_id,
+        title: c.in_service_trainings?.title || "Unknown Training",
+        completionDate: c.completion_date?.split("T")[0] || "",
+        score: parseFloat(c.score?.toString() || "0"),
+        ceuHours: parseFloat(c.ceu_hours_earned?.toString() || "0"),
+        certificate: c.certificate_number || "",
+      }))
+
+      // Get in-progress trainings (status = 'in_progress')
+      const inProgressTrainings = empEnrollments
+        .filter((e: any) => e.status === "in_progress")
+        .map((e: any) => {
+          // Find the assignment for this training to get due date and priority
+          const assignment = empAssignments.find((a: any) => a.training_id === e.training_id)
+          // Get completed modules and viewed files
+          const completedModules = Array.isArray(e.completed_modules) 
+            ? e.completed_modules 
+            : (e.completed_modules ? JSON.parse(e.completed_modules) : [])
+          const viewedFiles = e.viewed_files || (typeof e.viewed_files === 'string' ? JSON.parse(e.viewed_files) : {})
+          const moduleQuizScores = e.module_quiz_scores || (typeof e.module_quiz_scores === 'string' ? JSON.parse(e.module_quiz_scores) : {})
+          const moduleTimeSpent = e.module_time_spent || (typeof e.module_time_spent === 'string' ? JSON.parse(e.module_time_spent) : {})
+          
+          return {
+            id: e.training_id,
+            title: e.in_service_trainings?.title || "Unknown Training",
+            startDate: e.start_date?.split("T")[0] || "",
+            progress: e.progress || 0,
+            estimatedCompletion: e.estimated_completion_date || "",
+            dueDate: assignment?.due_date || "",
+            priority: assignment?.priority || "medium",
+            ceuHours: parseFloat(e.in_service_trainings?.ceu_hours?.toString() || "0"),
+            assignmentId: assignment?.id,
+            enrollmentId: e.id,
+            notes: assignment?.notes || "",
+            completedModules: completedModules,
+            viewedFiles: viewedFiles,
+            moduleQuizScores: moduleQuizScores,
+            moduleTimeSpent: moduleTimeSpent,
+            trainingId: e.training_id,
+          }
+        })
+
+      // Get assigned/enrolled trainings that haven't been started yet (status = 'enrolled')
+      const assignedTrainings = empEnrollments
+        .filter((e: any) => e.status === "enrolled")
+        .map((e: any) => {
+          // Find the assignment for this training to get due date and priority
+          const assignment = empAssignments.find((a: any) => a.training_id === e.training_id)
+          // Get completed modules from enrollment (stored as JSONB array)
+          const completedModules = Array.isArray(e.completed_modules) 
+            ? e.completed_modules 
+            : (e.completed_modules ? JSON.parse(e.completed_modules) : [])
+          const viewedFiles = e.viewed_files || (typeof e.viewed_files === 'string' ? JSON.parse(e.viewed_files) : {})
+          const moduleQuizScores = e.module_quiz_scores || (typeof e.module_quiz_scores === 'string' ? JSON.parse(e.module_quiz_scores) : {})
+          const moduleTimeSpent = e.module_time_spent || (typeof e.module_time_spent === 'string' ? JSON.parse(e.module_time_spent) : {})
+          
+          return {
+            id: e.training_id,
+            title: e.in_service_trainings?.title || "Unknown Training",
+            enrollmentDate: e.enrollment_date?.split("T")[0] || "",
+            dueDate: assignment?.due_date || "",
+            priority: assignment?.priority || "medium",
+            ceuHours: parseFloat(e.in_service_trainings?.ceu_hours?.toString() || "0"),
+            assignmentId: assignment?.id,
+            enrollmentId: e.id,
+            notes: assignment?.notes || "",
+            completedModules: completedModules, // Array of completed module IDs
+            viewedFiles: viewedFiles, // Object mapping moduleId to array of viewed fileIds
+            moduleQuizScores: moduleQuizScores, // Object mapping moduleId to quiz score
+            moduleTimeSpent: moduleTimeSpent, // Object mapping moduleId to time spent (seconds)
+            trainingId: e.training_id,
+          }
+        })
+
+      // Get upcoming deadlines from assignments
+      // Show assignments that are active, have a due date within 1 week (7 days or less), and are not yet completed
+      const upcomingDeadlines = empAssignments
+        .filter((a: any) => {
+          // Only show assignments that are active and have a due date
+          if (!a.due_date || a.status !== "active") return false
+          
+          // Check if due date is within 1 week (7 days or less) from today
+          const dueDate = new Date(a.due_date)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0) // Reset time to start of day
+          dueDate.setHours(0, 0, 0, 0) // Reset time to start of day
+          
+          const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          
+          // Only show if due date is within 7 days (0 to 7 days from now)
+          // Don't show if more than 7 days away
+          // Don't show if overdue (negative days)
+          if (daysUntilDue > 7 || daysUntilDue < 0) return false // More than 1 week away or overdue, don't show
+          
+          // Check if training is completed
+          const completion = empCompletions.find((c: any) => c.training_id === a.training_id)
+          if (completion) return false // Already completed, don't show in upcoming
+          
+          // Show if not enrolled yet, or enrolled/in-progress (not completed)
+          const enrollment = empEnrollments.find((e: any) => e.training_id === a.training_id)
+          if (!enrollment) return true // Not enrolled yet - show as upcoming
+          if (enrollment.status === "enrolled" || enrollment.status === "in_progress") return true // Enrolled but not completed
+          return false // Should not reach here, but safety check
+        })
+        .map((a: any) => {
+          const dueDate = new Date(a.due_date)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          dueDate.setHours(0, 0, 0, 0)
+          const daysUntilDue = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+          
+          return {
+            trainingId: a.training_id,
+            training: a.in_service_trainings?.title || "Unknown Training",
+            dueDate: a.due_date || "",
+            daysUntilDue: daysUntilDue, // Add days until due for display
+            priority: a.priority || "medium",
+            assignmentId: a.id,
+            notes: a.notes || "",
+            assignedDate: a.assigned_date?.split("T")[0] || "",
+          }
+        })
+        .sort((a, b) => {
+          // Sort by days until due (soonest first)
+          return a.daysUntilDue - b.daysUntilDue
+        })
+
+      // Calculate ACTUAL completed hours from completions (not from requirements table)
+      const actualCompletedHours = empCompletions.reduce((sum, completion) => {
+        return sum + parseFloat(completion.ceu_hours_earned?.toString() || "0")
+      }, 0)
+      
+      // Calculate ACTUAL in-progress hours from enrollments
+      const actualInProgressHours = empEnrollments
+        .filter((e: any) => e.status === "in_progress")
+        .reduce((sum, enrollment) => {
+          return sum + parseFloat(enrollment.in_service_trainings?.ceu_hours?.toString() || "0")
+        }, 0)
+      
+      const completedHours = actualCompletedHours
+      const inProgressHours = actualInProgressHours
+      
+      console.log(`[ANNUAL PROGRESS] Employee: ${emp.name}`, {
+        completions: empCompletions.length,
+        completedHours,
+        inProgressEnrollments: empEnrollments.filter((e: any) => e.status === "in_progress").length,
+        inProgressHours,
+        annualRequirementFromDB: req?.annual_requirement_hours
+      })
+      
+      // Get the actual annual requirement for this employee from the database
+      // If no requirement record exists, calculate it based on employee's role/credentials
+      let annualRequirement = parseFloat(req?.annual_requirement_hours?.toString() || "0")
+      
+      // If no requirement record exists, create one or use role-based default
+      if (!req || annualRequirement === 0) {
+        // Try to determine requirement based on role
+        // Different roles might have different requirements
+        const roleBasedRequirement = getRoleBasedRequirement(emp.role)
+        annualRequirement = roleBasedRequirement
+        
+        // Create requirement record for this employee if it doesn't exist
+        // Use service client for upsert operation
+        const serviceSupabase = getServiceClient()
+        const currentYear = new Date().getFullYear()
+        const remainingHours = Math.max(0, annualRequirement - completedHours - inProgressHours)
+        
+        await serviceSupabase
+          .from("employee_training_requirements")
+          .upsert({
+            employee_id: emp.id,
+            year: currentYear,
+            annual_requirement_hours: annualRequirement,
+            completed_hours: completedHours,
+            in_progress_hours: inProgressHours,
+            remaining_hours: remainingHours,
+            compliance_status: remainingHours === 0 ? "on_track" : (remainingHours > 10 ? "behind" : "at_risk"),
+            last_training_date: empCompletions.length > 0 ? empCompletions[empCompletions.length - 1].completion_date : null,
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: "employee_id,year"
+          })
+      } else {
+        // Update existing requirement record with latest calculated hours
+        const serviceSupabase = getServiceClient()
+        const currentYear = new Date().getFullYear()
+        const remainingHours = Math.max(0, annualRequirement - completedHours - inProgressHours)
+        
+        await serviceSupabase
+          .from("employee_training_requirements")
+          .update({
+            completed_hours: completedHours,
+            in_progress_hours: inProgressHours,
+            remaining_hours: remainingHours,
+            compliance_status: remainingHours === 0 ? "on_track" : (remainingHours > 10 ? "behind" : "at_risk"),
+            last_training_date: empCompletions.length > 0 ? empCompletions[empCompletions.length - 1].completion_date : null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("employee_id", emp.id)
+          .eq("year", currentYear)
+      }
+      
+      // Calculate remaining hours based on actual requirement
+      const remainingHours = Math.max(0, annualRequirement - completedHours - inProgressHours)
+
+      return {
+        id: emp.id,
+        name: emp.name,
+        role: emp.role,
+        department: emp.department,
+        hireDate: "", // Would need to be added to tables
+        annualRequirement: annualRequirement,
+        completedHours: completedHours,
+        inProgressHours: inProgressHours,
+        remainingHours: remainingHours,
+        complianceStatus: req?.compliance_status || "on_track",
+        lastTrainingDate: req?.last_training_date?.toString() || "",
+        nextDeadline: upcomingDeadlines[0]?.dueDate || "",
+        completedTrainings,
+        inProgressTrainings,
+        assignedTrainings, // Assigned but not started yet
+        upcomingDeadlines,
+      }
+    }))
 
     // Apply filters
+    let filteredProgress = employeeProgress
+
     if (employeeId) {
       filteredProgress = filteredProgress.filter((emp) => emp.id === employeeId)
     }
@@ -162,11 +438,16 @@ export async function GET(request: NextRequest) {
       nonCompliant: employeeProgress.filter((e) => e.complianceStatus === "non_compliant").length,
       totalHoursCompleted: employeeProgress.reduce((sum, emp) => sum + emp.completedHours, 0),
       averageCompletion:
-        Math.round(
-          (employeeProgress.reduce((sum, emp) => sum + (emp.completedHours / emp.annualRequirement) * 100, 0) /
+        employeeProgress.length > 0
+          ? Math.round(
+              (employeeProgress.reduce(
+                (sum, emp) => sum + (emp.completedHours / emp.annualRequirement) * 100,
+                0,
+              ) /
             employeeProgress.length) *
             10,
-        ) / 10,
+            ) / 10
+          : 0,
     }
 
     return NextResponse.json({
@@ -183,60 +464,191 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    // Use service role client to bypass RLS for admin operations
+    const supabase = getServiceClient()
+
     const { employeeId, trainingId, action, data } = await request.json()
 
     if (!employeeId || !trainingId || !action) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    let result = {}
+    let result: any = {}
 
     switch (action) {
       case "enroll":
-        result = {
-          employeeId,
-          trainingId,
-          enrollmentDate: new Date().toISOString(),
+        // Check if enrollment already exists
+        const { data: existingEnrollment } = await supabase
+          .from("in_service_enrollments")
+          .select("*")
+          .eq("training_id", trainingId)
+          .eq("employee_id", employeeId)
+          .single()
+
+        if (existingEnrollment) {
+          return NextResponse.json({
+            success: true,
+            result: existingEnrollment,
+            message: "Employee already enrolled",
+          })
+        }
+
+        const { data: newEnrollment, error: enrollError } = await supabase
+          .from("in_service_enrollments")
+          .insert({
+            training_id: trainingId,
+            employee_id: employeeId,
+            enrollment_date: new Date().toISOString(),
           status: "enrolled",
           progress: 0,
+          })
+          .select()
+          .single()
+
+        if (enrollError) {
+          return NextResponse.json({ error: "Failed to enroll: " + enrollError.message }, { status: 500 })
         }
-        console.log(`Employee ${employeeId} enrolled in training ${trainingId}`)
+
+        result = newEnrollment
         break
 
       case "start":
-        result = {
-          employeeId,
-          trainingId,
-          startDate: new Date().toISOString(),
+        const { data: enrollmentToStart } = await supabase
+          .from("in_service_enrollments")
+          .select("*")
+          .eq("training_id", trainingId)
+          .eq("employee_id", employeeId)
+          .single()
+
+        if (!enrollmentToStart) {
+          // Create enrollment if it doesn't exist
+          const { data: newEnroll } = await supabase
+            .from("in_service_enrollments")
+            .insert({
+              training_id: trainingId,
+              employee_id: employeeId,
+              start_date: new Date().toISOString(),
           status: "in_progress",
           progress: 0,
+            })
+            .select()
+            .single()
+          result = newEnroll
+        } else {
+          const { data: updatedEnroll } = await supabase
+            .from("in_service_enrollments")
+            .update({
+              start_date: new Date().toISOString(),
+              status: "in_progress",
+              last_accessed: new Date().toISOString(),
+            })
+            .eq("id", enrollmentToStart.id)
+            .select()
+            .single()
+          result = updatedEnroll
         }
-        console.log(`Employee ${employeeId} started training ${trainingId}`)
         break
 
       case "progress":
-        result = {
-          employeeId,
-          trainingId,
-          progress: data.progress || 0,
-          lastAccessed: new Date().toISOString(),
-          status: data.progress >= 100 ? "completed" : "in_progress",
+        const { data: enrollmentForProgress } = await supabase
+          .from("in_service_enrollments")
+          .select("*")
+          .eq("training_id", trainingId)
+          .eq("employee_id", employeeId)
+          .single()
+
+        if (!enrollmentForProgress) {
+          return NextResponse.json({ error: "Enrollment not found" }, { status: 404 })
         }
-        console.log(`Employee ${employeeId} progress updated for training ${trainingId}: ${data.progress}%`)
+
+        const progressValue = data?.progress || 0
+        const completedModules = data?.completedModules || []
+        const viewedFiles = data?.viewedFiles || {} // Track viewed files per module
+        const moduleQuizScores = data?.moduleQuizScores || {} // Track quiz scores per module
+        const moduleTimeSpent = data?.moduleTimeSpent || {} // Track time spent per module in seconds
+        
+        // Update enrollment with progress and completed modules
+        const updateData: any = {
+          progress: progressValue,
+          status: progressValue >= 100 ? "completed" : "in_progress",
+          last_accessed: new Date().toISOString(),
+        }
+        
+        // Store completed modules as JSONB if provided
+        if (Array.isArray(completedModules)) {
+          updateData.completed_modules = completedModules
+        }
+        
+        // Store viewed files as JSONB (object mapping moduleId to array of fileIds)
+        if (viewedFiles && typeof viewedFiles === 'object') {
+          updateData.viewed_files = viewedFiles
+        }
+        
+        // Store module quiz scores as JSONB (object mapping moduleId to score)
+        if (moduleQuizScores && typeof moduleQuizScores === 'object') {
+          updateData.module_quiz_scores = moduleQuizScores
+        }
+        
+        // Store module time spent as JSONB (object mapping moduleId to seconds)
+        if (moduleTimeSpent && typeof moduleTimeSpent === 'object') {
+          updateData.module_time_spent = moduleTimeSpent
+        }
+        
+        const { data: updatedProgress } = await supabase
+          .from("in_service_enrollments")
+          .update(updateData)
+          .eq("id", enrollmentForProgress.id)
+          .select()
+          .single()
+
+        result = updatedProgress
         break
 
       case "complete":
-        result = {
-          employeeId,
-          trainingId,
-          completionDate: new Date().toISOString(),
+        const { data: enrollmentToComplete } = await supabase
+          .from("in_service_enrollments")
+          .select("*, in_service_trainings(*)")
+          .eq("training_id", trainingId)
+          .eq("employee_id", employeeId)
+          .single()
+
+        if (!enrollmentToComplete) {
+          return NextResponse.json({ error: "Enrollment not found" }, { status: 404 })
+        }
+
+        // Update enrollment to completed
+        await supabase
+          .from("in_service_enrollments")
+          .update({
           status: "completed",
           progress: 100,
-          score: data.score || 0,
-          ceuHours: data.ceuHours || 0,
-          certificate: `CERT-${Date.now()}`,
+          })
+          .eq("id", enrollmentToComplete.id)
+
+        // Create completion record
+        const { data: newCompletion, error: completionError } = await supabase
+          .from("in_service_completions")
+          .insert({
+            enrollment_id: enrollmentToComplete.id,
+            training_id: trainingId,
+            employee_id: employeeId,
+            completion_date: new Date().toISOString(),
+            score: parseFloat(data?.score?.toString() || "0"),
+            ceu_hours_earned: parseFloat(
+              enrollmentToComplete.in_service_trainings?.ceu_hours?.toString() || data?.ceuHours?.toString() || "0",
+            ),
+            certificate_number: `CERT-${Date.now()}`,
+            quiz_attempts: data?.quizAttempts || 0,
+            final_quiz_score: parseFloat(data?.score?.toString() || "0"),
+          })
+          .select()
+          .single()
+
+        if (completionError) {
+          return NextResponse.json({ error: "Failed to complete: " + completionError.message }, { status: 500 })
         }
-        console.log(`Employee ${employeeId} completed training ${trainingId} with score ${data.score}%`)
+
+        result = newCompletion
         break
 
       default:

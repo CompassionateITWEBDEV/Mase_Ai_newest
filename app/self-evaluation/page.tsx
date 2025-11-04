@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -11,6 +11,13 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { ArrowLeft, PenTool, Save, Send, Clock, User, Target, Star, BookOpen, Award, TrendingUp } from "lucide-react"
 import Link from "next/link"
 import { getCurrentUser } from "@/lib/auth"
@@ -51,46 +58,16 @@ export default function SelfEvaluationPage() {
   const [historyRecords, setHistoryRecords] = useState<any[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
+  const [pipData, setPipData] = useState<any[]>([]) // Performance Improvement Plans
+  const [performanceGoals, setPerformanceGoals] = useState<any[]>([]) // Performance goals only
+  const [competencyGoals, setCompetencyGoals] = useState<any[]>([]) // Competency-specific goals
+  const [pipLoading, setPipLoading] = useState(false)
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  const [isSubmitted, setIsSubmitted] = useState(false)
+  const [selectedEvaluationDetails, setSelectedEvaluationDetails] = useState<any>(null)
+  const submissionInProgressRef = useRef(false) // Prevent duplicate submissions
 
-  // Mock evaluation history
-  const evaluationHistory = [
-    {
-      id: "PERF-2024-001",
-      type: "Performance - Annual Review",
-      status: "approved",
-      submittedAt: "2024-01-15",
-      score: 4.6,
-      approvedBy: "Dr. Martinez",
-      evaluationType: "performance" as const,
-    },
-    {
-      id: "COMP-2024-001",
-      type: "Competency - Skills Validation",
-      status: "approved",
-      submittedAt: "2024-01-10",
-      score: 4.4,
-      approvedBy: "Dr. Martinez",
-      evaluationType: "competency" as const,
-    },
-    {
-      id: "PERF-2023-002",
-      type: "Performance - Mid-Year Review",
-      status: "approved",
-      submittedAt: "2023-07-20",
-      score: 4.4,
-      approvedBy: "Jane Smith",
-      evaluationType: "performance" as const,
-    },
-    {
-      id: "COMP-2023-001",
-      type: "Competency - Annual Assessment",
-      status: "approved",
-      submittedAt: "2023-01-10",
-      score: 4.2,
-      approvedBy: "Dr. Wilson",
-      evaluationType: "competency" as const,
-    },
-  ]
+  // Mock evaluation history removed - now using real data from database via historyRecords
 
   // Performance evaluation questions (focus on how well they're doing the job)
   const getPerformanceQuestions = (role: string): PerformanceQuestion[] => {
@@ -351,26 +328,11 @@ export default function SelfEvaluationPage() {
             record = json.evaluations[0]
           }
         }
+        // DO NOT auto-create draft - only create when user clicks "Save Draft" button
+        // This ensures no data is saved to database unless explicitly requested
         if (!record) {
-          // Create initial draft with a reasonable default due date (14 days from now)
-          const defaultDueDate = new Date()
-          defaultDueDate.setDate(defaultDueDate.getDate() + 14)
-          const createRes = await fetch("/api/self-evaluations", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
-            body: JSON.stringify({
-              action: "save-draft",
-              evaluationType,
-              assessmentType: evaluationType === "performance" ? "annual" : "skills-validation",
-              responses: {},
-              completionPercentage: 0,
-              dueDate: defaultDueDate.toISOString().slice(0, 10),
-            }),
-          })
-          if (createRes.ok) {
-            const created = await createRes.json()
-            record = created.evaluation
-          }
+          // Just use fallback client-side state - no database write
+          console.log('ℹ️ [Load] No existing draft found - using local state only. Data will not be saved until user clicks "Save Draft" or "Submit".')
         }
 
         if (record) {
@@ -388,10 +350,23 @@ export default function SelfEvaluationPage() {
           }
           setCurrentEvaluation(evalData)
           setResponses(evalData.responses || {})
+          
+          // Reset isSubmitted state - only set to true if already submitted (read-only mode)
+          // Don't auto-submit on page load
+          setIsSubmitted(record.status === "submitted" || record.status === "approved")
+          
+          // Reset submission lock if evaluation is already submitted
+          if (record.status === "submitted" || record.status === "approved") {
+            submissionInProgressRef.current = false
+          }
         } else {
-          // Fallback minimal client-side state
+          // No existing draft - create local-only state (NOT saved to database)
+          // Data will only be saved when user clicks "Save Draft" or "Submit"
+          const defaultDueDate = new Date()
+          defaultDueDate.setDate(defaultDueDate.getDate() + 14)
+          
           const fallback: SelfEvaluationData = {
-            id: `${evaluationType}-${Date.now()}`,
+            id: `local-${evaluationType}-${Date.now()}`, // Local-only ID (not a database ID)
             staffId: currentUser.id,
             evaluationType,
             assessmentType: evaluationType === "performance" ? "annual" : "skills-validation",
@@ -399,13 +374,17 @@ export default function SelfEvaluationPage() {
             completionPercentage: 0,
             responses: {},
             lastModified: new Date().toISOString(),
-            dueDate: new Date().toISOString().slice(0, 10),
+            dueDate: defaultDueDate.toISOString().slice(0, 10),
           }
           setCurrentEvaluation(fallback)
           setResponses({})
+          setIsSubmitted(false)
+          
+          console.log('ℹ️ [Load] Created local-only draft (not saved to database). User must click "Save Draft" or "Submit" to save.')
         }
       } catch (e) {
         console.error("Failed to load evaluation", e)
+        setIsSubmitted(false) // Reset on error
       }
     }
 
@@ -418,13 +397,88 @@ export default function SelfEvaluationPage() {
       try {
         setHistoryLoading(true)
         setHistoryError(null)
-        const res = await fetch(`/api/self-evaluations?status=submitted`, {
-          headers: { "x-user-id": currentUser.id },
+        
+        console.log('🔵 [History] Loading evaluation history for user:', currentUser.id)
+        
+        // Resolve current user ID to staff UUID if needed
+        let staffIdForQuery = currentUser.id
+        
+        // If currentUser.id is not a UUID, we need to resolve it
+        const isValidUUID = (str: string) => {
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          return uuidRegex.test(str)
+        }
+        
+        // Try to resolve staff_id if currentUser.id is not a UUID
+        if (!isValidUUID(currentUser.id)) {
+          console.log('🔵 [History] Resolving staff_id from user_id:', currentUser.id)
+          try {
+            const staffRes = await fetch(`/api/staff/list`)
+            if (staffRes.ok) {
+              const staffJson = await staffRes.json()
+              const staffList = Array.isArray(staffJson?.staff) ? staffJson.staff : []
+              // Try to find by user_id or email
+              const matchingStaff = staffList.find((s: any) => 
+                s.user_id === currentUser.id || s.email === currentUser.email
+              )
+              if (matchingStaff?.id && isValidUUID(matchingStaff.id)) {
+                staffIdForQuery = matchingStaff.id
+                console.log('✅ [History] Resolved staff_id:', staffIdForQuery)
+              } else {
+                console.warn('⚠️ [History] Could not find matching staff member')
+                // Try first staff member as fallback (for testing)
+                if (staffList.length > 0 && isValidUUID(staffList[0].id)) {
+                  staffIdForQuery = staffList[0].id
+                  console.warn('⚠️ [History] Using first staff member as fallback:', staffIdForQuery)
+                }
+              }
+            }
+          } catch (resolveError) {
+            console.error('❌ [History] Error resolving staff_id:', resolveError)
+          }
+        }
+        
+        console.log('🔵 [History] Fetching evaluations with staffId:', staffIdForQuery)
+        // Fetch all evaluations (submitted and approved) - don't filter by status in URL
+        const res = await fetch(`/api/self-evaluations?staffId=${encodeURIComponent(staffIdForQuery)}`, {
+          headers: { "x-user-id": currentUser.id, "x-staff-id": staffIdForQuery },
         })
-        if (!res.ok) throw new Error("Failed to load history")
+        
+        if (!res.ok) {
+          const errorText = await res.text()
+          console.error('❌ [History] API error:', res.status, errorText)
+          throw new Error(`Failed to load history: ${res.status} ${errorText}`)
+        }
+        
         const json = await res.json()
-        setHistoryRecords(Array.isArray(json?.evaluations) ? json.evaluations : [])
+        console.log('🔵 [History] API response:', json)
+        
+        let records = Array.isArray(json?.evaluations) ? json.evaluations : []
+        
+        // Filter to only show submitted or approved evaluations (exclude drafts)
+        records = records.filter((r: any) => 
+          r.status === 'submitted' || r.status === 'approved'
+        )
+        
+        console.log('✅ [History] Loaded', records.length, 'evaluation records (submitted or approved)')
+        
+        if (records.length > 0) {
+          console.log('✅ [History] Sample record:', {
+            id: records[0].id,
+            type: records[0].evaluation_type,
+            status: records[0].status,
+            submitted: records[0].submitted_at,
+            approved: records[0].approved_at,
+            overall_score: records[0].overall_score
+          })
+        } else {
+          console.warn('⚠️ [History] No submitted or approved evaluations found. All records:', json?.evaluations)
+        }
+        
+        setHistoryRecords(records)
       } catch (e: any) {
+        console.error('❌ [History] Error loading:', e)
+        console.error('❌ [History] Error stack:', e.stack)
         setHistoryError(e?.message || "Failed to load evaluation history")
         setHistoryRecords([])
       } finally {
@@ -432,7 +486,188 @@ export default function SelfEvaluationPage() {
       }
     }
     loadHistory()
-  }, [currentUser.id])
+  }, [currentUser.id, currentUser.email])
+
+  // Load Performance Improvement Plans (PIP) for development goals
+  useEffect(() => {
+    const loadPipData = async () => {
+      try {
+        setPipLoading(true)
+        
+        // Resolve staff_id
+        let staffIdForQuery = currentUser.id
+        const isValidUUID = (str: string) => {
+          const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+          return uuidRegex.test(str)
+        }
+        
+        if (!isValidUUID(currentUser.id)) {
+          try {
+            const staffRes = await fetch(`/api/staff/list`)
+            if (staffRes.ok) {
+              const staffJson = await staffRes.json()
+              const staffList = Array.isArray(staffJson?.staff) ? staffJson.staff : []
+              const matchingStaff = staffList.find((s: any) => 
+                s.user_id === currentUser.id || s.email === currentUser.email
+              )
+              if (matchingStaff?.id && isValidUUID(matchingStaff.id)) {
+                staffIdForQuery = matchingStaff.id
+              } else if (staffList.length > 0 && isValidUUID(staffList[0].id)) {
+                staffIdForQuery = staffList[0].id // Fallback
+              }
+            }
+          } catch (resolveError) {
+            console.error('Error resolving staff_id for PIP:', resolveError)
+          }
+        }
+        
+        // Load ALL PIP goals directly from database (most accurate source)
+        const pipGoalsRes = await fetch(`/api/staff-performance/pip-goals?staffId=${encodeURIComponent(staffIdForQuery)}`)
+        let performanceGoals: any[] = []
+        let compGoals: any[] = []
+        
+        if (pipGoalsRes.ok) {
+          const pipGoalsJson = await pipGoalsRes.json()
+          if (pipGoalsJson.success) {
+            performanceGoals = Array.isArray(pipGoalsJson.performanceGoals) ? pipGoalsJson.performanceGoals : []
+            compGoals = Array.isArray(pipGoalsJson.competencyGoals) ? pipGoalsJson.competencyGoals : []
+            console.log('✅ [PIP Goals API] Loaded', pipGoalsJson.totalPips || 0, 'PIPs')
+          }
+        }
+        
+        // Also get additional goals from performance evaluations with low scores (as supplementary)
+        const performanceRes = await fetch(`/api/self-evaluations?staffId=${encodeURIComponent(staffIdForQuery)}&evaluationType=performance`)
+        if (performanceRes.ok) {
+          const performanceJson = await performanceRes.json()
+          let performanceRecords = Array.isArray(performanceJson?.evaluations) ? performanceJson.evaluations : []
+          
+          // Filter to only submitted or approved evaluations
+          performanceRecords = performanceRecords.filter((e: any) => 
+            e.status === 'submitted' || e.status === 'approved'
+          )
+          
+          // Add performance goals from evaluations with low scores (only if not already in PIP goals)
+          performanceRecords.forEach((evaluation: any) => {
+            const score = evaluation.overall_score || evaluation.completion_percentage / 20 || 0
+            if (score < 4.0) {
+              const responses = evaluation.responses || {}
+              Object.keys(responses).forEach((key: string) => {
+                const responseValue = responses[key]
+                const numericValue = typeof responseValue === 'string' ? parseInt(responseValue) : responseValue
+                if (numericValue && numericValue < 4) {
+                  const goalDescription = `Improve ${key.replace(/-/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())}`
+                  // Only add if not already in PIP goals
+                  const exists = performanceGoals.some((g: any) => g.description.toLowerCase() === goalDescription.toLowerCase())
+                  if (!exists) {
+                    performanceGoals.push({
+                      id: `perf-${evaluation.id}-${key}`,
+                      description: goalDescription,
+                      targetDate: evaluation.due_date || null,
+                      completed: false,
+                      progress: Math.round((numericValue / 5) * 100),
+                      actions: [],
+                      source: 'performance-evaluation'
+                    })
+                  }
+                }
+              })
+            }
+          })
+        }
+        
+        // Also get competency skills that need improvement (as supplementary)
+        const competencyRes = await fetch(`/api/staff-performance/competency?staffId=${encodeURIComponent(staffIdForQuery)}`)
+        if (competencyRes.ok) {
+          const competencyJson = await competencyRes.json()
+          const records = Array.isArray(competencyJson?.records) ? competencyJson.records : []
+          
+          // Extract PIP data for reference
+          const allPips = records
+            .filter((r: any) => r.performanceImprovementPlan)
+            .map((r: any) => r.performanceImprovementPlan)
+          
+          setPipData(allPips)
+          
+          // Add competency goals from skills that need improvement (only if not already in PIP goals)
+          records.forEach((record: any) => {
+            if (record.competencyAreas && Array.isArray(record.competencyAreas)) {
+              record.competencyAreas.forEach((area: any) => {
+                if (area.items && Array.isArray(area.items)) {
+                  area.items.forEach((skill: any) => {
+                    if (skill.status === 'needs-improvement' || skill.status === 'not-competent') {
+                      const goalDescription = `Improve ${skill.description || skill.skill_name || area.category || 'Competency'}`
+                      // Only add if not already in PIP goals
+                      const exists = compGoals.some((g: any) => g.description.toLowerCase() === goalDescription.toLowerCase())
+                      if (!exists) {
+                        compGoals.push({
+                          id: `comp-${skill.id || area.category}`,
+                          description: goalDescription,
+                          targetDate: skill.next_due || null,
+                          completed: false,
+                          progress: skill.score >= 3 ? Math.round((skill.score / 5) * 100) : 0,
+                          actions: [],
+                          source: 'competency-skill'
+                        })
+                      }
+                    }
+                  })
+                }
+              })
+            }
+          })
+        } else {
+          setPipData([])
+        }
+        
+        setPerformanceGoals(performanceGoals)
+        setCompetencyGoals(compGoals)
+        
+        // Log detailed information about goals
+        console.log('✅ [Performance Goals] Total:', performanceGoals.length, 'goals')
+        const perfFromPip = performanceGoals.filter((g: any) => g.source === 'performance-pip').length
+        const perfFromEval = performanceGoals.filter((g: any) => g.source === 'performance-evaluation').length
+        console.log('  📊 Breakdown:', perfFromPip, 'from PIP,', perfFromEval, 'from evaluations')
+        if (performanceGoals.length > 0) {
+          console.log('📋 [Performance Goals] Details:', performanceGoals.map((g: any) => ({
+            id: g.id,
+            description: g.description,
+            source: g.source,
+            progress: g.progress,
+            completed: g.completed
+          })))
+        }
+        
+        console.log('✅ [Competency Goals] Total:', compGoals.length, 'goals')
+        const compFromPip = compGoals.filter((g: any) => g.source === 'competency-pip').length
+        const compFromSkill = compGoals.filter((g: any) => g.source === 'competency-skill').length
+        console.log('  📊 Breakdown:', compFromPip, 'from PIP,', compFromSkill, 'from skills')
+        if (compGoals.length > 0) {
+          console.log('📋 [Competency Goals] Details:', compGoals.map((g: any) => ({
+            id: g.id,
+            description: g.description,
+            source: g.source,
+            progress: g.progress,
+            completed: g.completed
+          })))
+        }
+        
+        // Log where data comes from
+        console.log('🔍 [Data Sources]:')
+        console.log('  - Primary: /api/staff-performance/pip-goals (direct PIP goals from database)')
+        console.log('  - Supplementary Performance: /api/self-evaluations?evaluationType=performance (low scores)')
+        console.log('  - Supplementary Competency: /api/staff-performance/competency (skills needing improvement)')
+        console.log('  - Database Tables: staff_pip → staff_pip_goals (created from Staff Competency Review page)')
+      } catch (e: any) {
+        console.error('Error loading PIP data:', e)
+        setPipData([])
+        setPerformanceGoals([])
+        setCompetencyGoals([])
+      } finally {
+        setPipLoading(false)
+      }
+    }
+    loadPipData()
+  }, [currentUser.id, currentUser.email])
 
   useEffect(() => {
     // Calculate completion percentage
@@ -440,6 +675,9 @@ export default function SelfEvaluationPage() {
     const answeredQuestions = questions.filter((q) => q.required && responses[q.id]).length
     const percentage = totalQuestions > 0 ? (answeredQuestions / totalQuestions) * 100 : 0
     setCompletionPercentage(percentage)
+    
+    // Clear validation errors when responses change
+    setValidationErrors({})
   }, [responses, questions])
 
   const handleResponseChange = (questionId: string, value: any) => {
@@ -452,12 +690,21 @@ export default function SelfEvaluationPage() {
   const handleSaveDraft = async () => {
     try {
       setIsSubmitting(true)
+      
+      // Only save if user explicitly clicks the button
+      // If id starts with "local-", it's a local-only draft, so don't pass id (create new)
+      const evaluationId = currentEvaluation?.id?.startsWith("local-") || 
+                          currentEvaluation?.id?.startsWith("PERF") || 
+                          currentEvaluation?.id?.startsWith("COMP") 
+                        ? undefined 
+                        : currentEvaluation?.id
+      
       const res = await fetch("/api/self-evaluations", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
         body: JSON.stringify({
           action: "save-draft",
-          id: currentEvaluation?.id?.startsWith("PERF") || currentEvaluation?.id?.startsWith("COMP") ? undefined : currentEvaluation?.id,
+          id: evaluationId,
           evaluationType,
           assessmentType: currentEvaluation?.assessmentType,
           responses,
@@ -487,20 +734,90 @@ export default function SelfEvaluationPage() {
     }
   }
 
+  const validateResponses = (): boolean => {
+    const errors: Record<string, string> = {}
+    
+    questions.forEach((question) => {
+      if (question.required) {
+        const value = responses[question.id]
+        
+        if (!value || value === "" || (Array.isArray(value) && value.length === 0)) {
+          errors[question.id] = "This field is required"
+        } else if (question.type === "text" && typeof value === "string" && value.trim().length < 10) {
+          errors[question.id] = "Please provide a more detailed response (at least 10 characters)"
+        } else if (question.type === "checkbox" && (!Array.isArray(value) || value.length === 0)) {
+          errors[question.id] = "Please select at least one option"
+        }
+      }
+    })
+    
+    setValidationErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
   const handleSubmitEvaluation = async () => {
+    // Prevent double submission - check multiple conditions
+    if (isSubmitting || isSubmitted || submissionInProgressRef.current) {
+      console.warn('⚠️ [Submit] Submission blocked - already in progress or submitted')
+      return
+    }
+
+    // Check if already submitted (from current state)
+    if (currentEvaluation?.status === "submitted" || currentEvaluation?.status === "approved") {
+      alert("This evaluation has already been submitted and cannot be modified.")
+      return
+    }
+
+    // Validate all required fields
+    if (!validateResponses()) {
+      alert("Please complete all required questions correctly before submitting.")
+      return
+    }
+
     if (completionPercentage < 100) {
       alert("Please complete all required questions before submitting.")
       return
     }
 
+    // Set submission lock immediately
+    submissionInProgressRef.current = true
+    
     try {
       setIsSubmitting(true)
+      
+      // Double-check with server before submitting
+      if (currentEvaluation?.id && !currentEvaluation.id.startsWith("PERF") && !currentEvaluation.id.startsWith("COMP")) {
+        const checkRes = await fetch(`/api/self-evaluations?staffId=${encodeURIComponent(currentUser.id)}&evaluationType=${evaluationType}`)
+        if (checkRes.ok) {
+          const checkData = await checkRes.json()
+          const existing = Array.isArray(checkData?.evaluations) 
+            ? checkData.evaluations.find((e: any) => e.id === currentEvaluation.id)
+            : null
+          
+          if (existing && (existing.status === "submitted" || existing.status === "approved")) {
+            alert("This evaluation has already been submitted. Please refresh the page.")
+            setCurrentEvaluation(prev => prev ? { ...prev, status: existing.status } : prev)
+            setIsSubmitted(true)
+            submissionInProgressRef.current = false
+            setIsSubmitting(false)
+            return
+          }
+        }
+      }
+      // Only save if user explicitly clicks the button
+      // If id starts with "local-", it's a local-only draft, so don't pass id (create new)
+      const evaluationId = currentEvaluation?.id?.startsWith("local-") || 
+                          currentEvaluation?.id?.startsWith("PERF") || 
+                          currentEvaluation?.id?.startsWith("COMP") 
+                        ? undefined 
+                        : currentEvaluation?.id
+      
       const res = await fetch("/api/self-evaluations", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-user-id": currentUser.id },
         body: JSON.stringify({
           action: "submit",
-          id: currentEvaluation?.id?.startsWith("PERF") || currentEvaluation?.id?.startsWith("COMP") ? undefined : currentEvaluation?.id,
+          id: evaluationId,
           evaluationType,
           assessmentType: currentEvaluation?.assessmentType,
           responses,
@@ -508,25 +825,107 @@ export default function SelfEvaluationPage() {
           dueDate: currentEvaluation?.dueDate,
         }),
       })
-      if (!res.ok) throw new Error("Failed to submit evaluation")
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}))
+        const errorMessage = errorData.error || "Failed to submit evaluation"
+        
+        // Check if error is because it's already submitted
+        if (errorMessage.toLowerCase().includes("already submitted") || 
+            errorMessage.toLowerCase().includes("submitted")) {
+          alert("This evaluation has already been submitted. The page will refresh.")
+          // Reload the evaluation to get updated status
+          window.location.reload()
+          return
+        }
+        
+        throw new Error(errorMessage)
+      }
+      
       const data = await res.json()
-      setCurrentEvaluation((prev) =>
-        prev
-          ? {
-              ...prev,
-              id: data.evaluation?.id || prev.id,
-              status: "submitted",
-              submittedAt: new Date().toISOString(),
-              lastModified: new Date().toISOString(),
+      
+      // Check response - if already submitted, handle gracefully
+      if (data.evaluation?.status === "submitted" || data.evaluation?.status === "approved") {
+        // Update evaluation status
+        setCurrentEvaluation((prev) =>
+          prev
+            ? {
+                ...prev,
+                id: data.evaluation?.id || prev.id,
+                status: data.evaluation.status,
+                submittedAt: data.evaluation.submitted_at || new Date().toISOString(),
+                lastModified: new Date().toISOString(),
+              }
+            : prev,
+        )
+        
+        // Reset form values after successful submission
+        setResponses({})
+        setIsSubmitted(true)
+        setValidationErrors({})
+        setCompletionPercentage(0)
+        
+        alert("Evaluation submitted successfully.")
+      } else {
+        // If status is not updated, something went wrong
+        console.warn('⚠️ [Submit] Response did not confirm submission status:', data)
+        alert("Submission may have failed. Please check your history or refresh the page.")
+      }
+      
+      // Release submission lock
+      submissionInProgressRef.current = false
+      
+      // Reload history to show the new submission
+      // Resolve staff_id for history reload
+      let staffIdForHistory = currentUser.id
+      const isValidUUID = (str: string) => {
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+        return uuidRegex.test(str)
+      }
+      
+      if (!isValidUUID(currentUser.id)) {
+        try {
+          const staffRes = await fetch(`/api/staff/list`)
+          if (staffRes.ok) {
+            const staffJson = await staffRes.json()
+            const staffList = Array.isArray(staffJson?.staff) ? staffJson.staff : []
+            const matchingStaff = staffList.find((s: any) => 
+              s.user_id === currentUser.id || s.email === currentUser.email
+            )
+            if (matchingStaff?.id && isValidUUID(matchingStaff.id)) {
+              staffIdForHistory = matchingStaff.id
             }
-          : prev,
-      )
-      alert("Evaluation submitted successfully.")
-    } catch (e) {
-      console.error(e)
-      alert("Submission failed. Please try again.")
+          }
+        } catch (resolveError) {
+          console.error('Error resolving staff_id for history reload:', resolveError)
+        }
+      }
+      
+      const historyRes = await fetch(`/api/self-evaluations?status=submitted&staffId=${encodeURIComponent(staffIdForHistory)}`, {
+        headers: { "x-user-id": currentUser.id },
+      })
+      if (historyRes.ok) {
+        const historyJson = await historyRes.json()
+        const records = Array.isArray(historyJson?.evaluations) ? historyJson.evaluations : []
+        setHistoryRecords(records)
+        console.log('✅ [History] Reloaded after submission:', records.length, 'records')
+      }
+    } catch (e: any) {
+      console.error("Failed to submit evaluation:", e)
+      
+      // Check if error is about already submitted
+      const errorMessage = e?.message || ""
+      if (errorMessage.toLowerCase().includes("already submitted") ||
+          errorMessage.toLowerCase().includes("submitted")) {
+        alert("This evaluation has already been submitted. The page will refresh.")
+        window.location.reload()
+        return
+      }
+      
+      alert(`Failed to submit evaluation: ${errorMessage || "Unknown error"}`)
     } finally {
       setIsSubmitting(false)
+      submissionInProgressRef.current = false // Always release lock
     }
   }
 
@@ -634,8 +1033,10 @@ export default function SelfEvaluationPage() {
   useEffect(() => {
     if (activeTab === "competency" && evaluationType !== "competency") {
       setEvaluationType("competency")
+      setIsSubmitted(false) // Reset submission state when switching tabs
     } else if (activeTab === "performance" && evaluationType !== "performance") {
       setEvaluationType("performance")
+      setIsSubmitted(false) // Reset submission state when switching tabs
     }
   }, [activeTab])
 
@@ -650,8 +1051,27 @@ export default function SelfEvaluationPage() {
     {} as Record<string, PerformanceQuestion[]>,
   )
 
-  const performanceHistory = historyRecords.filter((e) => e.evaluation_type === "performance")
-  const competencyHistory = historyRecords.filter((e) => e.evaluation_type === "competency")
+  // Filter history records by evaluation type (using real data)
+  // Show all records that are submitted or approved (exclude drafts)
+  const performanceHistory = historyRecords.filter((e: any) => 
+    e.evaluation_type === "performance" && (e.status === "submitted" || e.status === "approved")
+  )
+  const competencyHistory = historyRecords.filter((e: any) => 
+    e.evaluation_type === "competency" && (e.status === "submitted" || e.status === "approved")
+  )
+  
+  // Sort by submitted date (newest first)
+  performanceHistory.sort((a: any, b: any) => {
+    const dateA = new Date(a.submitted_at || a.submittedAt || a.created_at || 0).getTime()
+    const dateB = new Date(b.submitted_at || b.submittedAt || b.created_at || 0).getTime()
+    return dateB - dateA
+  })
+  
+  competencyHistory.sort((a: any, b: any) => {
+    const dateA = new Date(a.submitted_at || a.submittedAt || a.created_at || 0).getTime()
+    const dateB = new Date(b.submitted_at || b.submittedAt || b.created_at || 0).getTime()
+    return dateB - dateA
+  })
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -786,6 +1206,9 @@ export default function SelfEvaluationPage() {
                               {question.required && <span className="text-red-500 text-sm ml-1">*</span>}
                             </div>
                             {renderQuestion(question)}
+                            {validationErrors[question.id] && (
+                              <p className="text-sm text-red-600 mt-1">{validationErrors[question.id]}</p>
+                            )}
                             {question.type === "rating" && (
                               <div className="flex justify-between text-xs text-gray-500 mt-1">
                                 <span>Poor</span>
@@ -814,11 +1237,11 @@ export default function SelfEvaluationPage() {
                         </Button>
                         <Button
                           onClick={handleSubmitEvaluation}
-                          disabled={completionPercentage < 100 || isSubmitting}
+                          disabled={completionPercentage < 100 || isSubmitting || isSubmitted || currentEvaluation?.status === "submitted" || currentEvaluation?.status === "approved" || submissionInProgressRef.current}
                           className="bg-green-600 hover:bg-green-700"
                         >
                           <Send className="h-4 w-4 mr-2" />
-                          {isSubmitting ? "Submitting..." : "Submit Performance Evaluation"}
+                          {isSubmitting ? "Submitting..." : currentEvaluation?.status === "submitted" || currentEvaluation?.status === "approved" ? "Already Submitted" : "Submit Performance Evaluation"}
                         </Button>
                       </div>
                     </div>
@@ -924,6 +1347,9 @@ export default function SelfEvaluationPage() {
                               {question.required && <span className="text-red-500 text-sm ml-1">*</span>}
                             </div>
                             {renderQuestion(question)}
+                            {validationErrors[question.id] && (
+                              <p className="text-sm text-red-600 mt-1">{validationErrors[question.id]}</p>
+                            )}
                             {question.type === "rating" && (
                               <div className="flex justify-between text-xs text-gray-500 mt-1">
                                 <span>Not Competent</span>
@@ -952,11 +1378,11 @@ export default function SelfEvaluationPage() {
                         </Button>
                         <Button
                           onClick={handleSubmitEvaluation}
-                          disabled={completionPercentage < 100 || isSubmitting}
+                          disabled={completionPercentage < 100 || isSubmitting || isSubmitted || currentEvaluation?.status === "submitted" || currentEvaluation?.status === "approved" || submissionInProgressRef.current}
                           className="bg-blue-600 hover:bg-blue-700"
                         >
                           <Send className="h-4 w-4 mr-2" />
-                          {isSubmitting ? "Submitting..." : "Submit Competency Assessment"}
+                          {isSubmitting ? "Submitting..." : currentEvaluation?.status === "submitted" || currentEvaluation?.status === "approved" ? "Already Submitted" : "Submit Competency Assessment"}
                         </Button>
                       </div>
                     </div>
@@ -979,10 +1405,24 @@ export default function SelfEvaluationPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {historyLoading && <div className="text-sm text-gray-600">Loading...</div>}
-                    {historyError && <div className="text-sm text-red-600">{historyError}</div>}
+                    {historyLoading && (
+                      <div className="text-sm text-gray-600 p-4">Loading evaluation history...</div>
+                    )}
+                    {historyError && (
+                      <div className="text-sm text-red-600 p-4 bg-red-50 border border-red-200 rounded-lg">
+                        Error: {historyError}
+                        <br />
+                        <span className="text-xs">Check browser console for details.</span>
+                      </div>
+                    )}
                     {!historyLoading && !historyError && performanceHistory.length === 0 && (
-                      <div className="text-sm text-gray-600">No submitted performance evaluations yet.</div>
+                      <div className="text-sm text-gray-600 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        No submitted performance evaluations yet.
+                        <br />
+                        <span className="text-xs text-gray-500 mt-1 block">
+                          Complete and submit a performance evaluation to see it here.
+                        </span>
+                      </div>
                     )}
                     {!historyLoading && !historyError && performanceHistory.map((evaluation: any) => (
                       <div key={evaluation.id} className="flex items-center justify-between p-4 border rounded-lg">
@@ -990,19 +1430,43 @@ export default function SelfEvaluationPage() {
                           <div className="p-2 bg-green-100 rounded-lg">
                             <TrendingUp className="h-5 w-5 text-green-600" />
                           </div>
-                          <div>
+                          <div className="flex-1">
                             <h3 className="font-medium">
                               {String(evaluation.assessment_type || "Performance Evaluation").replace(/\b\w/g, (c) => c.toUpperCase()).replace(/-/g, " ")}
                             </h3>
-                            <p className="text-sm text-gray-600">
-                              Submitted: {evaluation.submitted_at ? new Date(evaluation.submitted_at).toLocaleDateString() : "—"}
-                            </p>
-                            <p className="text-sm text-gray-600">Status: {evaluation.status}</p>
+                            <div className="mt-2 space-y-1">
+                              <p className="text-sm text-gray-600">
+                                Submitted: {evaluation.submitted_at ? new Date(evaluation.submitted_at).toLocaleDateString() : evaluation.created_at ? new Date(evaluation.created_at).toLocaleDateString() : "—"}
+                              </p>
+                              {evaluation.approved_at && (
+                                <p className="text-sm text-gray-600">
+                                  Approved: {new Date(evaluation.approved_at).toLocaleDateString()}
+                                  {evaluation.approved_by_name && ` by ${evaluation.approved_by_name}`}
+                                </p>
+                              )}
+                              {evaluation.status === 'approved' && evaluation.overall_score !== undefined && (
+                                <div className="flex items-center space-x-2 mt-2">
+                                  <span className="text-sm font-medium text-gray-700">Overall Score:</span>
+                                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                                  <span className="text-lg font-bold text-gray-900">{evaluation.overall_score?.toFixed(1) || 'N/A'}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-4">
-                          {getStatusBadge(evaluation.status)}
-                          <Button variant="outline" size="sm">
+                        <div className="flex flex-col items-end space-y-2">
+                          {getStatusBadge(evaluation.status || 'submitted')}
+                          {evaluation.status === 'approved' && evaluation.overall_score && (
+                            <div className="text-center">
+                              <Star className="h-5 w-5 text-yellow-500 fill-yellow-500 mx-auto" />
+                              <span className="text-xl font-bold">{evaluation.overall_score?.toFixed(1)}</span>
+                            </div>
+                          )}
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => setSelectedEvaluationDetails(evaluation)}
+                          >
                             View Details
                           </Button>
                         </div>
@@ -1023,10 +1487,24 @@ export default function SelfEvaluationPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    {historyLoading && <div className="text-sm text-gray-600">Loading...</div>}
-                    {historyError && <div className="text-sm text-red-600">{historyError}</div>}
+                    {historyLoading && (
+                      <div className="text-sm text-gray-600 p-4">Loading evaluation history...</div>
+                    )}
+                    {historyError && (
+                      <div className="text-sm text-red-600 p-4 bg-red-50 border border-red-200 rounded-lg">
+                        Error: {historyError}
+                        <br />
+                        <span className="text-xs">Check browser console for details.</span>
+                      </div>
+                    )}
                     {!historyLoading && !historyError && competencyHistory.length === 0 && (
-                      <div className="text-sm text-gray-600">No submitted competency assessments yet.</div>
+                      <div className="text-sm text-gray-600 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                        No submitted competency assessments yet.
+                        <br />
+                        <span className="text-xs text-gray-500 mt-1 block">
+                          Complete and submit a competency assessment to see it here.
+                        </span>
+                      </div>
                     )}
                     {!historyLoading && !historyError && competencyHistory.map((evaluation: any) => (
                       <div key={evaluation.id} className="flex items-center justify-between p-4 border rounded-lg">
@@ -1034,19 +1512,43 @@ export default function SelfEvaluationPage() {
                           <div className="p-2 bg-blue-100 rounded-lg">
                             <Target className="h-5 w-5 text-blue-600" />
                           </div>
-                          <div>
+                          <div className="flex-1">
                             <h3 className="font-medium">
                               {String(evaluation.assessment_type || "Competency Assessment").replace(/\b\w/g, (c) => c.toUpperCase()).replace(/-/g, " ")}
                             </h3>
-                            <p className="text-sm text-gray-600">
-                              Submitted: {evaluation.submitted_at ? new Date(evaluation.submitted_at).toLocaleDateString() : "—"}
-                            </p>
-                            <p className="text-sm text-gray-600">Status: {evaluation.status}</p>
+                            <div className="mt-2 space-y-1">
+                              <p className="text-sm text-gray-600">
+                                Submitted: {evaluation.submitted_at ? new Date(evaluation.submitted_at).toLocaleDateString() : evaluation.created_at ? new Date(evaluation.created_at).toLocaleDateString() : "—"}
+                              </p>
+                              {evaluation.approved_at && (
+                                <p className="text-sm text-gray-600">
+                                  Approved: {new Date(evaluation.approved_at).toLocaleDateString()}
+                                  {evaluation.approved_by_name && ` by ${evaluation.approved_by_name}`}
+                                </p>
+                              )}
+                              {evaluation.status === 'approved' && evaluation.overall_score !== undefined && (
+                                <div className="flex items-center space-x-2 mt-2">
+                                  <span className="text-sm font-medium text-gray-700">Overall Score:</span>
+                                  <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />
+                                  <span className="text-lg font-bold text-gray-900">{evaluation.overall_score?.toFixed(1) || 'N/A'}</span>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex items-center space-x-4">
-                          {getStatusBadge(evaluation.status)}
-                          <Button variant="outline" size="sm">
+                        <div className="flex flex-col items-end space-y-2">
+                          {getStatusBadge(evaluation.status || 'submitted')}
+                          {evaluation.status === 'approved' && evaluation.overall_score && (
+                            <div className="text-center">
+                              <Star className="h-5 w-5 text-yellow-500 fill-yellow-500 mx-auto" />
+                              <span className="text-xl font-bold">{evaluation.overall_score?.toFixed(1)}</span>
+                            </div>
+                          )}
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => setSelectedEvaluationDetails(evaluation)}
+                          >
                             View Details
                           </Button>
                         </div>
@@ -1056,6 +1558,139 @@ export default function SelfEvaluationPage() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* Evaluation Details Dialog */}
+            {selectedEvaluationDetails && (
+              <Dialog open={!!selectedEvaluationDetails} onOpenChange={(open) => {
+                if (!open) setSelectedEvaluationDetails(null)
+              }}>
+                <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center">
+                      {selectedEvaluationDetails.evaluation_type === 'performance' ? (
+                        <TrendingUp className="h-5 w-5 mr-2 text-green-600" />
+                      ) : (
+                        <Target className="h-5 w-5 mr-2 text-blue-600" />
+                      )}
+                      {String(selectedEvaluationDetails.assessment_type || 'Evaluation').replace(/\b\w/g, (c) => c.toUpperCase()).replace(/-/g, ' ')}
+                    </DialogTitle>
+                    <DialogDescription>
+                      Complete details for this evaluation
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 mt-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm font-medium text-gray-600">Evaluation Type</Label>
+                        <p className="text-sm font-medium mt-1">
+                          {String(selectedEvaluationDetails.evaluation_type || 'N/A').replace(/\b\w/g, (c) => c.toUpperCase())}
+                        </p>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-medium text-gray-600">Status</Label>
+                        <div className="mt-1">
+                          {getStatusBadge(selectedEvaluationDetails.status || 'submitted')}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm font-medium text-gray-600">Submitted Date</Label>
+                        <p className="text-sm mt-1">
+                          {selectedEvaluationDetails.submitted_at 
+                            ? new Date(selectedEvaluationDetails.submitted_at).toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              })
+                            : selectedEvaluationDetails.created_at
+                            ? new Date(selectedEvaluationDetails.created_at).toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              })
+                            : '—'}
+                        </p>
+                      </div>
+                      {selectedEvaluationDetails.approved_at && (
+                        <div>
+                          <Label className="text-sm font-medium text-gray-600">Approved Date</Label>
+                          <p className="text-sm mt-1">
+                            {new Date(selectedEvaluationDetails.approved_at).toLocaleDateString('en-US', { 
+                              year: 'numeric', 
+                              month: 'long', 
+                              day: 'numeric' 
+                            })}
+                            {selectedEvaluationDetails.approved_by_name && (
+                              <span className="text-gray-500 ml-2">by {selectedEvaluationDetails.approved_by_name}</span>
+                            )}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {(selectedEvaluationDetails.overall_score !== undefined || selectedEvaluationDetails.completion_percentage !== undefined) && (
+                      <div className="grid grid-cols-2 gap-4">
+                        {selectedEvaluationDetails.overall_score !== undefined && (
+                          <div>
+                            <Label className="text-sm font-medium text-gray-600">Overall Score</Label>
+                            <div className="flex items-center space-x-2 mt-1">
+                              <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                              <span className="text-2xl font-bold">{selectedEvaluationDetails.overall_score.toFixed(1)}</span>
+                              <span className="text-sm text-gray-500">/ 5.0</span>
+                            </div>
+                          </div>
+                        )}
+                        {selectedEvaluationDetails.completion_percentage !== undefined && (
+                          <div>
+                            <Label className="text-sm font-medium text-gray-600">Completion Percentage</Label>
+                            <div className="mt-1">
+                              <Progress value={selectedEvaluationDetails.completion_percentage} className="h-2" />
+                              <p className="text-sm text-gray-600 mt-1">{selectedEvaluationDetails.completion_percentage}%</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {selectedEvaluationDetails.reviewer_notes && (
+                      <div>
+                        <Label className="text-sm font-medium text-gray-600">Supervisor Notes</Label>
+                        <div className="mt-1 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                          <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                            {selectedEvaluationDetails.reviewer_notes}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedEvaluationDetails.responses && Object.keys(selectedEvaluationDetails.responses).length > 0 && (
+                      <div>
+                        <Label className="text-sm font-medium text-gray-600">Your Responses</Label>
+                        <div className="mt-2 space-y-2 max-h-60 overflow-y-auto">
+                          {Object.entries(selectedEvaluationDetails.responses).map(([key, value]: [string, any]) => (
+                            <div key={key} className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                              <h4 className="font-medium text-sm capitalize mb-1">
+                                {key.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                              </h4>
+                              <p className="text-sm text-gray-700">
+                                {Array.isArray(value) ? value.join(', ') : String(value)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex justify-end mt-6">
+                    <Button variant="outline" onClick={() => setSelectedEvaluationDetails(null)}>
+                      Close
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            )}
 
             {/* Development Plan */}
             <Card>
@@ -1077,16 +1712,67 @@ export default function SelfEvaluationPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-3">
-                        <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <h4 className="font-medium text-sm">Improve Documentation Efficiency</h4>
-                          <p className="text-xs text-gray-600 mt-1">Target: Reduce documentation time by 20%</p>
-                          <Progress value={75} className="h-2 mt-2" />
-                        </div>
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                          <h4 className="font-medium text-sm">Enhance Patient Communication</h4>
-                          <p className="text-xs text-gray-600 mt-1">Target: Achieve 95% patient satisfaction</p>
-                          <Progress value={85} className="h-2 mt-2" />
-                        </div>
+                        {pipLoading && <div className="text-sm text-gray-600">Loading goals...</div>}
+                        {!pipLoading && performanceGoals.length > 0 && performanceGoals.map((goal: any, idx: number) => (
+                            <div key={goal.id || idx} className={`p-3 border rounded-lg ${
+                              goal.completed ? 'bg-green-50 border-green-200' :
+                              goal.progress >= 75 ? 'bg-blue-50 border-blue-200' :
+                              goal.progress >= 50 ? 'bg-yellow-50 border-yellow-200' :
+                              'bg-gray-50 border-gray-200'
+                            }`}>
+                              <h4 className="font-medium text-sm">{goal.description || 'Performance Goal'}</h4>
+                              <p className="text-xs text-gray-600 mt-1">
+                                {goal.targetDate ? (
+                                  <>
+                                    Target completion: {new Date(goal.targetDate).toLocaleDateString('en-US', { 
+                                  year: 'numeric', 
+                                  month: 'short', 
+                                  day: 'numeric' 
+                                    })}
+                                  </>
+                                ) : goal.target ? (
+                                  <>Target: {goal.target}</>
+                                ) : (
+                                  <>Target: Set completion date</>
+                                )}
+                                {goal.completed && <span className="ml-2 text-green-600 font-medium">✓ Completed</span>}
+                              </p>
+                              <div className="mt-2">
+                                <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                  <span>Progress</span>
+                                  <span>{goal.progress || 0}%</span>
+                                </div>
+                                <Progress value={goal.progress || 0} className="h-2" />
+                              </div>
+                              {goal.actions && Array.isArray(goal.actions) && goal.actions.length > 0 && (
+                                <div className="mt-2">
+                                  <p className="text-xs font-medium text-gray-700 mb-1">Action Items:</p>
+                                  <ul className="text-xs text-gray-600 space-y-1">
+                                    {goal.actions.slice(0, 3).map((action: string, actionIdx: number) => (
+                                      <li key={actionIdx} className="flex items-start">
+                                        <span className="mr-1">•</span>
+                                        <span>{action}</span>
+                                      </li>
+                                    ))}
+                                    {goal.actions.length > 3 && (
+                                      <li className="text-gray-500 italic">+ {goal.actions.length - 3} more</li>
+                                    )}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        {!pipLoading && performanceGoals.length === 0 && (
+                          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                            <p className="text-xs text-gray-600">
+                              No active performance improvement goals at this time.
+                              <br />
+                              <span className="text-gray-500 mt-1 block">
+                              Performance improvement plans will appear here when assigned by your supervisor.
+                              </span>
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
@@ -1100,16 +1786,67 @@ export default function SelfEvaluationPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-3">
-                        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                          <h4 className="font-medium text-sm">Advanced Wound Care Certification</h4>
-                          <p className="text-xs text-gray-600 mt-1">Target completion: Q2 2024</p>
-                          <Progress value={60} className="h-2 mt-2" />
-                        </div>
-                        <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
-                          <h4 className="font-medium text-sm">IV Therapy Skills Validation</h4>
-                          <p className="text-xs text-gray-600 mt-1">Target completion: Q1 2024</p>
-                          <Progress value={90} className="h-2 mt-2" />
-                        </div>
+                        {pipLoading && <div className="text-sm text-gray-600">Loading goals...</div>}
+                        {!pipLoading && competencyGoals.length > 0 && competencyGoals.map((goal: any, idx: number) => (
+                          <div key={goal.id || idx} className={`p-3 border rounded-lg ${
+                            goal.completed ? 'bg-green-50 border-green-200' :
+                            goal.progress >= 75 ? 'bg-blue-50 border-blue-200' :
+                            goal.progress >= 50 ? 'bg-yellow-50 border-yellow-200' :
+                              'bg-gray-50 border-gray-200'
+                            }`}>
+                            <h4 className="font-medium text-sm">{goal.description || 'Competency Goal'}</h4>
+                            <p className="text-xs text-gray-600 mt-1">
+                              {goal.targetDate ? (
+                                <>
+                                  Target completion: {new Date(goal.targetDate).toLocaleDateString('en-US', { 
+                                        year: 'numeric', 
+                                        month: 'short', 
+                                        day: 'numeric' 
+                                  })}
+                                </>
+                              ) : goal.target ? (
+                                <>Target: {goal.target}</>
+                              ) : (
+                                <>Target completion: Not set</>
+                              )}
+                              {goal.completed && <span className="ml-2 text-green-600 font-medium">✓ Completed</span>}
+                            </p>
+                              <div className="mt-2">
+                                <div className="flex justify-between text-xs text-gray-600 mb-1">
+                                <span>Progress</span>
+                                <span>{goal.progress || 0}%</span>
+                                </div>
+                              <Progress value={goal.progress || 0} className="h-2" />
+                              </div>
+                            {goal.actions && Array.isArray(goal.actions) && goal.actions.length > 0 && (
+                              <div className="mt-2">
+                                <p className="text-xs font-medium text-gray-700 mb-1">Action Items:</p>
+                                <ul className="text-xs text-gray-600 space-y-1">
+                                  {goal.actions.slice(0, 3).map((action: string, actionIdx: number) => (
+                                    <li key={actionIdx} className="flex items-start">
+                                      <span className="mr-1">•</span>
+                                      <span>{action}</span>
+                                    </li>
+                                  ))}
+                                  {goal.actions.length > 3 && (
+                                    <li className="text-gray-500 italic">+ {goal.actions.length - 3} more</li>
+                                  )}
+                                </ul>
+                            </div>
+                            )}
+                          </div>
+                        ))}
+                        {!pipLoading && competencyGoals.length === 0 && (
+                          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                            <p className="text-xs text-gray-600">
+                              No active competency improvement goals at this time.
+                              <br />
+                              <span className="text-gray-500 mt-1 block">
+                                Competency goals will appear here based on your assessment results and improvement plans.
+                              </span>
+                            </p>
+                          </div>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
