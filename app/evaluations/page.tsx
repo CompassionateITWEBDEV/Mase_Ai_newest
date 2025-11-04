@@ -610,7 +610,15 @@ export default function EvaluationsPage() {
         })
 
         const result = await res.json()
+        console.log('🔍 AI Analysis Response:', result) // Debug log
+        
         if (result.success && result.data) {
+          console.log('✅ AI Data received:', {
+            scores: result.data.competencyScores?.length || 0,
+            strengths: result.data.strengths?.length || 0,
+            observations: result.data.competencyScores?.[0]?.observations?.length || 0
+          })
+          
           // Check if this is real AI or mock
           if (result.message?.toLowerCase().includes('mock') || 
               (result.data.aiConfidence >= 88 && result.data.aiConfidence <= 98 && 
@@ -630,33 +638,29 @@ export default function EvaluationsPage() {
             }
           }
           
-          // Update live insights
+          // Build all insights at once to avoid state update issues
+          const newInsights: string[] = []
+          
           // Add competency scores to insights
           if (result.data.competencyScores && result.data.competencyScores.length > 0) {
-            result.data.competencyScores.slice(0, 3).forEach((score: any) => {
+            console.log('📊 Adding competency scores...')
+            result.data.competencyScores.slice(0, 4).forEach((score: any) => {
               const insightText = `✅ ${score.category}: ${score.score}% (Confidence: ${score.confidence}%)`
-              setAiInsights(prev => {
-                // Avoid duplicate insights for same category
-                const filtered = prev.filter(i => !i.includes(`${score.category}:`))
-                return [...filtered, insightText].slice(-10) // Keep last 10 insights
-              })
+              newInsights.push(insightText)
+              console.log('Added score:', insightText)
             })
           }
           
           // Add observations to insights
           if (result.data.competencyScores && result.data.competencyScores.length > 0) {
+            console.log('📋 Adding observations...')
             result.data.competencyScores.forEach((score: any) => {
               if (score.observations && score.observations.length > 0) {
                 // Add first observation from each category
                 const observation = score.observations[0]
                 if (observation && observation.length > 0) {
-                  setAiInsights(prev => {
-                    // Check if this observation is already there
-                    if (!prev.some(i => i.includes(observation.substring(0, 30)))) {
-                      return [...prev, `📋 ${score.category}: ${observation}`].slice(-10)
-                    }
-                    return prev
-                  })
+                  newInsights.push(`📋 ${score.category}: ${observation}`)
+                  console.log('Added observation:', observation.substring(0, 50))
                 }
               }
             })
@@ -664,19 +668,38 @@ export default function EvaluationsPage() {
           
           // Add strengths to insights
           if (result.data.strengths && result.data.strengths.length > 0) {
+            console.log('✨ Adding strengths...')
             result.data.strengths.slice(0, 2).forEach((strength: string) => {
-              if (!aiInsights.some(i => i.includes(strength))) {
-                setAiInsights(prev => [...prev, `✨ ${strength}`].slice(-10))
-              }
+              newInsights.push(`✨ ${strength}`)
+              console.log('Added strength:', strength)
             })
           }
           
           // Add development areas as warnings
           if (result.data.developmentAreas && result.data.developmentAreas.length > 0) {
+            console.log('⚠️ Adding development areas...')
             result.data.developmentAreas.slice(0, 1).forEach((area: string) => {
-              if (!aiInsights.some(i => i.includes(area.substring(0, 20)))) {
-                setAiInsights(prev => [...prev, `⚠️ Area for improvement: ${area}`].slice(-10))
-              }
+              newInsights.push(`⚠️ ${area}`)
+              console.log('Added area:', area)
+            })
+          }
+          
+          // Update insights state with all new insights at once
+          if (newInsights.length > 0) {
+            console.log(`🎉 Adding ${newInsights.length} insights to display`)
+            setAiInsights(prev => {
+              const combined = [...prev, ...newInsights]
+              // Remove duplicates but keep order
+              const unique = combined.filter((item, index) => {
+                const firstIndex = combined.findIndex(i => {
+                  // Compare without emojis for better dedup
+                  const itemText = item.replace(/[✅📋✨⚠️]/g, '').trim()
+                  const iText = i.replace(/[✅📋✨⚠️]/g, '').trim()
+                  return itemText === iText
+                })
+                return index === firstIndex
+              })
+              return unique.slice(-10) // Keep last 10 insights
             })
           }
 
