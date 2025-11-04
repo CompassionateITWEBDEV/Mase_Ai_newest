@@ -1,0 +1,125 @@
+═══════════════════════════════════════════════════════════════════════════════
+  🔧 IMPORTANT: Create .env.local File to Enable AI Video Analysis
+═══════════════════════════════════════════════════════════════════════════════
+
+The system needs an OpenAI API key to perform real AI-powered video analysis.
+
+📋 STEP-BY-STEP INSTRUCTIONS:
+
+1. CREATE THE FILE
+   ────────────────
+   In the ROOT directory of this project (where package.json is located),
+   create a new file named:  .env.local
+
+   NOTE: The filename starts with a DOT (.)
+
+2. ADD YOUR API KEY
+   ────────────────
+   Open the .env.local file and add this line:
+
+   OPENAI_API_KEY=sk-your-actual-api-key-here
+
+   Replace "sk-your-actual-api-key-here" with your real OpenAI API key.
+
+   Example:
+   OPENAI_API_KEY=sk-proj-abc123xyz789defghijk456...
+
+3. GET AN OPENAI API KEY (if you don't have one)
+   ────────────────────────────────────────────
+   a) Visit: https://platform.openai.com/api-keys
+   b) Sign in or create an account
+   c) Click "Create new secret key"
+   d) Copy the key (starts with "sk-")
+   e) Paste it in your .env.local file
+
+4. RESTART THE SERVER
+   ──────────────────
+   Stop your development server (Ctrl+C or Cmd+C)
+   Then start it again:
+   
+   npm run dev
+
+5. VERIFY IT WORKS
+   ───────────────
+   a) Open your app in the browser
+   b) Go to: Evaluations → Video Evaluations tab
+   c) You should see a GREEN banner saying "AI Analysis Active"
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📁 FILE LOCATION (IMPORTANT!)
+
+Your project structure should look like this:
+
+  your-project-folder/
+  ├── .env.local          ← CREATE THIS FILE HERE
+  ├── package.json        ← Should be at same level
+  ├── app/
+  ├── components/
+  └── ...
+
+DO NOT create .env.local inside app/ or components/ folders!
+
+═══════════════════════════════════════════════════════════════════════════════
+
+✅ SAMPLE .env.local FILE CONTENT:
+
+# OpenAI API Key for AI-powered video analysis
+OPENAI_API_KEY=sk-proj-abc123xyz789defghijk456...
+
+# Supabase (if not already in environment)
+# NEXT_PUBLIC_SUPABASE_URL=your_supabase_url
+# NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
+# SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+═══════════════════════════════════════════════════════════════════════════════
+
+❓ TROUBLESHOOTING
+
+Problem: Still seeing "Mock Mode" banner after adding key
+Solution: 
+  ✓ Verify .env.local is in ROOT directory (not in subfolders)
+  ✓ Check API key format starts with "sk-" or "sk-proj-"
+  ✓ Fully restart server (stop with Ctrl+C, then npm run dev)
+  ✓ Clear browser cache and refresh
+
+Problem: "API key invalid" error
+Solution:
+  ✓ Check key hasn't been revoked: https://platform.openai.com/api-keys
+  ✓ Verify account has credits: https://platform.openai.com/usage
+  ✓ Try generating a new key
+
+═══════════════════════════════════════════════════════════════════════════════
+
+📚 MORE HELP
+
+For detailed instructions, see these files in the project:
+  • QUICK_START_AI_VIDEO_ANALYSIS.md (5-minute setup guide)
+  • OPENAI_SETUP.md (comprehensive documentation)
+  • AI_VIDEO_ANALYSIS_SETUP_COMPLETE.md (full feature overview)
+
+═══════════════════════════════════════════════════════════════════════════════
+
+💡 WHAT YOU'LL GET
+
+With OpenAI configured:
+  ✅ Real-time video analysis of clinical demonstrations
+  ✅ Accurate competency scoring with evidence
+  ✅ Specific, detailed observations
+  ✅ Smart, actionable recommendations
+
+Without OpenAI (mock mode):
+  ❌ Generic, simulated feedback
+  ❌ No real video analysis
+
+Cost: ~$0.09-0.12 per 60-second evaluation
+
+═══════════════════════════════════════════════════════════════════════════════
+
+🔒 SECURITY NOTE
+
+NEVER commit .env.local to git! 
+It's already in .gitignore, but always verify before committing.
+
+═══════════════════════════════════════════════════════════════════════════════
+

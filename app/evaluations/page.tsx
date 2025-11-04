@@ -101,11 +101,49 @@ export default function EvaluationsPage() {
     "equipment": false,
   })
   const [evaluationResult, setEvaluationResult] = useState<any>(null)
+  const [aiStatus, setAiStatus] = useState<'checking' | 'ready' | 'mock' | 'error'>('checking')
   
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const notesInputRef = useRef<HTMLInputElement>(null)
+
+  // Check AI status on mount
+  useEffect(() => {
+    const checkAiStatus = async () => {
+      try {
+        // Check if OpenAI is configured by making a test call
+        const testRes = await fetch('/api/ai-competency/evaluate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            staffId: 'test',
+            evaluatorId: 'test',
+            evaluationType: 'live',
+            duration: 1,
+            competencyArea: 'test'
+          })
+        })
+        
+        if (testRes.ok) {
+          const data = await testRes.json()
+          // Check if response indicates real AI or mock
+          if (data.message?.includes('mock') || data.data?.aiConfidence >= 90) {
+            // Mock typically has consistent high confidence
+            setAiStatus('mock')
+          } else {
+            setAiStatus('ready')
+          }
+        } else {
+          setAiStatus('mock') // Assume mock on error
+        }
+      } catch (e) {
+        console.log('AI status check failed, assuming mock mode')
+        setAiStatus('mock')
+      }
+    }
+    checkAiStatus()
+  }, [])
 
   // Load staff members
   useEffect(() => {
@@ -573,6 +611,25 @@ export default function EvaluationsPage() {
 
         const result = await res.json()
         if (result.success && result.data) {
+          // Check if this is real AI or mock
+          if (result.message?.toLowerCase().includes('mock') || 
+              (result.data.aiConfidence >= 88 && result.data.aiConfidence <= 98 && 
+               result.data.strengths?.[0]?.includes('rapport'))) {
+            // Likely mock analysis - show warning
+            if (aiStatus !== 'mock') {
+              setAiStatus('mock')
+              setAiInsights(prev => [
+                '⚠️ Using simulated AI analysis. Configure OpenAI for real analysis.',
+                ...prev.filter(i => !i.includes('simulated'))
+              ].slice(0, 10))
+            }
+          } else {
+            // Real AI analysis
+            if (aiStatus !== 'ready') {
+              setAiStatus('ready')
+            }
+          }
+          
           // Update live insights
           const insights = result.data.competencyScores?.slice(0, 2).map((score: any) => 
             `✅ ${score.category}: ${score.score}% (Confidence: ${score.confidence}%)`
@@ -1096,12 +1153,64 @@ export default function EvaluationsPage() {
           </TabsContent>
 
           <TabsContent value="video-evaluations" className="space-y-6">
+            {/* AI Status Banner */}
+            {aiStatus === 'mock' && (
+              <Card className="border-yellow-200 bg-yellow-50">
+                <CardContent className="p-4">
+                  <div className="flex items-start space-x-3">
+                    <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5" />
+                    <div className="flex-1">
+                      <h3 className="font-semibold text-yellow-900">Using Simulated AI Analysis</h3>
+                      <p className="text-sm text-yellow-800 mt-1">
+                        The system is currently using mock/simulated AI analysis. For accurate, real-time video analysis:
+                      </p>
+                      <ol className="text-sm text-yellow-800 mt-2 ml-4 list-decimal space-y-1">
+                        <li>Get an OpenAI API key from <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" className="underline font-medium">platform.openai.com</a></li>
+                        <li>Add <code className="bg-yellow-100 px-1 py-0.5 rounded">OPENAI_API_KEY=sk-your-key</code> to your <code className="bg-yellow-100 px-1 py-0.5 rounded">.env.local</code> file</li>
+                        <li>Restart the development server</li>
+                      </ol>
+                      <p className="text-sm text-yellow-800 mt-2">
+                        See <code className="bg-yellow-100 px-1 py-0.5 rounded">OPENAI_SETUP.md</code> for detailed instructions.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+            {aiStatus === 'ready' && (
+              <Card className="border-green-200 bg-green-50">
+                <CardContent className="p-4">
+                  <div className="flex items-center space-x-3">
+                    <CheckCircle className="h-5 w-5 text-green-600" />
+                    <div>
+                      <h3 className="font-semibold text-green-900">AI Analysis Active</h3>
+                      <p className="text-sm text-green-800">
+                        OpenAI GPT-4o Vision is configured and ready for accurate, real-time video analysis.
+                      </p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Video Evaluation Center */}
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Video className="h-5 w-5 mr-2" />
-                  Video Evaluation Center
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <Video className="h-5 w-5 mr-2" />
+                    Video Evaluation Center
+                  </div>
+                  {aiStatus === 'ready' && (
+                    <Badge className="bg-green-100 text-green-800">
+                      AI Active
+                    </Badge>
+                  )}
+                  {aiStatus === 'mock' && (
+                    <Badge className="bg-yellow-100 text-yellow-800">
+                      Mock Mode
+                    </Badge>
+                  )}
                 </CardTitle>
                 <CardDescription>
                   Conduct live video evaluations with AI-powered analysis and real-time feedback
