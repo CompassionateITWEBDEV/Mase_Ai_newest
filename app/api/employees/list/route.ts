@@ -51,7 +51,14 @@ export async function GET(_request: NextRequest) {
       source: 'staff',
     }))
     
-    console.log(`[API] Fetched ${employees.length} staff members for assignments (staff table only, no applicants)`)
+    console.log(`[API] ========================================`)
+    console.log(`[API] STAFF TABLE ONLY - NO HIRED APPLICANTS`)
+    console.log(`[API] Total staff members: ${employees.length}`)
+    console.log(`[API] ========================================`)
+    employees.forEach((emp, index) => {
+      console.log(`[API] ${index + 1}. ${emp.name} (${emp.email}) - Role: ${emp.role}, Dept: ${emp.department}`)
+    })
+    console.log(`[API] ========================================`)
 
     return NextResponse.json({ 
       success: true, 
