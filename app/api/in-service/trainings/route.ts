@@ -126,13 +126,14 @@ export async function GET(request: NextRequest) {
       try {
         console.log("Fetching enrollment and completion counts...")
         
-        // Fetch enrollments in one query and group in memory
+        // Fetch all enrollments with id and status in one query
         const { data: enrollments, error: enrollError } = await supabase
           .from("in_service_enrollments")
-          .select("training_id")
+          .select("id, training_id, status")
           .in("training_id", trainingIds)
         
         if (!enrollError && enrollments) {
+          // Count ALL enrollments (regardless of status) for enrolledCount
           enrollmentsCount = enrollments.reduce((acc: Record<string, number>, e: any) => {
             acc[e.training_id] = (acc[e.training_id] || 0) + 1
             return acc
@@ -140,18 +141,35 @@ export async function GET(request: NextRequest) {
           console.log(`✅ Counted enrollments for ${Object.keys(enrollmentsCount).length} trainings`)
         }
         
-        // Fetch completions in one query and group in memory
+        // Fetch completions from completions table (with enrollment_id to avoid double counting)
         const { data: completions, error: completeError } = await supabase
           .from("in_service_completions")
-          .select("training_id")
+          .select("training_id, enrollment_id")
           .in("training_id", trainingIds)
         
-        if (!completeError && completions) {
+        if (!completeError && completions && enrollments) {
+          // Get enrollment IDs that have completion records
+          const enrollmentIdsWithCompletions = new Set(
+            completions.map((c: any) => c.enrollment_id).filter(Boolean)
+          )
+          
+          // Count completions from completions table (these have certificates)
           completionsCount = completions.reduce((acc: Record<string, number>, c: any) => {
             acc[c.training_id] = (acc[c.training_id] || 0) + 1
             return acc
           }, {})
-          console.log(`✅ Counted completions for ${Object.keys(completionsCount).length} trainings`)
+          
+          // Also count enrollments with status='completed' that DON'T have completion records
+          enrollments
+            .filter((e: any) => 
+              e.status === 'completed' && 
+              !enrollmentIdsWithCompletions.has(e.id)
+            )
+            .forEach((e: any) => {
+              completionsCount[e.training_id] = (completionsCount[e.training_id] || 0) + 1
+            })
+          
+          console.log(`✅ Counted completions for ${Object.keys(completionsCount).length} trainings (from both sources, no double counting)`)
         }
       } catch (countError: any) {
         console.warn("⚠️ Error calculating counts (non-critical):", countError.message)

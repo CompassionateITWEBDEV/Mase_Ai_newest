@@ -20,6 +20,8 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { VideoPlayer } from "@/components/training/VideoPlayer"
+import { EnhancedPDFViewer } from "@/components/training/EnhancedPDFViewer"
+import { PowerPointViewer } from "@/components/training/PowerPointViewer"
 import { LearningPath } from "@/components/training/LearningPath"
 import { GamificationBadges } from "@/components/training/GamificationBadges"
 import { InteractiveQuiz } from "@/components/training/InteractiveQuiz"
@@ -61,18 +63,38 @@ export default function StaffTrainingDetailPage() {
   const [showCertificate, setShowCertificate] = useState(false)
   const [certificateData, setCertificateData] = useState<any>(null)
   const [staffName, setStaffName] = useState("")
+  
+  // Content viewer state
+  const [showContentViewer, setShowContentViewer] = useState(false)
+  const [currentViewerFile, setCurrentViewerFile] = useState<any>(null)
+  const [currentViewerModuleId, setCurrentViewerModuleId] = useState<string | null>(null)
+  const [currentViewerFileId, setCurrentViewerFileId] = useState<string | null>(null)
 
   useEffect(() => {
     if (trainingId && staffId) {
+      console.log("=== INITIAL LOAD ===")
+      console.log("trainingId:", trainingId)
+      console.log("staffId:", staffId)
+      console.log("showCertificateParam:", showCertificateParam)
       fetchTrainingData()
     }
   }, [trainingId, staffId])
 
-  // Auto-show certificate if coming from dashboard
+  // Auto-show certificate if coming from dashboard - SIMPLIFIED AND MORE AGGRESSIVE
   useEffect(() => {
+    console.log("=== CERTIFICATE AUTO-OPEN CHECK ===")
+    console.log("showCertificateParam:", showCertificateParam)
+    console.log("certificateData:", certificateData ? "EXISTS" : "NULL")
+    console.log("enrollment?.status:", enrollment?.status)
+    console.log("enrollment?.progress:", enrollment?.progress)
+    
     const completed = enrollment?.status === "completed" || (enrollment?.progress || 0) >= 100
-    if (showCertificateParam && certificateData && completed) {
+    
+    if (showCertificateParam && certificateData) {
+      console.log("✅ OPENING CERTIFICATE NOW!")
       setShowCertificate(true)
+    } else if (showCertificateParam && !certificateData) {
+      console.log("⚠️ showCertificate=true BUT no certificateData yet, waiting...")
     }
   }, [showCertificateParam, certificateData, enrollment])
 
@@ -107,13 +129,22 @@ export default function StaffTrainingDetailPage() {
         cache: "no-store",
       })
       
+      console.log("📡 Fetching enrollment status...")
+      console.log("Enrollment API URL:", `/api/in-service/employee-progress?employeeId=${encodeURIComponent(staffId!)}`)
+      
       if (enrollmentResponse.ok) {
+        console.log("✅ Enrollment API responded OK")
         const enrollmentContentType = enrollmentResponse.headers.get("content-type")
         if (enrollmentContentType && enrollmentContentType.includes("application/json")) {
           const enrollmentData = await enrollmentResponse.json()
+          console.log("📦 Enrollment data received:", enrollmentData)
           
           if (enrollmentData.success && enrollmentData.employees && enrollmentData.employees.length > 0) {
             const employee = enrollmentData.employees[0]
+            console.log("👤 Employee found:", employee.full_name || employee.name)
+            console.log("📚 Completed trainings:", employee.completedTrainings?.length || 0)
+            console.log("📚 In progress trainings:", employee.inProgressTrainings?.length || 0)
+            console.log("📚 Assigned trainings:", employee.assignedTrainings?.length || 0)
             
             // Find enrollment for this training
             const foundEnrollment = [
@@ -122,7 +153,15 @@ export default function StaffTrainingDetailPage() {
               ...(employee.assignedTrainings || []),
             ].find((t: any) => t.trainingId === trainingId || t.id === trainingId)
             
+            console.log("🔍 Looking for training ID:", trainingId)
+            console.log("🔍 Found enrollment:", foundEnrollment)
+            
             if (foundEnrollment) {
+              console.log("✅ FOUND ENROLLMENT!")
+              console.log("- Status:", foundEnrollment.status)
+              console.log("- Progress:", foundEnrollment.progress)
+              console.log("- Training ID:", foundEnrollment.trainingId || foundEnrollment.id)
+              
               setEnrollment({
                 ...foundEnrollment,
                 progress: foundEnrollment.progress || 0,
@@ -156,6 +195,56 @@ export default function StaffTrainingDetailPage() {
               // Set streak (you can fetch from backend in production)
               setStreak(3)
               
+              // Generate certificate data for already completed trainings
+              // Check if completed by: status='completed' OR has completionDate OR came from completedTrainings array
+              const isCompleted = foundEnrollment.status === 'completed' || 
+                                  foundEnrollment.completionDate || 
+                                  foundEnrollment.completed === true ||
+                                  employee.completedTrainings?.some((t: any) => 
+                                    (t.trainingId === trainingId || t.id === trainingId)
+                                  )
+              
+              console.log("🔍 Checking if training is completed:")
+              console.log("- status === 'completed':", foundEnrollment.status === 'completed')
+              console.log("- has completionDate:", !!foundEnrollment.completionDate)
+              console.log("- completionDate value:", foundEnrollment.completionDate)
+              console.log("- completed flag:", foundEnrollment.completed)
+              console.log("- is in completedTrainings array:", employee.completedTrainings?.some((t: any) => 
+                (t.trainingId === trainingId || t.id === trainingId)
+              ))
+              console.log("✅ IS COMPLETED?", isCompleted)
+              
+              if (isCompleted && trainingData.trainings[0]) {
+                console.log("🎓 GENERATING CERTIFICATE - Training is completed!")
+                console.log("Employee name:", employee.full_name || employee.name)
+                console.log("Training title:", trainingData.trainings[0].title)
+                
+                const completedTraining = trainingData.trainings[0]
+                const certificateScore = foundEnrollment.score || foundEnrollment.quiz_score || 100
+                const certificate = createCertificateData(
+                  staffId!,
+                  employee.full_name || employee.name || "Staff Member",
+                  trainingId,
+                  completedTraining.title,
+                  completedTraining.ceuHours,
+                  certificateScore
+                )
+                console.log("📜 Certificate created:", certificate)
+                setCertificateData(certificate)
+                
+                // DIRECT OPEN if coming from dashboard
+                console.log("Checking showCertificateParam:", showCertificateParam)
+                if (showCertificateParam) {
+                  console.log("🚀 FORCE OPENING CERTIFICATE IMMEDIATELY!")
+                  // Open directly, no timeout
+                  setShowCertificate(true)
+                }
+              } else {
+                console.log("⚠️ Cannot generate certificate:")
+                console.log("- isCompleted:", isCompleted)
+                console.log("- Has training data:", !!trainingData.trainings[0])
+              }
+              
               // Determine current module index
               if (trainingData.trainings[0]?.modules) {
                 const trainingModules = trainingData.trainings[0].modules
@@ -178,12 +267,26 @@ export default function StaffTrainingDetailPage() {
                   description: `Continuing from ${parsedCompletedModules.length} of ${totalMods} modules completed (${foundEnrollment.progress || 0}%)`,
                 })
               }
+            } else {
+              console.log("❌ NO ENROLLMENT FOUND for this training!")
+              console.log("This could mean:")
+              console.log("1. Training not assigned to this staff")
+              console.log("2. Wrong training ID")
+              console.log("3. Wrong staff ID")
             }
+          } else {
+            console.log("❌ API success but no employee data:")
+            console.log("- success:", enrollmentData.success)
+            console.log("- employees:", enrollmentData.employees)
           }
+        } else {
+          console.log("❌ Wrong content type:", enrollmentContentType)
         }
+      } else {
+        console.log("❌ Enrollment API failed:", enrollmentResponse.status, enrollmentResponse.statusText)
       }
     } catch (error: any) {
-      console.error("Error fetching training data:", error)
+      console.error("❌ ERROR fetching training data:", error)
       toast({
         title: "Error",
         description: error.message || "Failed to load training",
@@ -225,16 +328,34 @@ export default function StaffTrainingDetailPage() {
     try {
       startModuleTimer(moduleId)
       
-      if (file.fileUrl) {
-        if (file.fileUrl.startsWith("data:")) {
-          const blob = await (await fetch(file.fileUrl)).blob()
-          const blobUrl = URL.createObjectURL(blob)
-          window.open(blobUrl, "_blank")
-        } else {
-          window.open(file.fileUrl, "_blank")
-        }
-      }
+      // Open the appropriate viewer based on file type
+      setCurrentViewerFile(file)
+      setCurrentViewerModuleId(moduleId)
+      setCurrentViewerFileId(fileId)
+      setShowContentViewer(true)
       
+      toast({
+        title: "📖 Content Opened",
+        description: "Complete the content requirements to mark as viewed.",
+      })
+    } catch (error: any) {
+      console.error("Error opening file:", error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to open file",
+        variant: "destructive",
+      })
+    }
+  }
+  
+  const handleContentComplete = async () => {
+    if (!currentViewerModuleId || !currentViewerFileId) return
+    
+    try {
+      const moduleId = currentViewerModuleId
+      const fileId = currentViewerFileId
+      
+      // Mark file as viewed
       const currentViewed = viewedFiles[moduleId] || []
       if (!currentViewed.includes(fileId)) {
         const newViewed = [...currentViewed, fileId]
@@ -244,7 +365,7 @@ export default function StaffTrainingDetailPage() {
         }
         setViewedFiles(updatedViewedFiles)
         
-        const module = training.modules?.find((m: any) => (m.id || `module-${training.modules.indexOf(m)}`) === moduleId)
+        const module = training.modules?.find((m: any, idx: number) => (m.id || `module-${idx}`) === moduleId)
         if (module) {
           const moduleFiles = module.files || [module]
           const allFileIds = moduleFiles.map((f: any, idx: number) => f.id || `file-${idx}`)
@@ -258,6 +379,12 @@ export default function StaffTrainingDetailPage() {
             }
             setModuleTimeSpent(updatedTimeSpent)
             
+            // Close viewer
+            setShowContentViewer(false)
+            setCurrentViewerFile(null)
+            setCurrentViewerModuleId(null)
+            setCurrentViewerFileId(null)
+            
             const moduleQuiz = module.quiz || module.quiz_config
             if (moduleQuiz && moduleQuiz.questions && moduleQuiz.questions.length > 0) {
               setCurrentQuizModuleId(moduleId)
@@ -270,6 +397,7 @@ export default function StaffTrainingDetailPage() {
               await completeModule(moduleId, updatedTimeSpent, updatedViewedFiles)
             }
           } else {
+            // Save progress
             setIsUpdatingProgress(true)
             await fetch("/api/in-service/employee-progress", {
               method: "POST",
@@ -287,32 +415,60 @@ export default function StaffTrainingDetailPage() {
               }),
             })
             
+            // Close viewer
+            setShowContentViewer(false)
+            setCurrentViewerFile(null)
+            setCurrentViewerModuleId(null)
+            setCurrentViewerFileId(null)
+            
             toast({
-              title: "📄 File Viewed",
+              title: "✅ Content Completed",
               description: "Keep going! View all content to complete this module.",
             })
           }
         }
       }
     } catch (error: any) {
-      console.error("Error viewing file:", error)
+      console.error("Error completing content:", error)
       toast({
         title: "Error",
-        description: error.message || "Failed to open file",
+        description: error.message || "Failed to mark content as complete",
         variant: "destructive",
       })
     } finally {
       setIsUpdatingProgress(false)
     }
   }
+  
+  const handleCloseViewer = () => {
+    setShowContentViewer(false)
+    setCurrentViewerFile(null)
+    setCurrentViewerModuleId(null)
+    setCurrentViewerFileId(null)
+  }
 
   const completeModule = async (moduleId: string, updatedTimeSpent?: Record<string, number>, updatedViewedFiles?: Record<string, string[]>, updatedQuizScores?: Record<string, number>) => {
     try {
+      // Prevent duplicate completion
+      if (completedModules.includes(moduleId)) {
+        console.log(`[MODULE COMPLETION] Module ${moduleId} already completed, skipping...`)
+        return
+      }
+      
       const newCompleted = [...completedModules, moduleId]
       setCompletedModules(newCompleted)
       
       const totalModules = training.modules?.length || 1
       const newProgress = Math.round((newCompleted.length / totalModules) * 100)
+      
+      console.log(`[MODULE COMPLETION] Progress Update:`, {
+        moduleId,
+        completedModules: newCompleted,
+        totalModules,
+        completedCount: newCompleted.length,
+        progress: newProgress,
+        calculation: `${newCompleted.length} / ${totalModules} * 100 = ${newProgress}%`
+      })
       
       // Award points
       const newPoints = points + 50
@@ -500,6 +656,33 @@ export default function StaffTrainingDetailPage() {
     })
   }
 
+  // If coming just to view certificate, show minimal loading
+  if (loading && showCertificateParam) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <Award className="h-16 w-16 text-blue-600 mx-auto mb-4 animate-pulse" />
+          <p className="text-gray-900 text-xl font-semibold">Loading your certificate...</p>
+          <p className="text-gray-600 text-sm mt-2">Please wait a moment</p>
+        </div>
+        {/* Certificate Modal will show on top when ready */}
+        {certificateData && (
+          <CertificateModal
+            open={showCertificate}
+            onOpenChange={(open) => setShowCertificate(open)}
+            staffName={certificateData.staffName}
+            trainingTitle={certificateData.trainingTitle}
+            completionDate={certificateData.completionDate}
+            ceuHours={certificateData.ceuHours}
+            score={certificateData.score}
+            certificateId={certificateData.certificateId}
+            staffId={staffId}
+          />
+        )}
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
@@ -533,6 +716,32 @@ export default function StaffTrainingDetailPage() {
   const progress = enrollment?.progress || 0
   const allModulesCompleted = totalModules > 0 && completedModules.length >= totalModules
   const isCompleted = enrollment?.status === "completed" || progress >= 100
+
+  // If viewing certificate only, show minimal UI with just the modal
+  if (showCertificateParam && certificateData && !loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+        {/* Certificate Modal */}
+        <CertificateModal
+          open={showCertificate}
+          onOpenChange={(open) => {
+            setShowCertificate(open)
+            // If they close the modal, redirect to dashboard
+            if (!open && staffId) {
+              router.push(`/staff-dashboard?staff_id=${encodeURIComponent(staffId)}#training`)
+            }
+          }}
+          staffName={certificateData.staffName}
+          trainingTitle={certificateData.trainingTitle}
+          completionDate={certificateData.completionDate}
+          ceuHours={certificateData.ceuHours}
+          score={certificateData.score}
+          certificateId={certificateData.certificateId}
+          staffId={staffId}
+        />
+      </div>
+    )
+  }
 
   // Prepare modules for LearningPath component
   const learningPathModules = (training.modules || []).map((module: any, index: number) => {
@@ -839,7 +1048,127 @@ export default function StaffTrainingDetailPage() {
           ceuHours={certificateData.ceuHours}
           score={certificateData.score}
           certificateId={certificateData.certificateId}
+          staffId={staffId}
         />
+      )}
+      
+      {/* Content Viewers */}
+      {showContentViewer && currentViewerFile && (
+        <>
+          {/* Video Viewer */}
+          {(currentViewerFile.type === "video" || currentViewerFile.fileType === "video") && (
+            <div className="fixed inset-0 z-50 bg-black flex flex-col">
+              <div className="flex-1 flex flex-col">
+                <VideoPlayer
+                  videoUrl={currentViewerFile.fileUrl}
+                  title={currentViewerFile.fileName || currentViewerFile.name || "Training Video"}
+                  onComplete={handleContentComplete}
+                  bookmarks={bookmarks}
+                  onAddBookmark={(time, note) => {
+                    setBookmarks(prev => [...prev, { time, note }])
+                  }}
+                />
+              </div>
+              <div className="p-4 bg-gray-900 border-t border-gray-700 text-center">
+                <Button
+                  variant="outline"
+                  onClick={handleCloseViewer}
+                  className="bg-white hover:bg-gray-100"
+                >
+                  Close (Content not marked as complete)
+                </Button>
+              </div>
+            </div>
+          )}
+          
+          {/* PDF Viewer */}
+          {(currentViewerFile.type === "pdf" || currentViewerFile.fileType === "pdf" || 
+            currentViewerFile.fileName?.toLowerCase().endsWith('.pdf') ||
+            currentViewerFile.name?.toLowerCase().endsWith('.pdf')) && (
+            <EnhancedPDFViewer
+              fileUrl={currentViewerFile.fileUrl}
+              fileName={currentViewerFile.fileName || currentViewerFile.name || "Training Document"}
+              totalPages={currentViewerFile.totalPages || 10}
+              onComplete={handleContentComplete}
+              onClose={handleCloseViewer}
+            />
+          )}
+          
+          {/* PowerPoint Viewer */}
+          {(currentViewerFile.type === "powerpoint" || currentViewerFile.fileType === "powerpoint" ||
+            currentViewerFile.type === "ppt" || currentViewerFile.fileType === "ppt" ||
+            currentViewerFile.type === "pptx" || currentViewerFile.fileType === "pptx" ||
+            currentViewerFile.fileName?.toLowerCase().match(/\.(ppt|pptx)$/) ||
+            currentViewerFile.name?.toLowerCase().match(/\.(ppt|pptx)$/)) && (
+            <PowerPointViewer
+              fileUrl={currentViewerFile.fileUrl}
+              fileName={currentViewerFile.fileName || currentViewerFile.name || "Training Presentation"}
+              totalSlides={currentViewerFile.totalSlides || 10}
+              onComplete={handleContentComplete}
+              onClose={handleCloseViewer}
+            />
+          )}
+          
+          {/* Fallback for other file types */}
+          {!(currentViewerFile.type === "video" || currentViewerFile.fileType === "video") &&
+           !(currentViewerFile.type === "pdf" || currentViewerFile.fileType === "pdf" || 
+             currentViewerFile.fileName?.toLowerCase().endsWith('.pdf') ||
+             currentViewerFile.name?.toLowerCase().endsWith('.pdf')) &&
+           !(currentViewerFile.type === "powerpoint" || currentViewerFile.fileType === "powerpoint" ||
+             currentViewerFile.type === "ppt" || currentViewerFile.fileType === "ppt" ||
+             currentViewerFile.type === "pptx" || currentViewerFile.fileType === "pptx" ||
+             currentViewerFile.fileName?.toLowerCase().match(/\.(ppt|pptx)$/) ||
+             currentViewerFile.name?.toLowerCase().match(/\.(ppt|pptx)$/)) && (
+            <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-8">
+              <Card className="w-full max-w-3xl">
+                <CardHeader>
+                  <CardTitle className="text-2xl">View Content</CardTitle>
+                  <CardDescription className="text-base">
+                    {currentViewerFile.fileName || currentViewerFile.name || "Training Content"}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertDescription>
+                      This file type will open in a new tab. Please review the content completely before returning.
+                    </AlertDescription>
+                  </Alert>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => {
+                        if (currentViewerFile.fileUrl) {
+                          window.open(currentViewerFile.fileUrl, "_blank")
+                        }
+                      }}
+                      className="flex-1"
+                      size="lg"
+                    >
+                      Open in New Tab
+                    </Button>
+                    <Button
+                      onClick={handleContentComplete}
+                      variant="outline"
+                      className="flex-1"
+                      size="lg"
+                    >
+                      <CheckCircle className="h-4 w-4 mr-2" />
+                      Mark as Complete
+                    </Button>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    onClick={handleCloseViewer}
+                    className="w-full"
+                    size="lg"
+                  >
+                    Cancel
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+        </>
       )}
     </div>
   )

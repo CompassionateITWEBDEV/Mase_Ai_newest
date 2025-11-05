@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Certificate } from "./Certificate"
 import { Trophy, Sparkles } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
 
 interface CertificateModalProps {
   open: boolean
@@ -14,6 +15,7 @@ interface CertificateModalProps {
   ceuHours?: number
   score?: number
   certificateId: string
+  staffId?: string
 }
 
 export function CertificateModal({
@@ -25,8 +27,10 @@ export function CertificateModal({
   ceuHours,
   score,
   certificateId,
+  staffId,
 }: CertificateModalProps) {
   const [showConfetti, setShowConfetti] = useState(false)
+  const router = useRouter()
 
   useEffect(() => {
     if (open) {
@@ -35,6 +39,15 @@ export function CertificateModal({
       return () => clearTimeout(timer)
     }
   }, [open])
+
+  const handleBackToDashboard = () => {
+    onOpenChange(false)
+    if (staffId) {
+      router.push(`/staff-dashboard?staff_id=${encodeURIComponent(staffId)}#training`)
+    } else {
+      router.push('/staff-dashboard')
+    }
+  }
 
   return (
     <>
@@ -56,6 +69,7 @@ export function CertificateModal({
               ceuHours={ceuHours}
               score={score}
               certificateId={certificateId}
+              onBackToDashboard={handleBackToDashboard}
             />
           </div>
         </DialogContent>

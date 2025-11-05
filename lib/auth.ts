@@ -319,6 +319,18 @@ export const USER_ROLES: Record<string, UserRole> = {
     permissions: [PERMISSIONS.PATIENT_VIEW],
     defaultRoute: "/patient-portal",
   },
+
+  STAFF: {
+    id: "staff",
+    name: "Staff Member",
+    level: 40,
+    permissions: [
+      PERMISSIONS.DASHBOARD_VIEW,
+      PERMISSIONS.SCHEDULE_VIEW,
+      PERMISSIONS.TRAINING_VIEW,
+    ],
+    defaultRoute: "/staff-dashboard",
+  },
 }
 
 export function hasPermission(user: User, resource: string, action: string): boolean {

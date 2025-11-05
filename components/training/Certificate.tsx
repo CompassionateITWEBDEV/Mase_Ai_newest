@@ -14,6 +14,7 @@ interface CertificateProps {
   score?: number
   certificateId: string
   organizationName?: string
+  onBackToDashboard?: () => void
 }
 
 export function Certificate({
@@ -24,6 +25,7 @@ export function Certificate({
   score,
   certificateId,
   organizationName = "M.A.S.E Healthcare",
+  onBackToDashboard,
 }: CertificateProps) {
   const certificateRef = useRef<HTMLDivElement>(null)
 
@@ -188,6 +190,12 @@ export function Certificate({
               <Share2 className="h-5 w-5 mr-2" />
               Share on LinkedIn
             </Button>
+            {onBackToDashboard && (
+              <Button onClick={onBackToDashboard} size="lg" variant="default" className="bg-green-600 hover:bg-green-700">
+                <CheckCircle className="h-5 w-5 mr-2" />
+                Back to Training Dashboard
+              </Button>
+            )}
           </div>
           <p className="text-center text-sm text-gray-600 mt-4">
             Your certificate has been saved to your profile and can be accessed anytime.

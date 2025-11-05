@@ -37,53 +37,32 @@ export function PowerPointViewer({
   onSlideChange,
 }: PowerPointViewerProps) {
   const [currentSlide, setCurrentSlide] = useState(1)
-  const [viewedSlides, setViewedSlides] = useState<Set<number>>(new Set([1]))
-  const [timeSpentPerSlide, setTimeSpentPerSlide] = useState<Record<number, number>>({})
+  const [reachedLastSlide, setReachedLastSlide] = useState(false)
   const [isCompleted, setIsCompleted] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [highestSlideReached, setHighestSlideReached] = useState(1)
   
-  const slideStartTimeRef = useRef<number>(Date.now())
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Calculate progress - must view ALL slides
-  const viewedPercent = (viewedSlides.size / totalSlides) * 100
-  const canComplete = viewedSlides.size === totalSlides && viewedSlides.has(totalSlides)
-
-  // Track time on current slide
+  // Track the highest slide reached (by clicking Next or scrolling)
   useEffect(() => {
-    slideStartTimeRef.current = Date.now()
+    if (currentSlide > highestSlideReached) {
+      setHighestSlideReached(currentSlide)
+    }
     
-    intervalRef.current = setInterval(() => {
-      const timeOnSlide = Math.floor((Date.now() - slideStartTimeRef.current) / 1000)
-      setTimeSpentPerSlide(prev => ({
-        ...prev,
-        [currentSlide]: timeOnSlide
-      }))
-    }, 1000)
-
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
-      }
+    // Mark as reached last slide when navigating to it
+    if (currentSlide === totalSlides || highestSlideReached === totalSlides) {
+      setReachedLastSlide(true)
     }
-  }, [currentSlide])
+  }, [currentSlide, totalSlides, highestSlideReached])
 
-  // Mark slide as viewed when enough time spent
+  // Auto-complete when reaching last slide
   useEffect(() => {
-    const minTimePerSlide = 8 // Minimum 8 seconds per slide
-    if (timeSpentPerSlide[currentSlide] >= minTimePerSlide) {
-      setViewedSlides(prev => new Set([...prev, currentSlide]))
-    }
-  }, [timeSpentPerSlide, currentSlide])
-
-  // Auto-complete when all slides viewed
-  useEffect(() => {
-    if (canComplete && !isCompleted) {
+    if (reachedLastSlide && !isCompleted) {
       setIsCompleted(true)
       onComplete()
     }
-  }, [canComplete, isCompleted, onComplete])
+  }, [reachedLastSlide, isCompleted, onComplete])
 
   const goToSlide = (slide: number) => {
     if (slide >= 1 && slide <= totalSlides) {
@@ -109,12 +88,12 @@ export function PowerPointViewer({
     }
   }
 
-  const unviewedSlides = totalSlides - viewedSlides.size
-  const reachedLastSlide = currentSlide === totalSlides
+  // Calculate progress based on current slide
+  const progressPercent = (currentSlide / totalSlides) * 100
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <Card ref={containerRef} className="w-full max-w-6xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+      <Card ref={containerRef} className="w-full h-full flex flex-col rounded-none">
         <CardHeader className="border-b">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center text-lg">
@@ -130,77 +109,66 @@ export function PowerPointViewer({
                 {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
               </Button>
               <Button
-                variant="ghost"
-                size="sm"
-                onClick={onClose}
-                disabled={!canComplete}
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
+              variant="ghost"
+              size="sm"
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" />
+            </Button>
           </div>
+        </div>
 
-          {/* Progress Tracking */}
-          <div className="mt-4 space-y-3">
-            <div className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-600">
-                  Slide {currentSlide} of {totalSlides}
-                </span>
-                <Badge variant={viewedSlides.has(currentSlide) ? "default" : "outline"}>
-                  {viewedSlides.has(currentSlide) ? "Viewed" : "Viewing..."}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                {isCompleted ? (
-                  <Badge className="bg-green-600">
-                    <CheckCircle className="h-3 w-3 mr-1" />
-                    Completed
-                  </Badge>
-                ) : (
-                  <Badge variant="outline">
-                    <Eye className="h-3 w-3 mr-1" />
-                    {viewedSlides.size}/{totalSlides} slides viewed
-                  </Badge>
-                )}
-              </div>
+        {/* Progress Tracking */}
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center justify-between text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-gray-600">
+                Slide {currentSlide} of {totalSlides}
+              </span>
+              <Badge variant={currentSlide === totalSlides ? "default" : "outline"}>
+                {currentSlide === totalSlides ? "Last Slide" : "Viewing..."}
+              </Badge>
             </div>
-            <Progress value={viewedPercent} className="h-2" />
-            
-            {/* Slide time tracker */}
-            <div className="text-xs text-gray-500">
-              Time on this slide: {timeSpentPerSlide[currentSlide] || 0}s
-              {timeSpentPerSlide[currentSlide] < 8 && " (minimum 8s per slide)"}
+            <div className="flex items-center gap-2">
+              {isCompleted ? (
+                <Badge className="bg-green-600">
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Completed!
+                </Badge>
+              ) : (
+                <Badge variant="outline">
+                  <Eye className="h-3 w-3 mr-1" />
+                  Navigate to last slide
+                </Badge>
+              )}
             </div>
           </div>
+          <Progress value={progressPercent} className="h-2" />
+        </div>
 
           {!reachedLastSlide && (
-            <Alert className="mt-2 border-blue-200 bg-blue-50">
-              <AlertCircle className="h-4 w-4 text-blue-600" />
-              <AlertDescription className="text-xs text-blue-800">
-                Please review all slides to the end. Spend at least 8 seconds on each slide
-                to ensure proper understanding. {unviewedSlides} slide{unviewedSlides !== 1 ? 's' : ''} remaining.
-              </AlertDescription>
-            </Alert>
-          )}
-          
-          {reachedLastSlide && !canComplete && (
-            <Alert className="mt-2 border-orange-200 bg-orange-50">
-              <AlertCircle className="h-4 w-4 text-orange-600" />
-              <AlertDescription className="text-xs text-orange-800">
-                You've reached the last slide! Review any skipped slides ({unviewedSlides} remaining).
-              </AlertDescription>
-            </Alert>
-          )}
-          
-          {canComplete && (
-            <Alert className="mt-2 border-green-200 bg-green-50">
-              <CheckCircle className="h-4 w-4 text-green-600" />
-              <AlertDescription className="text-xs text-green-800">
-                ✅ All slides viewed! You can now proceed to the quiz.
-              </AlertDescription>
-            </Alert>
-          )}
+          <Alert className="mt-2 border-blue-200 bg-blue-50">
+            <AlertCircle className="h-4 w-4 text-blue-600" />
+            <AlertDescription className="text-xs text-blue-800">
+              Navigate to the last slide (slide {totalSlides}) - Use Next button or scroll through the presentation.
+            </AlertDescription>
+          </Alert>
+        )}
+        
+        {highestSlideReached > 1 && !isCompleted && (
+          <div className="text-xs text-gray-600 mt-1">
+            Highest slide reached: {highestSlideReached} of {totalSlides}
+          </div>
+        )}
+        
+        {isCompleted && (
+          <Alert className="mt-2 border-green-200 bg-green-50">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <AlertDescription className="text-xs text-green-800">
+              ✅ You've reached the last slide! Click "Continue" below to proceed.
+            </AlertDescription>
+          </Alert>
+        )}
         </CardHeader>
 
         <CardContent className="flex-1 overflow-hidden p-0 bg-gray-900">

@@ -195,27 +195,29 @@ export function TrainingDashboardCard({ module, onContinue, onViewCertificate, s
                 </Button>
               ) : (
                 <div className="flex flex-col gap-2 w-full">
-                  <div className="flex items-center gap-2">
-                    {onViewCertificate && (
-                      <Button 
-                        onClick={onViewCertificate}
-                        className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700"
-                        size="sm"
-                      >
-                        <Award className="h-4 w-4 mr-2" />
-                        View Certificate
-                      </Button>
-                    )}
+                  {/* Completed Training - Show certificate info only */}
+                  {onViewCertificate ? (
                     <Button 
-                      onClick={onContinue} 
-                      variant="outline" 
+                      onClick={onViewCertificate}
+                      className="w-full bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
                       size="sm"
-                      className="flex-1"
                     >
-                      <Eye className="h-4 w-4 mr-2" />
-                      Review Content
+                      <Award className="h-4 w-4 mr-2" />
+                      View Certificate
                     </Button>
-                  </div>
+                  ) : (
+                    <div className="w-full p-3 bg-green-50 border-2 border-green-200 rounded-lg">
+                      <div className="flex items-center justify-center text-green-700">
+                        <CheckCircle className="h-5 w-5 mr-2" />
+                        <span className="font-semibold">Training Complete</span>
+                      </div>
+                      {module.certificateId && (
+                        <p className="text-xs text-center text-green-600 mt-1">
+                          Certificate ID: {module.certificateId}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>

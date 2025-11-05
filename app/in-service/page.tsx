@@ -3038,6 +3038,238 @@ export default function InServiceEducation() {
                 </div>
               </CardContent>
             </Card>
+
+            {/* Michigan State CEU Requirements */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <Shield className="h-5 w-5 mr-2 text-blue-600" />
+                      Michigan State CEU Requirements
+                    </CardTitle>
+                    <CardDescription>Annual continuing education requirements by professional role</CardDescription>
+                  </div>
+                  <Badge variant="outline" className="text-blue-600 border-blue-600">
+                    State Mandated
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                  {/* RN - Registered Nurse */}
+                  <div className="border border-blue-200 rounded-lg p-4 bg-blue-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-lg text-blue-900">RN</h3>
+                      <Badge className="bg-blue-600 text-white">Biennial</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Required Hours:</span>
+                        <span className="font-bold text-blue-900">25 hours</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Period:</span>
+                        <span className="font-medium text-blue-800">Every 2 years</span>
+                      </div>
+                      <div className="mt-3 p-2 bg-white rounded border border-blue-200">
+                        <p className="text-xs text-gray-600">
+                          Registered Nurses must complete 25 CEU hours every two years for license renewal
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* LPN - Licensed Practical Nurse */}
+                  <div className="border border-green-200 rounded-lg p-4 bg-green-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-lg text-green-900">LPN</h3>
+                      <Badge className="bg-green-600 text-white">Biennial</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Required Hours:</span>
+                        <span className="font-bold text-green-900">20 hours</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Period:</span>
+                        <span className="font-medium text-green-800">Every 2 years</span>
+                      </div>
+                      <div className="mt-3 p-2 bg-white rounded border border-green-200">
+                        <p className="text-xs text-gray-600">
+                          Licensed Practical Nurses must complete 20 CEU hours every two years
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* CNA - Certified Nursing Assistant */}
+                  <div className="border border-purple-200 rounded-lg p-4 bg-purple-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-lg text-purple-900">CNA</h3>
+                      <Badge className="bg-purple-600 text-white">Annual</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Required Hours:</span>
+                        <span className="font-bold text-purple-900">12 hours</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Period:</span>
+                        <span className="font-medium text-purple-800">Every year</span>
+                      </div>
+                      <div className="mt-3 p-2 bg-white rounded border border-purple-200">
+                        <p className="text-xs text-gray-600">
+                          Certified Nursing Assistants must complete 12 CEU hours annually
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PT - Physical Therapist */}
+                  <div className="border border-orange-200 rounded-lg p-4 bg-orange-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-lg text-orange-900">PT</h3>
+                      <Badge className="bg-orange-600 text-white">Biennial</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Required Hours:</span>
+                        <span className="font-bold text-orange-900">30 hours</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Period:</span>
+                        <span className="font-medium text-orange-800">Every 2 years</span>
+                      </div>
+                      <div className="mt-3 p-2 bg-white rounded border border-orange-200">
+                        <p className="text-xs text-gray-600">
+                          Physical Therapists must complete 30 CEU hours every two years
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* PTA - Physical Therapist Assistant */}
+                  <div className="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-lg text-yellow-900">PTA</h3>
+                      <Badge className="bg-yellow-600 text-white">Biennial</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Required Hours:</span>
+                        <span className="font-bold text-yellow-900">20 hours</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Period:</span>
+                        <span className="font-medium text-yellow-800">Every 2 years</span>
+                      </div>
+                      <div className="mt-3 p-2 bg-white rounded border border-yellow-200">
+                        <p className="text-xs text-gray-600">
+                          Physical Therapist Assistants must complete 20 CEU hours every two years
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* OT - Occupational Therapist */}
+                  <div className="border border-teal-200 rounded-lg p-4 bg-teal-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-lg text-teal-900">OT</h3>
+                      <Badge className="bg-teal-600 text-white">Biennial</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Required Hours:</span>
+                        <span className="font-bold text-teal-900">24 hours</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Period:</span>
+                        <span className="font-medium text-teal-800">Every 2 years</span>
+                      </div>
+                      <div className="mt-3 p-2 bg-white rounded border border-teal-200">
+                        <p className="text-xs text-gray-600">
+                          Occupational Therapists must complete 24 CEU hours every two years
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* HHA - Home Health Aide */}
+                  <div className="border border-pink-200 rounded-lg p-4 bg-pink-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-lg text-pink-900">HHA</h3>
+                      <Badge className="bg-pink-600 text-white">Annual</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Required Hours:</span>
+                        <span className="font-bold text-pink-900">12 hours</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Period:</span>
+                        <span className="font-medium text-pink-800">Every year</span>
+                      </div>
+                      <div className="mt-3 p-2 bg-white rounded border border-pink-200">
+                        <p className="text-xs text-gray-600">
+                          Home Health Aides must complete 12 CEU hours annually
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* All Staff - Default */}
+                  <div className="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="font-semibold text-lg text-gray-900">All Other Staff</h3>
+                      <Badge className="bg-gray-600 text-white">Annual</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Required Hours:</span>
+                        <span className="font-bold text-gray-900">20 hours</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-700">Period:</span>
+                        <span className="font-medium text-gray-800">Every year</span>
+                      </div>
+                      <div className="mt-3 p-2 bg-white rounded border border-gray-200">
+                        <p className="text-xs text-gray-600">
+                          Other healthcare staff members must complete 20 CEU hours annually
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Important Notes */}
+                <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-start space-x-3">
+                    <Shield className="h-5 w-5 text-blue-600 mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-blue-900 mb-2">Compliance Requirements</h4>
+                      <ul className="space-y-1 text-sm text-blue-800">
+                        <li>• All CEU hours must be from accredited providers</li>
+                        <li>• Documentation must be retained for at least 4 years</li>
+                        <li>• Non-compliance may result in automatic work restrictions</li>
+                        <li>• Employees receive notifications 30 days before deadline</li>
+                        <li>• System automatically tracks progress toward requirements</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Link to Continuing Education Page */}
+                <div className="mt-4 flex justify-end">
+                  <Link href="/continuing-education">
+                    <Button variant="outline" size="sm">
+                      <Award className="h-4 w-4 mr-2" />
+                      View Full Compliance Dashboard
+                    </Button>
+                  </Link>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="trainings" className="space-y-6">
@@ -4375,12 +4607,21 @@ export default function InServiceEducation() {
                                 <CheckCircle className="h-3 w-3 mr-1" />
                                 Completed
                               </Badge>
-                              {training.certificate && (
-                                <Button variant="outline" size="sm">
-                                  <Eye className="h-4 w-4 mr-2" />
-                                  Certificate
-                                </Button>
-                              )}
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => {
+                                  // Navigate to certificate view
+                                  const trainingId = training.trainingId || training.id
+                                  const staffId = selectedEmployee.id
+                                  if (trainingId && staffId) {
+                                    window.location.href = `/staff-training/${trainingId}?staffId=${encodeURIComponent(staffId)}&showCertificate=true`
+                                  }
+                                }}
+                              >
+                                <Award className="h-4 w-4 mr-2" />
+                                View Certificate
+                              </Button>
                             </div>
                           </div>
                         </div>

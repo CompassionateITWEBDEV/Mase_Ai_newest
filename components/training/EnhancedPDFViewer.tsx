@@ -35,52 +35,65 @@ export function EnhancedPDFViewer({
   onPageChange,
 }: EnhancedPDFViewerProps) {
   const [currentPage, setCurrentPage] = useState(1)
-  const [viewedPages, setViewedPages] = useState<Set<number>>(new Set([1]))
-  const [timeSpentPerPage, setTimeSpentPerPage] = useState<Record<number, number>>({})
+  const [reachedLastPage, setReachedLastPage] = useState(false)
   const [isCompleted, setIsCompleted] = useState(false)
-  
-  const pageStartTimeRef = useRef<number>(Date.now())
-  const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const [highestPageReached, setHighestPageReached] = useState(1)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
 
-  // Calculate progress
-  const viewedPercent = (viewedPages.size / totalPages) * 100
-  const mustViewPercent = 90 // Must view 90% of pages
-  const canComplete = viewedPercent >= mustViewPercent
-
-  // Track time on current page
+  // Track the highest page reached (by clicking Next or scrolling)
   useEffect(() => {
-    pageStartTimeRef.current = Date.now()
+    if (currentPage > highestPageReached) {
+      setHighestPageReached(currentPage)
+    }
     
-    intervalRef.current = setInterval(() => {
-      const timeOnPage = Math.floor((Date.now() - pageStartTimeRef.current) / 1000)
-      setTimeSpentPerPage(prev => ({
-        ...prev,
-        [currentPage]: timeOnPage
-      }))
-    }, 1000)
+    // Mark as reached last page when navigating to it
+    if (currentPage === totalPages || highestPageReached === totalPages) {
+      setReachedLastPage(true)
+    }
+  }, [currentPage, totalPages, highestPageReached])
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current)
+  // Listen for scroll events in iframe to detect page changes
+  useEffect(() => {
+    const iframe = iframeRef.current
+    if (!iframe) return
+
+    const handleIframeLoad = () => {
+      try {
+        const iframeWindow = iframe.contentWindow
+        if (iframeWindow) {
+          // Try to detect page changes from PDF viewer
+          iframeWindow.addEventListener('scroll', () => {
+            // PDF viewers often update URL hash with page number
+            const hash = iframeWindow.location.hash
+            const pageMatch = hash.match(/page=(\d+)/)
+            if (pageMatch) {
+              const page = parseInt(pageMatch[1])
+              if (page > highestPageReached) {
+                setHighestPageReached(page)
+                setCurrentPage(page)
+              }
+            }
+          })
+        }
+      } catch (e) {
+        // Cross-origin restrictions - that's okay
+        console.log('Cannot access iframe content (cross-origin)')
       }
     }
-  }, [currentPage])
 
-  // Mark page as viewed when enough time spent
-  useEffect(() => {
-    const minTimePerPage = 10 // Minimum 10 seconds per page
-    if (timeSpentPerPage[currentPage] >= minTimePerPage) {
-      setViewedPages(prev => new Set([...prev, currentPage]))
+    iframe.addEventListener('load', handleIframeLoad)
+    return () => {
+      iframe.removeEventListener('load', handleIframeLoad)
     }
-  }, [timeSpentPerPage, currentPage])
+  }, [highestPageReached])
 
-  // Auto-complete when requirements met
+  // Auto-complete when reaching last page
   useEffect(() => {
-    if (canComplete && !isCompleted) {
+    if (reachedLastPage && !isCompleted) {
       setIsCompleted(true)
       onComplete()
     }
-  }, [canComplete, isCompleted, onComplete])
+  }, [reachedLastPage, isCompleted, onComplete])
 
   const goToPage = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -96,11 +109,12 @@ export function EnhancedPDFViewer({
     link.click()
   }
 
-  const reachedLastPage = viewedPages.has(totalPages)
+  // Calculate progress based on current page
+  const progressPercent = (currentPage / totalPages) * 100
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-6xl max-h-[90vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
+      <Card className="w-full h-full flex flex-col rounded-none">
         <CardHeader className="border-b">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center text-lg">
@@ -111,7 +125,6 @@ export function EnhancedPDFViewer({
               variant="ghost"
               size="sm"
               onClick={onClose}
-              disabled={!canComplete}
             >
               <X className="h-4 w-4" />
             </Button>
@@ -124,60 +137,60 @@ export function EnhancedPDFViewer({
                 <span className="text-gray-600">
                   Page {currentPage} of {totalPages}
                 </span>
-                <Badge variant={viewedPages.has(currentPage) ? "default" : "outline"}>
-                  {viewedPages.has(currentPage) ? "Viewed" : "Reading..."}
+                <Badge variant={currentPage === totalPages ? "default" : "outline"}>
+                  {currentPage === totalPages ? "Last Page" : "Reading..."}
                 </Badge>
               </div>
               <div className="flex items-center gap-2">
                 {isCompleted ? (
                   <Badge className="bg-green-600">
                     <CheckCircle className="h-3 w-3 mr-1" />
-                    Can Proceed
+                    Completed!
                   </Badge>
                 ) : (
                   <Badge variant="outline">
                     <Eye className="h-3 w-3 mr-1" />
-                    {viewedPages.size}/{totalPages} pages viewed
+                    Navigate to last page
                   </Badge>
                 )}
               </div>
             </div>
-            <Progress value={viewedPercent} className="h-2" />
-            
-            {/* Page time tracker */}
-            <div className="text-xs text-gray-500">
-              Time on this page: {timeSpentPerPage[currentPage] || 0}s
-              {timeSpentPerPage[currentPage] < 10 && " (minimum 10s)"}
-            </div>
+            <Progress value={progressPercent} className="h-2" />
           </div>
 
           {!reachedLastPage && (
             <Alert className="mt-2 border-blue-200 bg-blue-50">
               <AlertCircle className="h-4 w-4 text-blue-600" />
               <AlertDescription className="text-xs text-blue-800">
-                Please read through to the last page and spend at least 10 seconds on each page
-                to ensure proper understanding of the material.
+                Navigate to the last page (page {totalPages}) - Use Next button or scroll through the PDF.
               </AlertDescription>
             </Alert>
           )}
           
-          {reachedLastPage && !canComplete && (
-            <Alert className="mt-2 border-orange-200 bg-orange-50">
-              <AlertCircle className="h-4 w-4 text-orange-600" />
-              <AlertDescription className="text-xs text-orange-800">
-                You've reached the last page! Review any skipped pages (
-                {Math.ceil((mustViewPercent - viewedPercent) / 100 * totalPages)} more pages needed).
+          {highestPageReached > 1 && !isCompleted && (
+            <div className="text-xs text-gray-600 mt-1">
+              Highest page reached: {highestPageReached} of {totalPages}
+            </div>
+          )}
+          
+          {isCompleted && (
+            <Alert className="mt-2 border-green-200 bg-green-50">
+              <CheckCircle className="h-4 w-4 text-green-600" />
+              <AlertDescription className="text-xs text-green-800">
+                ✅ You've reached the last page! Click "Continue" below to proceed.
               </AlertDescription>
             </Alert>
           )}
         </CardHeader>
 
         <CardContent className="flex-1 overflow-hidden p-0">
-          {/* PDF Viewer with page parameter */}
+          {/* PDF Viewer with page parameter and scrolling support */}
           <iframe
-            src={`${fileUrl}#page=${currentPage}&zoom=page-fit`}
+            ref={iframeRef}
+            src={`${fileUrl}#page=${currentPage}&view=FitH`}
             className="w-full h-full border-0"
             title={fileName}
+            allow="fullscreen"
           />
         </CardContent>
 
@@ -228,10 +241,10 @@ export function EnhancedPDFViewer({
             />
           </div>
           
-          {canComplete && (
+          {isCompleted && (
             <Button onClick={onClose} className="bg-green-600 hover:bg-green-700">
               <CheckCircle className="h-4 w-4 mr-2" />
-              Continue to Quiz
+              Continue
             </Button>
           )}
         </div>

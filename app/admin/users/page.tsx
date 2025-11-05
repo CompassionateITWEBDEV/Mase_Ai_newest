@@ -85,12 +85,17 @@ export default function UserManagement() {
             // Find matching role or use default
             const role = Object.values(USER_ROLES).find(r => r.id === staff.role_id) || USER_ROLES.STAFF
             
+            // Safety check for role and permissions
+            if (!role) {
+              console.warn(`No role found for staff ${staff.id}, using STAFF default`)
+            }
+            
             return {
               id: staff.id,
               email: staff.email,
               name: staff.name,
-              role: role,
-              permissions: role.permissions,
+              role: role || USER_ROLES.STAFF,
+              permissions: role?.permissions || USER_ROLES.STAFF.permissions || [],
               department: staff.department || undefined,
               organization: staff.organization || undefined,
               isActive: staff.is_active,

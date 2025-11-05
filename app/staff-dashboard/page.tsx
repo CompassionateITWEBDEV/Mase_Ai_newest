@@ -81,6 +81,7 @@ export default function StaffDashboard() {
   // Load staff from database to make header info accurate
   const [staffList, setStaffList] = useState<any[]>([])
   const [isLoadingStaff, setIsLoadingStaff] = useState(true)
+  const [selectedStaff, setSelectedStaff] = useState<any>(null)
   const staffIdFromQuery = searchParams?.get("staff_id") || undefined
 
   // Load upcoming shifts for selected staff from staff_shifts table
@@ -210,6 +211,33 @@ export default function StaffDashboard() {
         const data = await res.json()
         if (data.success && Array.isArray(data.staff)) {
           setStaffList(data.staff)
+          
+          // Match staff to logged-in user
+          if (currentUser) {
+            // Try to find staff by email match first
+            let matchedStaff = data.staff.find((s: any) => 
+              s.email?.toLowerCase() === currentUser.email?.toLowerCase()
+            )
+            
+            // If no email match, try by ID or name
+            if (!matchedStaff) {
+              matchedStaff = data.staff.find((s: any) => 
+                s.id === currentUser.id || 
+                s.id === staffIdFromQuery ||
+                s.name?.toLowerCase().includes(currentUser.name?.toLowerCase())
+              )
+            }
+            
+            // Set the matched staff or first one as fallback
+            setSelectedStaff(matchedStaff || data.staff[0])
+          } else if (staffIdFromQuery) {
+            // If no current user but we have staff_id in URL
+            const staffFromQuery = data.staff.find((s: any) => s.id === staffIdFromQuery)
+            setSelectedStaff(staffFromQuery || data.staff[0])
+          } else {
+            // Default to first staff
+            setSelectedStaff(data.staff[0])
+          }
         }
       } catch (e) {
         console.error('Failed to load staff for dashboard', e)
@@ -217,10 +245,12 @@ export default function StaffDashboard() {
         setIsLoadingStaff(false)
       }
     }
-    loadStaff()
-  }, [])
-
-  const selectedStaff = staffList.find((s) => s.id === staffIdFromQuery) || staffList[0]
+    
+    // Only load staff after authentication is checked
+    if (!isCheckingAuth) {
+      loadStaff()
+    }
+  }, [currentUser, staffIdFromQuery, isCheckingAuth])
 
   // Helper functions (must be declared before conditional returns)
   const formatFacilityUnit = (locationValue?: string) => {
@@ -339,7 +369,7 @@ export default function StaffDashboard() {
   useEffect(() => {
     const loadTrainings = async () => {
       if (!selectedStaff?.id) {
-        console.error("Staff Dashboard: ❌ No staff ID available, skipping training load")
+        console.log("Staff Dashboard: ℹ️ No staff selected, skipping training load")
         setRealTrainingModules([])
         return
       }
@@ -573,10 +603,15 @@ export default function StaffDashboard() {
       }
     }
 
-    // Load trainings when staff is selected or when training tab is active
+    // Load trainings when staff is selected AND training tab is active
     console.log("Staff Dashboard: 🔍 useEffect triggered - activeTab:", activeTab, "selectedStaff.id:", selectedStaff?.id)
-    if (activeTab === "training" || selectedStaff?.id) {
+    
+    // Only load trainings if a staff member is selected
+    if (selectedStaff?.id) {
       loadTrainings()
+    } else {
+      // Clear trainings if no staff selected
+      setRealTrainingModules([])
     }
   }, [selectedStaff?.id, activeTab])
 

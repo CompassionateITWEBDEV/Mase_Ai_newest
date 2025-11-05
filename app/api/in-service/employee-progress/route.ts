@@ -233,18 +233,57 @@ export async function GET(request: NextRequest) {
         })),
       })
 
-      // Get completed trainings
-      const completedTrainings = empCompletions.map((c: any) => ({
+      // Get completed trainings from BOTH completions table AND enrollments with status='completed'
+      
+      // 1. Get from completions table (has certificate and score)
+      const completionsData = empCompletions.map((c: any) => ({
         id: c.training_id,
-        trainingId: c.training_id, // Add trainingId for frontend compatibility
+        trainingId: c.training_id,
         title: c.in_service_trainings?.title || "Unknown Training",
         completionDate: c.completion_date?.split("T")[0] || "",
         score: parseFloat(c.score?.toString() || "0"),
         ceuHours: parseFloat(c.ceu_hours_earned?.toString() || "0"),
         certificate: c.certificate_number || "",
         category: c.in_service_trainings?.category || "",
+        enrollmentId: c.enrollment_id,
+        source: 'completion_table',
       }))
       
+      // 2. Get from enrollments with status='completed' (may not have completion record yet)
+      const completedEnrollments = empEnrollments
+        .filter((e: any) => e.status === "completed")
+        .map((e: any) => {
+          // Check if this enrollment already has a completion record
+          const existingCompletion = empCompletions.find((c: any) => c.enrollment_id === e.id)
+          
+          // If has completion record, skip (already in completionsData)
+          if (existingCompletion) {
+            return null
+          }
+          
+          // Otherwise, create completion entry from enrollment data
+          const assignment = empAssignments.find((a: any) => a.training_id === e.training_id)
+          return {
+            id: e.training_id,
+            trainingId: e.training_id,
+            title: e.in_service_trainings?.title || "Unknown Training",
+            completionDate: e.updated_at?.split("T")[0] || e.last_accessed?.split("T")[0] || "",
+            score: 0,
+            ceuHours: parseFloat(e.in_service_trainings?.ceu_hours?.toString() || "0"),
+            certificate: "",
+            category: e.in_service_trainings?.category || "",
+            enrollmentId: e.id,
+            source: 'enrollment_status',
+          }
+        })
+        .filter(Boolean) // Remove nulls
+      
+      // 3. Combine both sources
+      const completedTrainings = [...completionsData, ...completedEnrollments]
+      
+      console.log(`[API] Employee ${emp.name} completedTrainings from completions table:`, completionsData.length)
+      console.log(`[API] Employee ${emp.name} completedTrainings from enrollment status:`, completedEnrollments.length)
+      console.log(`[API] Employee ${emp.name} TOTAL completedTrainings:`, completedTrainings.length)
       console.log(`[API] Employee ${emp.name} completedTrainings:`, completedTrainings)
 
       // Get in-progress trainings (status = 'in_progress')
@@ -405,9 +444,9 @@ export async function GET(request: NextRequest) {
           return a.daysUntilDue - b.daysUntilDue
         })
 
-      // Calculate ACTUAL completed hours from completions (not from requirements table)
-      const actualCompletedHours = empCompletions.reduce((sum, completion) => {
-        return sum + parseFloat(completion.ceu_hours_earned?.toString() || "0")
+      // Calculate ACTUAL completed hours from BOTH sources (completions table + enrollment status)
+      const actualCompletedHours = completedTrainings.reduce((sum, training) => {
+        return sum + parseFloat(training?.ceuHours?.toString() || "0")
       }, 0)
       
       // Calculate ACTUAL in-progress hours from enrollments
@@ -421,11 +460,18 @@ export async function GET(request: NextRequest) {
       const inProgressHours = actualInProgressHours
       
       console.log(`[ANNUAL PROGRESS] Employee: ${emp.name}`, {
-        completions: empCompletions.length,
+        completedTrainings: completedTrainings.length,
         completedHours,
         inProgressEnrollments: empEnrollments.filter((e: any) => e.status === "in_progress").length,
         inProgressHours,
-        annualRequirementFromDB: req?.annual_requirement_hours
+        annualRequirementFromDB: req?.annual_requirement_hours,
+        completionsTableCount: empCompletions.length,
+        enrollmentStatusCount: completedEnrollments.length,
+        completedTrainingsList: completedTrainings.map((t: any) => ({
+          title: t.title,
+          ceuHours: t.ceuHours,
+          completionDate: t.completionDate
+        }))
       })
       
       // Get the actual annual requirement for this employee from the database
@@ -445,6 +491,21 @@ export async function GET(request: NextRequest) {
         const currentYear = new Date().getFullYear()
         const remainingHours = Math.max(0, annualRequirement - completedHours - inProgressHours)
         
+        // Calculate compliance status for database update
+        const completionPerc = (completedHours / annualRequirement) * 100
+        let dbComplianceStatus = "on_track"
+        if (completionPerc >= 100 || (completedHours + inProgressHours) >= annualRequirement) {
+          dbComplianceStatus = "on_track"
+        } else if (completionPerc >= 75) {
+          dbComplianceStatus = "on_track"
+        } else if (completionPerc >= 50) {
+          dbComplianceStatus = "at_risk"
+        } else if (completionPerc >= 25) {
+          dbComplianceStatus = "behind"
+        } else {
+          dbComplianceStatus = "non_compliant"
+        }
+        
         await serviceSupabase
           .from("employee_training_requirements")
           .upsert({
@@ -454,8 +515,8 @@ export async function GET(request: NextRequest) {
             completed_hours: completedHours,
             in_progress_hours: inProgressHours,
             remaining_hours: remainingHours,
-            compliance_status: remainingHours === 0 ? "on_track" : (remainingHours > 10 ? "behind" : "at_risk"),
-            last_training_date: empCompletions.length > 0 ? empCompletions[empCompletions.length - 1].completion_date : null,
+            compliance_status: dbComplianceStatus,
+            last_training_date: completedTrainings.length > 0 && completedTrainings[completedTrainings.length - 1] ? completedTrainings[completedTrainings.length - 1]?.completionDate || null : null,
             updated_at: new Date().toISOString(),
           }, {
             onConflict: "employee_id,year"
@@ -466,14 +527,29 @@ export async function GET(request: NextRequest) {
         const currentYear = new Date().getFullYear()
         const remainingHours = Math.max(0, annualRequirement - completedHours - inProgressHours)
         
+        // Calculate compliance status for database update
+        const completionPerc = (completedHours / annualRequirement) * 100
+        let dbComplianceStatus = "on_track"
+        if (completionPerc >= 100 || (completedHours + inProgressHours) >= annualRequirement) {
+          dbComplianceStatus = "on_track"
+        } else if (completionPerc >= 75) {
+          dbComplianceStatus = "on_track"
+        } else if (completionPerc >= 50) {
+          dbComplianceStatus = "at_risk"
+        } else if (completionPerc >= 25) {
+          dbComplianceStatus = "behind"
+        } else {
+          dbComplianceStatus = "non_compliant"
+        }
+        
         await serviceSupabase
           .from("employee_training_requirements")
           .update({
             completed_hours: completedHours,
             in_progress_hours: inProgressHours,
             remaining_hours: remainingHours,
-            compliance_status: remainingHours === 0 ? "on_track" : (remainingHours > 10 ? "behind" : "at_risk"),
-            last_training_date: empCompletions.length > 0 ? empCompletions[empCompletions.length - 1].completion_date : null,
+            compliance_status: dbComplianceStatus,
+            last_training_date: completedTrainings.length > 0 && completedTrainings[completedTrainings.length - 1] ? completedTrainings[completedTrainings.length - 1]?.completionDate || null : null,
             updated_at: new Date().toISOString(),
           })
           .eq("employee_id", emp.id)
@@ -482,6 +558,47 @@ export async function GET(request: NextRequest) {
       
       // Calculate remaining hours based on actual requirement
       const remainingHours = Math.max(0, annualRequirement - completedHours - inProgressHours)
+      
+      // Calculate compliance status dynamically based on actual progress
+      let complianceStatus = "on_track"
+      if (annualRequirement > 0) {
+        const completionPercentage = (completedHours / annualRequirement) * 100
+        const totalProgressPercentage = ((completedHours + inProgressHours) / annualRequirement) * 100
+        
+        if (completionPercentage >= 100) {
+          // Requirement met
+          complianceStatus = "on_track"
+        } else if (totalProgressPercentage >= 100) {
+          // Will meet requirement with in-progress trainings
+          complianceStatus = "on_track"
+        } else if (completionPercentage >= 75) {
+          // 75% or more complete
+          complianceStatus = "on_track"
+        } else if (completionPercentage >= 50) {
+          // 50-74% complete
+          complianceStatus = "at_risk"
+        } else if (completionPercentage >= 25) {
+          // 25-49% complete
+          complianceStatus = "behind"
+        } else {
+          // Less than 25% complete
+          complianceStatus = "non_compliant"
+        }
+        
+        console.log(`[COMPLIANCE STATUS] ${emp.name}:`, {
+          completedHours,
+          annualRequirement,
+          completionPercentage: completionPercentage.toFixed(2) + '%',
+          totalProgressPercentage: totalProgressPercentage.toFixed(2) + '%',
+          status: complianceStatus,
+          reason: completionPercentage >= 100 ? 'Completed 100%+' :
+                  totalProgressPercentage >= 100 ? 'Will meet with in-progress' :
+                  completionPercentage >= 75 ? '75%+ completed' :
+                  completionPercentage >= 50 ? '50-74% completed (AT RISK)' :
+                  completionPercentage >= 25 ? '25-49% completed (BEHIND)' :
+                  'Less than 25% completed (NON-COMPLIANT)'
+        })
+      }
 
       return {
         id: emp.id,
@@ -493,7 +610,7 @@ export async function GET(request: NextRequest) {
         completedHours: completedHours,
         inProgressHours: inProgressHours,
         remainingHours: remainingHours,
-        complianceStatus: req?.compliance_status || "on_track",
+        complianceStatus: complianceStatus,
         lastTrainingDate: req?.last_training_date?.toString() || "",
         nextDeadline: upcomingDeadlines[0]?.dueDate || "",
         completedTrainings,
@@ -518,22 +635,28 @@ export async function GET(request: NextRequest) {
       filteredProgress = filteredProgress.filter((emp) => emp.complianceStatus === status)
     }
 
-    // Calculate summary statistics
+    // Calculate summary statistics from FILTERED data (not all employees)
+    // This ensures stats match what's displayed in the table
     const summary = {
-      totalEmployees: employeeProgress.length,
-      onTrack: employeeProgress.filter((e) => e.complianceStatus === "on_track").length,
-      behind: employeeProgress.filter((e) => e.complianceStatus === "behind").length,
-      atRisk: employeeProgress.filter((e) => e.complianceStatus === "at_risk").length,
-      nonCompliant: employeeProgress.filter((e) => e.complianceStatus === "non_compliant").length,
-      totalHoursCompleted: employeeProgress.reduce((sum, emp) => sum + emp.completedHours, 0),
+      totalEmployees: filteredProgress.length,
+      onTrack: filteredProgress.filter((e) => e.complianceStatus === "on_track").length,
+      behind: filteredProgress.filter((e) => e.complianceStatus === "behind").length,
+      atRisk: filteredProgress.filter((e) => e.complianceStatus === "at_risk").length,
+      nonCompliant: filteredProgress.filter((e) => e.complianceStatus === "non_compliant").length,
+      totalHoursCompleted: filteredProgress.reduce((sum, emp) => sum + (emp.completedHours || 0), 0),
       averageCompletion:
-        employeeProgress.length > 0
+        filteredProgress.length > 0
           ? Math.round(
-              (employeeProgress.reduce(
-                (sum, emp) => sum + (emp.completedHours / emp.annualRequirement) * 100,
+              (filteredProgress.reduce(
+                (sum, emp) => {
+                  // Prevent division by zero - if no requirement, treat as 0%
+                  if (!emp.annualRequirement || emp.annualRequirement <= 0) return sum + 0
+                  const completedHours = emp.completedHours || 0
+                  return sum + (completedHours / emp.annualRequirement) * 100
+                },
                 0,
               ) /
-            employeeProgress.length) *
+            filteredProgress.length) *
             10,
             ) / 10
           : 0,
