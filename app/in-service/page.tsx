@@ -2159,10 +2159,13 @@ export default function InServiceEducation() {
     }
     
     // Check for duplicate assignments
+    // Note: This check is also done in the UI when selecting employees,
+    // but we keep it here as a final validation before submission
     if (assignmentForm.assignTo === "individual") {
       const duplicates: string[] = []
       
       assignmentForm.selectedEmployees.forEach((empId) => {
+        // Find employee in employeeProgress (which tracks all training history)
         const employee = employeeProgress.find((e) => e.id === empId)
         if (employee) {
           // Check if employee already has this training assigned

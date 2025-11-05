@@ -64,40 +64,27 @@ export async function POST(request: NextRequest) {
       if (assignToStr === "all") {
         assignedToType = "all"
         assignedToValue = "all"
-        // Get all employees
-        const { data: staffList } = await supabase.from("staff").select("id").eq("is_active", true)
-        const { data: hiredApps } = await supabase
-          .from("job_applications")
-          .select("applicant_id")
-          .in("status", ["accepted", "hired"])
-
-        const applicantIds = Array.from(new Set((hiredApps || []).map((a: any) => a.applicant_id).filter(Boolean)))
-        assignedEmployeeIds = [
-          ...(staffList || []).map((s: any) => s.id),
-          ...(applicantIds as string[]),
-        ]
-        console.log("Assigned to all employees:", assignedEmployeeIds.length)
+        // Get ONLY active staff members (not hired applicants)
+        const { data: staffList } = await supabase
+          .from("staff")
+          .select("id")
+          .eq("is_active", true)
+        
+        assignedEmployeeIds = (staffList || []).map((s: any) => s.id)
+        console.log("Assigned to all STAFF members (no hired applicants):", assignedEmployeeIds.length)
       } else if (assignToStr.startsWith("role-")) {
         assignedToType = "role"
         assignedToValue = assignToStr.replace("role-", "").toUpperCase()
         console.log("Assigning by role:", assignedToValue)
-        // Get employees by role
+        // Get ONLY active staff by role (not hired applicants)
         const { data: staffByRole } = await supabase
           .from("staff")
           .select("id")
           .eq("is_active", true)
           .or(`credentials.eq.${assignedToValue},role_id.eq.${assignedToValue}`)
 
-        const { data: applicantsByProfession } = await supabase
-          .from("applicants")
-          .select("id")
-          .eq("profession", assignedToValue)
-
-        assignedEmployeeIds = [
-          ...(staffByRole || []).map((s: any) => s.id),
-          ...(applicantsByProfession || []).map((a: any) => a.id),
-        ]
-        console.log("Assigned to role employees:", assignedEmployeeIds.length)
+        assignedEmployeeIds = (staffByRole || []).map((s: any) => s.id)
+        console.log("Assigned to STAFF by role (no hired applicants):", assignedEmployeeIds.length)
       } else {
         // Single employee ID
         assignedToType = "individual"
