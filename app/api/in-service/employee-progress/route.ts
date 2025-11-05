@@ -236,11 +236,13 @@ export async function GET(request: NextRequest) {
       // Get completed trainings
       const completedTrainings = empCompletions.map((c: any) => ({
         id: c.training_id,
+        trainingId: c.training_id, // Add trainingId for frontend compatibility
         title: c.in_service_trainings?.title || "Unknown Training",
         completionDate: c.completion_date?.split("T")[0] || "",
         score: parseFloat(c.score?.toString() || "0"),
         ceuHours: parseFloat(c.ceu_hours_earned?.toString() || "0"),
         certificate: c.certificate_number || "",
+        category: c.in_service_trainings?.category || "",
       }))
       
       console.log(`[API] Employee ${emp.name} completedTrainings:`, completedTrainings)
