@@ -188,29 +188,83 @@ export default function InServiceEducation() {
   useEffect(() => {
     const fetchEmployees = async () => {
       try {
-        const response = await fetch("/api/employees/list")
+        const response = await fetch("/api/employees/list", {
+          cache: "no-store",
+        })
         
         if (!response.ok) {
-          console.error("Employees API error:", response.status, response.statusText)
+          console.error("[Frontend] Employees API error:", response.status, response.statusText)
+          // Don't crash - set empty array
+          setAllEmployees([])
           return
         }
         
         const contentType = response.headers.get("content-type")
         if (!contentType || !contentType.includes("application/json")) {
           const text = await response.text()
-          console.error("Employees API returned non-JSON:", text.substring(0, 200))
+          console.error("[Frontend] Employees API returned non-JSON:", text.substring(0, 200))
+          setAllEmployees([])
           return
         }
         
         const data = await response.json()
         
-        if (data.success && data.employees) {
-          setAllEmployees(data.employees)
+        if (data.success) {
+          const rawEmployees = data.employees || []
+          console.log('[Frontend] Raw employees from API:', rawEmployees.length)
+          
+          // Frontend-side deduplication as safety net
+          const seenIds = new Set<string>()
+          const seenEmails = new Set<string>()
+          const uniqueEmployees = rawEmployees.filter((emp: any) => {
+            // Check if ID already seen
+            if (seenIds.has(emp.id)) {
+              console.warn(`[Frontend] Skipping duplicate employee by ID: ${emp.name} (${emp.id})`)
+              return false
+            }
+            
+            // Check if email already seen (case-insensitive)
+            const emailLower = (emp.email || '').toLowerCase().trim()
+            if (emailLower && seenEmails.has(emailLower)) {
+              console.warn(`[Frontend] Skipping duplicate employee by email: ${emp.name} (${emailLower})`)
+              return false
+            }
+            
+            // Add to seen sets
+            seenIds.add(emp.id)
+            if (emailLower) {
+              seenEmails.add(emailLower)
+            }
+            
+            return true
+          })
+          
+          const duplicateCount = rawEmployees.length - uniqueEmployees.length
+          if (duplicateCount > 0) {
+            console.warn(`[Frontend] Removed ${duplicateCount} duplicate(s) from employee list`)
+          }
+          
+          setAllEmployees(uniqueEmployees)
+          console.log('[Frontend] Final unique employees:', uniqueEmployees.length)
+          console.log('[Frontend] Using STAFF TABLE ONLY (no hired applicants) to prevent duplicates')
+          
+          // Log warnings if present
+          if (data.warning) {
+            console.warn("[Frontend] Employees API warning:", data.warning)
+          }
+          
+          console.log(`[Frontend] Loaded ${uniqueEmployees.length} staff members for assignments`)
+        } else {
+          console.error("[Frontend] Employees API returned success=false")
+          setAllEmployees([])
         }
       } catch (error: any) {
-        console.error("Error fetching employees:", error)
+        console.error("[Frontend] Error fetching employees:", error)
+        // Don't crash - set empty array
+        setAllEmployees([])
+        
         if (error.message && error.message.includes("JSON")) {
-          console.error("JSON parse error - API may have returned HTML instead of JSON")
+          console.error("[Frontend] JSON parse error - API may have returned HTML instead of JSON")
         }
       }
     }
@@ -2104,6 +2158,41 @@ export default function InServiceEducation() {
       return
     }
     
+    // Check for duplicate assignments
+    if (assignmentForm.assignTo === "individual") {
+      const duplicates: string[] = []
+      
+      assignmentForm.selectedEmployees.forEach((empId) => {
+        const employee = employeeProgress.find((e) => e.id === empId)
+        if (employee) {
+          // Check if employee already has this training assigned
+          const hasAssigned = employee.assignedTrainings?.some(
+            (t: any) => t.trainingId === assignmentForm.trainingId || t.id === assignmentForm.trainingId
+          )
+          const hasInProgress = employee.inProgressTrainings?.some(
+            (t: any) => t.trainingId === assignmentForm.trainingId || t.id === assignmentForm.trainingId
+          )
+          const hasCompleted = employee.completedTrainings?.some(
+            (t: any) => t.trainingId === assignmentForm.trainingId || t.id === assignmentForm.trainingId
+          )
+          
+          if (hasAssigned || hasInProgress || hasCompleted) {
+            duplicates.push(employee.name)
+          }
+        }
+      })
+      
+      if (duplicates.length > 0) {
+        const trainingName = inServiceTrainings.find((t) => t.id === assignmentForm.trainingId)?.title || "this training"
+        alert(
+          `The following employees already have "${trainingName}" assigned or completed:\n\n` +
+          duplicates.join('\n') +
+          `\n\nPlease remove them from the selection or choose a different training.`
+        )
+        return
+      }
+    }
+    
     setIsAssigning(true)
     try {
       const response = await fetch("/api/in-service/assignments", {
@@ -3365,6 +3454,8 @@ export default function InServiceEducation() {
                               assignedTrainings: employee.assignedTrainings?.length || 0,
                               inProgressTrainings: employee.inProgressTrainings?.length || 0,
                               completedTrainings: employee.completedTrainings?.length || 0,
+                              assignedTrainingsData: employee.assignedTrainings, // Log full data
+                              fullEmployee: employee, // Log everything
                             })
                             setSelectedEmployee(employee)
                           }}
@@ -3530,18 +3621,48 @@ export default function InServiceEducation() {
                   />
                   <div className="border rounded-lg p-4 max-h-96 overflow-y-auto">
                     {allEmployees.length === 0 ? (
-                      <p className="text-center text-gray-500 py-4">Loading employees...</p>
+                      <div className="text-center py-8 space-y-3">
+                        <p className="text-gray-500">No staff members found</p>
+                        <p className="text-xs text-gray-400">
+                          Please ensure staff members are added to the staff table
+                        </p>
+                      </div>
                     ) : (
                       <div className="space-y-2">
-                        {allEmployees.map((employee) => {
+                        {allEmployees.map((employee, index) => {
                           const isSelected = assignmentForm.selectedEmployees.includes(employee.id)
+                          
+                          // Check if employee already has this training
+                          const empData = employeeProgress.find((e) => e.id === employee.id)
+                          const hasAssigned = empData?.assignedTrainings?.some(
+                            (t: any) => t.trainingId === assignmentForm.trainingId || t.id === assignmentForm.trainingId
+                          )
+                          const hasInProgress = empData?.inProgressTrainings?.some(
+                            (t: any) => t.trainingId === assignmentForm.trainingId || t.id === assignmentForm.trainingId
+                          )
+                          const hasCompleted = empData?.completedTrainings?.some(
+                            (t: any) => t.trainingId === assignmentForm.trainingId || t.id === assignmentForm.trainingId
+                          )
+                          const alreadyHasTraining = hasAssigned || hasInProgress || hasCompleted
+                          const trainingStatus = hasCompleted ? "Completed" : hasInProgress ? "In Progress" : hasAssigned ? "Assigned" : ""
+                          
                           return (
                             <div
-                              key={employee.id}
-                              className={`flex items-center space-x-3 p-2 rounded-lg cursor-pointer hover:bg-gray-50 ${
-                                isSelected ? "bg-blue-50 border border-blue-200" : ""
+                              key={`${employee.id}-${index}`}
+                              className={`flex items-center space-x-3 p-2 rounded-lg ${
+                                alreadyHasTraining 
+                                  ? "bg-gray-100 border border-gray-300 opacity-60 cursor-not-allowed" 
+                                  : isSelected 
+                                    ? "bg-blue-50 border border-blue-200 cursor-pointer hover:bg-blue-100" 
+                                    : "cursor-pointer hover:bg-gray-50"
                               }`}
                               onClick={() => {
+                                if (alreadyHasTraining) {
+                                  const trainingName = inServiceTrainings.find((t) => t.id === assignmentForm.trainingId)?.title || "this training"
+                                  alert(`${employee.name || employee.first_name} already has "${trainingName}" (${trainingStatus})`)
+                                  return
+                                }
+                                
                                 if (isSelected) {
                                   setAssignmentForm({
                                     ...assignmentForm,
@@ -3558,15 +3679,29 @@ export default function InServiceEducation() {
                               <input
                                 type="checkbox"
                                 checked={isSelected}
+                                disabled={alreadyHasTraining}
                                 onChange={() => {}}
                                 className="rounded border-gray-300"
                               />
                               <div className="flex-1">
-                                <p className="font-medium">{employee.name || employee.first_name || "Unknown"}</p>
-                                <p className="text-sm text-gray-600">
-                                  {employee.role || employee.credentials || employee.profession || "N/A"}
+                                <p className={`font-medium ${alreadyHasTraining ? "text-gray-500" : ""}`}>
+                                  {employee.name || "Unknown"}
                                 </p>
+                                <div className="flex items-center gap-2 text-sm text-gray-600">
+                                  <span>{employee.role || employee.credentials || "Staff"}</span>
+                                  {employee.department && (
+                                    <>
+                                      <span>•</span>
+                                      <span className="text-xs">{employee.department}</span>
+                                    </>
+                                  )}
+                                </div>
                               </div>
+                              {alreadyHasTraining && (
+                                <Badge className="text-xs bg-gray-200 text-gray-700 border-gray-300">
+                                  {trainingStatus}
+                                </Badge>
+                              )}
                             </div>
                           )
                         })}
@@ -4086,12 +4221,17 @@ export default function InServiceEducation() {
                 </div>
 
                 {/* Assigned Trainings - Enrolled but not started */}
-                {selectedEmployee.assignedTrainings && Array.isArray(selectedEmployee.assignedTrainings) && selectedEmployee.assignedTrainings.length > 0 && (
-                  <div>
-                    <h4 className="font-medium mb-3">Assigned Trainings (Not Started)</h4>
+                <div>
+                  <h4 className="font-medium mb-3 flex items-center justify-between">
+                    <span>Assigned Trainings (Not Started)</span>
+                    <span className="text-sm font-normal text-gray-500">
+                      ({selectedEmployee.assignedTrainings?.length || 0} trainings)
+                    </span>
+                  </h4>
+                  {selectedEmployee.assignedTrainings && Array.isArray(selectedEmployee.assignedTrainings) && selectedEmployee.assignedTrainings.length > 0 ? (
                     <div className="space-y-3">
                       {selectedEmployee.assignedTrainings.map((training: any, index: number) => (
-                        <div key={training.id || `assigned-${index}`} className="border rounded-lg p-4 bg-gray-50">
+                        <div key={`assigned-${training.trainingId || training.id}-${index}`} className="border rounded-lg p-4 bg-gray-50">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <h5 className="font-medium">{training.title || "Unknown Training"}</h5>
@@ -4123,8 +4263,13 @@ export default function InServiceEducation() {
                         </div>
                       ))}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <div className="text-sm text-gray-500 py-4 px-4 bg-gray-50 rounded-lg text-center border border-dashed border-gray-300">
+                      <p>No assigned trainings (not started) at this time.</p>
+                      <p className="text-xs mt-1">Trainings that are "assigned" but haven't been started will appear here.</p>
+                    </div>
+                  )}
+                </div>
 
                 {/* In Progress Trainings - Actually in progress */}
                 <div>
@@ -4132,7 +4277,7 @@ export default function InServiceEducation() {
                   <div className="space-y-3">
                     {selectedEmployee.inProgressTrainings && Array.isArray(selectedEmployee.inProgressTrainings) && selectedEmployee.inProgressTrainings.length > 0 ? (
                       selectedEmployee.inProgressTrainings.map((training: any, index: number) => (
-                        <div key={training.id || `inprogress-${index}`} className="border rounded-lg p-4 bg-blue-50 border-blue-200">
+                        <div key={`inprogress-${training.trainingId || training.id}-${index}`} className="border rounded-lg p-4 bg-blue-50 border-blue-200">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <h5 className="font-medium">{training.title || "Unknown Training"}</h5>
@@ -4203,7 +4348,7 @@ export default function InServiceEducation() {
                   <div className="space-y-3">
                     {selectedEmployee.completedTrainings && Array.isArray(selectedEmployee.completedTrainings) && selectedEmployee.completedTrainings.length > 0 ? (
                       selectedEmployee.completedTrainings.map((training: any, index: number) => (
-                        <div key={training.id || `completed-${index}`} className="border rounded-lg p-4 bg-green-50 border-green-200">
+                        <div key={`completed-${training.trainingId || training.id}-${index}`} className="border rounded-lg p-4 bg-green-50 border-green-200">
                           <div className="flex items-center justify-between">
                             <div className="flex-1">
                               <h5 className="font-medium">{training.title || "Unknown Training"}</h5>

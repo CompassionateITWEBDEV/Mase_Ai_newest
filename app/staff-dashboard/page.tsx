@@ -36,6 +36,7 @@ import {
   Search,
   Shield,
   Loader2,
+  Target,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -45,6 +46,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { useToast } from "@/hooks/use-toast"
+import { TrainingDashboardCard } from "@/components/training/TrainingDashboardCard"
 
 interface PendingOnboardingPatient {
   id: string
@@ -376,16 +378,22 @@ export default function StaffDashboard() {
           success: data.success,
           employeeCount: data.employees?.length,
           hasEmployees: !!data.employees,
+          fullData: data, // Log everything
         })
         
         if (data.success && data.employees && data.employees.length > 0) {
           const employee = data.employees[0] // Should only be one employee
           
           console.log("Staff Dashboard: Employee training data:", {
+            employeeId: employee.id,
+            employeeName: employee.name,
             assignedCount: employee.assignedTrainings?.length || 0,
             inProgressCount: employee.inProgressTrainings?.length || 0,
             completedCount: employee.completedTrainings?.length || 0,
             upcomingCount: employee.upcomingDeadlines?.length || 0,
+            assignedTrainings: employee.assignedTrainings,
+            inProgressTrainings: employee.inProgressTrainings,
+            completedTrainingsRaw: employee.completedTrainings,
           })
           
           // Combine all trainings: assigned, in-progress, and completed
@@ -395,10 +403,13 @@ export default function StaffDashboard() {
             progress: number
             completed: boolean
             dueDate: string
+            completionDate?: string
             trainingId?: string
             status?: string
             category?: string
             ceuHours?: number
+            score?: number
+            certificateId?: string
           }> = []
 
           // Helper function to format due date with days until due
@@ -432,7 +443,14 @@ export default function StaffDashboard() {
 
           // Add assigned trainings (not started)
           if (employee.assignedTrainings && Array.isArray(employee.assignedTrainings)) {
+            console.log("Staff Dashboard: Processing assigned trainings:", employee.assignedTrainings.length)
             employee.assignedTrainings.forEach((training: any) => {
+              console.log("Assigned training:", {
+                title: training.title,
+                dueDate: training.dueDate,
+                trainingId: training.trainingId,
+                enrollmentId: training.enrollmentId,
+              })
               allTrainings.push({
                 id: training.enrollmentId || training.id || `assigned-${training.trainingId}`,
                 name: training.title || training.training || "Unknown Training",
@@ -449,7 +467,13 @@ export default function StaffDashboard() {
 
           // Add in-progress trainings
           if (employee.inProgressTrainings && Array.isArray(employee.inProgressTrainings)) {
+            console.log("Staff Dashboard: Processing in-progress trainings:", employee.inProgressTrainings.length)
             employee.inProgressTrainings.forEach((training: any) => {
+              console.log("In-progress training:", {
+                title: training.title,
+                progress: training.progress,
+                trainingId: training.trainingId,
+              })
               allTrainings.push({
                 id: training.enrollmentId || training.id || `inprogress-${training.trainingId}`,
                 name: training.title || training.training || "Unknown Training",
@@ -466,17 +490,28 @@ export default function StaffDashboard() {
 
           // Add completed trainings
           if (employee.completedTrainings && Array.isArray(employee.completedTrainings)) {
+            console.log("Staff Dashboard: Processing completed trainings:", employee.completedTrainings.length)
             employee.completedTrainings.forEach((training: any) => {
+              console.log("Completed training:", {
+                title: training.title,
+                completionDate: training.completionDate,
+                score: training.score,
+                trainingId: training.trainingId
+              })
               allTrainings.push({
                 id: training.enrollmentId || training.id || `completed-${training.trainingId}`,
                 name: training.title || training.training || "Unknown Training",
                 progress: 100,
                 completed: true,
                 dueDate: training.completionDate ? `Completed ${new Date(training.completionDate).toLocaleDateString()}` : "Completed",
+                completionDate: training.completionDate || training.completed_at,
                 trainingId: training.trainingId || training.id,
                 status: "completed",
                 category: training.category,
                 ceuHours: training.ceuHours,
+                score: training.score,
+                // Backend returns 'certificate' not 'certificateId'
+                certificateId: training.certificate || training.certificateId || training.certificate_id,
               })
             })
           }
@@ -503,6 +538,7 @@ export default function StaffDashboard() {
           }
 
           console.log("Staff Dashboard: Total trainings to display:", allTrainings.length)
+          console.log("Staff Dashboard: All trainings array:", allTrainings)
           setRealTrainingModules(allTrainings)
         } else {
           console.log("Staff Dashboard: No employee data found or empty response")
@@ -1781,186 +1817,123 @@ export default function StaffDashboard() {
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    {/* Summary Stats */}
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-yellow-600">
-                          {displayStaff.trainingModules.filter((m: any) => m.status === "assigned").length}
+                    {/* Summary Stats - Enhanced */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="text-center p-5 bg-gradient-to-br from-yellow-50 to-amber-50 rounded-xl border-2 border-yellow-200 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="h-12 w-12 rounded-full bg-yellow-100 flex items-center justify-center mx-auto mb-3">
+                          <Target className="h-6 w-6 text-yellow-600" />
+                        </div>
+                        <p className="text-3xl font-bold text-yellow-600 mb-1">
+                          {displayStaff.trainingModules.filter((m: any) => m.status === "assigned" || !m.status).length}
                         </p>
-                        <p className="text-sm text-gray-600">Not Started</p>
+                        <p className="text-sm text-gray-600 font-medium">Not Started</p>
                       </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-blue-600">
+                      
+                      <div className="text-center p-5 bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl border-2 border-blue-200 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-3">
+                          <TrendingUp className="h-6 w-6 text-blue-600" />
+                        </div>
+                        <p className="text-3xl font-bold text-blue-600 mb-1">
                           {displayStaff.trainingModules.filter((m: any) => m.status === "in_progress").length}
                         </p>
-                        <p className="text-sm text-gray-600">In Progress</p>
+                        <p className="text-sm text-gray-600 font-medium">In Progress</p>
                       </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-green-600">
-                          {displayStaff.trainingModules.filter((m: any) => m.status === "completed").length}
+                      
+                      <div className="text-center p-5 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
+                          <CheckCircle className="h-6 w-6 text-green-600" />
+                        </div>
+                        <p className="text-3xl font-bold text-green-600 mb-1">
+                          {displayStaff.trainingModules.filter((m: any) => m.status === "completed" || m.completed).length}
                         </p>
-                        <p className="text-sm text-gray-600">Completed</p>
+                        <p className="text-sm text-gray-600 font-medium">Completed</p>
                       </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-gray-900">
+                      
+                      <div className="text-center p-5 bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl border-2 border-purple-200 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="h-12 w-12 rounded-full bg-purple-100 flex items-center justify-center mx-auto mb-3">
+                          <BookOpen className="h-6 w-6 text-purple-600" />
+                        </div>
+                        <p className="text-3xl font-bold text-purple-600 mb-1">
                           {displayStaff.trainingModules.length}
                         </p>
-                        <p className="text-sm text-gray-600">Total Assigned</p>
+                        <p className="text-sm text-gray-600 font-medium">Total Assigned</p>
                       </div>
                     </div>
 
-                    {/* All Trainings List */}
-                    <div className="space-y-4">
+                    {/* All Trainings List - Wadhwani Style */}
+                    <div className="space-y-6">
                       {displayStaff.trainingModules.map((module: any, index: number) => {
-                      const getStatusBadge = () => {
-                        if (module.completed || module.status === "completed") {
-                          return <Badge className="bg-green-100 text-green-800 border border-green-300">✓ Completed</Badge>
-                        }
-                        if (module.status === "in_progress") {
-                          return <Badge className="bg-blue-100 text-blue-800 border border-blue-300">⟳ In Progress</Badge>
-                        }
-                        if (module.status === "upcoming") {
-                          return <Badge className="bg-orange-100 text-orange-800 border border-orange-300">⚠ Due Soon</Badge>
-                        }
-                        if (module.status === "assigned") {
-                          return <Badge className="bg-yellow-100 text-yellow-800 border border-yellow-300">○ Not Started</Badge>
-                        }
-                        return <Badge className="bg-gray-100 text-gray-800 border border-gray-300">○ Not Started</Badge>
-                      }
-                      
-                      const getCardBorderColor = () => {
-                        if (module.completed || module.status === "completed") {
-                          return "border-l-4 border-l-green-500"
-                        }
-                        if (module.status === "in_progress") {
-                          return "border-l-4 border-l-blue-500"
-                        }
-                        if (module.status === "upcoming") {
-                          return "border-l-4 border-l-orange-500"
-                        }
-                        return "border-l-4 border-l-yellow-500"
-                      }
-
-                      const handleContinueTraining = async () => {
-                        if (!module.trainingId) {
-                          toast({
-                            title: "Error",
-                            description: "Training ID not found. Please contact support.",
-                            variant: "destructive",
-                          })
-                          return
-                        }
-
-                        if (!selectedStaff?.id) {
-                          toast({
-                            title: "Error",
-                            description: "Staff ID not found. Please refresh the page.",
-                            variant: "destructive",
-                          })
-                          return
-                        }
-
-                        try {
-                          // If training is not started, start it first
-                          if (module.status === "assigned" || !module.status) {
-                            const startResponse = await fetch("/api/in-service/employee-progress", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({
-                                employeeId: selectedStaff.id,
-                                trainingId: module.trainingId,
-                                action: "start",
-                              }),
-                            })
-
-                            if (!startResponse.ok) {
-                              const errorData = await startResponse.text()
-                              throw new Error(`Failed to start training: ${errorData}`)
-                            }
-
+                        const handleContinueTraining = async () => {
+                          if (!module.trainingId) {
                             toast({
-                              title: "Training Started",
-                              description: "Redirecting to training page...",
+                              title: "Error",
+                              description: "Training ID not found. Please contact support.",
+                              variant: "destructive",
                             })
+                            return
                           }
 
-                          // Navigate to training detail page
-                          window.location.href = `/staff-training/${module.trainingId}?staffId=${encodeURIComponent(selectedStaff.id)}`
-                        } catch (error: any) {
-                          console.error("Error starting training:", error)
-                          toast({
-                            title: "Error",
-                            description: error.message || "Failed to start training",
-                            variant: "destructive",
-                          })
-                        }
-                      }
+                          if (!selectedStaff?.id) {
+                            toast({
+                              title: "Error",
+                              description: "Staff ID not found. Please refresh the page.",
+                              variant: "destructive",
+                            })
+                            return
+                          }
 
-                      return (
-                        <div key={module.id || index} className={`p-4 border rounded-lg hover:shadow-md transition-shadow ${getCardBorderColor()}`}>
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex-1">
-                              <h3 className="font-medium text-gray-900">{module.name}</h3>
-                              <div className="flex items-center gap-3 mt-1 flex-wrap">
-                                <p className="text-sm text-gray-600">{module.dueDate}</p>
-                                {module.category && (
-                                  <Badge variant="outline" className="text-xs">
-                                    {module.category}
-                                  </Badge>
-                                )}
-                                {module.ceuHours && (
-                                  <span className="text-xs text-gray-500 flex items-center">
-                                    <Award className="h-3 w-3 mr-1" />
-                                    {module.ceuHours} CEU {module.ceuHours === 1 ? "Hour" : "Hours"}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                            <div className="ml-4">
-                              {getStatusBadge()}
-                            </div>
-                          </div>
-                          <div className="mb-3">
-                            <div className="flex justify-between text-sm mb-1">
-                              <span>Progress</span>
-                              <span className={`font-medium ${
-                                module.progress === 100 ? "text-green-600" : 
-                                module.progress > 0 ? "text-blue-600" : 
-                                "text-gray-600"
-                              }`}>{module.progress}%</span>
-                            </div>
-                            <Progress value={module.progress} className="h-2" />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {!(module.completed || module.status === "completed") && (
-                              <Button 
-                                size="sm" 
-                                onClick={handleContinueTraining}
-                                className="flex-1 sm:flex-initial"
-                              >
-                                {module.status === "assigned" || !module.status ? "Start Training" : "Continue Training"}
-                                <ChevronRight className="h-4 w-4 ml-1" />
-                              </Button>
-                            )}
-                            {(module.completed || module.status === "completed") && (
-                              <>
-                                <div className="flex items-center text-sm text-green-600 flex-1">
-                                  <CheckCircle className="h-4 w-4 mr-1" />
-                                  Training completed successfully
-                                </div>
-                                <Button 
-                                  size="sm" 
-                                  variant="outline"
-                                  onClick={handleContinueTraining}
-                                >
-                                  <Eye className="h-4 w-4 mr-1" />
-                                  Review
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      )
+                          try {
+                            // If training is not started, start it first
+                            if (module.status === "assigned" || !module.status) {
+                              const startResponse = await fetch("/api/in-service/employee-progress", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  employeeId: selectedStaff.id,
+                                  trainingId: module.trainingId,
+                                  action: "start",
+                                }),
+                              })
+
+                              if (!startResponse.ok) {
+                                const errorData = await startResponse.text()
+                                throw new Error(`Failed to start training: ${errorData}`)
+                              }
+
+                              toast({
+                                title: "🚀 Training Started",
+                                description: "Redirecting to training page...",
+                              })
+                            }
+
+                            // Navigate to training detail page
+                            window.location.href = `/staff-training/${module.trainingId}?staffId=${encodeURIComponent(selectedStaff.id)}`
+                          } catch (error: any) {
+                            console.error("Error starting training:", error)
+                            toast({
+                              title: "Error",
+                              description: error.message || "Failed to start training",
+                              variant: "destructive",
+                            })
+                          }
+                        }
+
+                        const handleViewCertificate = () => {
+                          if (module.trainingId && selectedStaff?.id) {
+                            // Navigate to training page which will show the certificate
+                            window.location.href = `/staff-training/${module.trainingId}?staffId=${encodeURIComponent(selectedStaff.id)}&showCertificate=true`
+                          }
+                        }
+
+                        return (
+                          <TrainingDashboardCard
+                            key={`training-${module.trainingId || module.id}-${index}`}
+                            module={module}
+                            onContinue={handleContinueTraining}
+                            onViewCertificate={(module.status === "completed" || module.completed) ? handleViewCertificate : undefined}
+                            staffId={selectedStaff?.id}
+                          />
+                        )
                       })}
                     </div>
                   </div>

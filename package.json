@@ -66,6 +66,7 @@
     "eslint-config-next": "15.2.4",
     "fs": "0.0.1-security",
     "happy-dom": "latest",
+    "html2canvas": "^1.4.1",
     "input-otp": "latest",
     "jsdom": "latest",
     "lucide-react": "^0.454.0",

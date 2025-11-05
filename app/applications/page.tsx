@@ -262,6 +262,11 @@ export default function ApplicationTracking() {
     try {
       setIsLoading(true)
       const response = await fetch('/api/applications')
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
       const data = await response.json()
       
       if (data.success) {
@@ -270,8 +275,8 @@ export default function ApplicationTracking() {
         console.error('Failed to load applications:', data.error)
         setApplications([])
       }
-    } catch (error) {
-      console.error('Failed to load applications:', error)
+    } catch (error: any) {
+      console.error('Failed to load applications:', error?.message || error || 'Unknown error')
       setApplications([])
     } finally {
       setIsLoading(false)

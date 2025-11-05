@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
       .eq("status", "active")
 
     // Combine staff and applicants into employee list
-    const employees = [
+    const combinedEmployees = [
       ...(staffList || []).map((s: any) => ({
         id: s.id,
         name: s.name,
@@ -115,12 +115,53 @@ export async function GET(request: NextRequest) {
         source: "applicant",
       })),
     ]
+    
+    // Deduplicate employees by ID and email
+    const seenIds = new Set<string>()
+    const seenEmails = new Set<string>()
+    const employees = combinedEmployees.filter((emp) => {
+      // Check if ID already seen
+      if (seenIds.has(emp.id)) {
+        console.log(`[API] Skipping duplicate employee by ID: ${emp.name} (${emp.id})`)
+        return false
+      }
+      
+      // Check if email already seen (case-insensitive)
+      const emailLower = (emp.email || "").toLowerCase().trim()
+      if (emailLower && seenEmails.has(emailLower)) {
+        console.log(`[API] Skipping duplicate employee by email: ${emp.name} (${emailLower})`)
+        return false
+      }
+      
+      // Add to seen sets
+      seenIds.add(emp.id)
+      if (emailLower) {
+        seenEmails.add(emailLower)
+      }
+      
+      return true
+    })
+    
+    console.log(`[API] Total employees after deduplication: ${employees.length} (from ${combinedEmployees.length} combined)`)
+    
 
     // Build employee progress data
     const employeeProgress = await Promise.all(employees.map(async (emp) => {
       const req = requirements?.find((r: any) => r.employee_id === emp.id)
       const empEnrollments = enrollments?.filter((e: any) => e.employee_id === emp.id) || []
       const empCompletions = completions?.filter((c: any) => c.employee_id === emp.id) || []
+      
+      console.log(`[API] Processing employee ${emp.name} (${emp.id}):`, {
+        enrollmentsCount: empEnrollments.length,
+        completionsCount: empCompletions.length,
+        totalEnrollments: enrollments?.length || 0,
+        totalCompletions: completions?.length || 0,
+        enrollments: empEnrollments.map((e: any) => ({
+          trainingId: e.training_id,
+          status: e.status,
+          progress: e.progress,
+        })),
+      })
       
       // Filter assignments for this employee - more robust matching
       const empAssignments = (assignments || []).filter((a: any) => {
@@ -180,11 +221,16 @@ export async function GET(request: NextRequest) {
         return false
       })
       
-      console.log(`Employee ${emp.name} (${emp.id}):`, {
+      console.log(`[API] Employee ${emp.name} (${emp.id}) assignments:`, {
         totalAssignments: assignments?.length || 0,
         matchedAssignments: empAssignments.length,
         empRole: emp.role,
         source: emp.source,
+        assignments: empAssignments.map((a: any) => ({
+          trainingId: a.training_id,
+          trainingTitle: a.in_service_trainings?.title,
+          assignedToType: a.assigned_to_type,
+        })),
       })
 
       // Get completed trainings
@@ -196,6 +242,8 @@ export async function GET(request: NextRequest) {
         ceuHours: parseFloat(c.ceu_hours_earned?.toString() || "0"),
         certificate: c.certificate_number || "",
       }))
+      
+      console.log(`[API] Employee ${emp.name} completedTrainings:`, completedTrainings)
 
       // Get in-progress trainings (status = 'in_progress')
       const inProgressTrainings = empEnrollments
@@ -262,6 +310,45 @@ export async function GET(request: NextRequest) {
             trainingId: e.training_id,
           }
         })
+      
+      // Add assigned trainings that don't have an enrollment yet
+      const enrolledTrainingIds = empEnrollments.map((e: any) => e.training_id)
+      const assignmentsWithoutEnrollment = empAssignments
+        .filter((a: any) => !enrolledTrainingIds.includes(a.training_id))
+        .map((a: any) => ({
+          id: a.training_id,
+          title: a.in_service_trainings?.title || "Unknown Training",
+          enrollmentDate: a.assigned_date?.split("T")[0] || "",
+          dueDate: a.due_date || "",
+          priority: a.priority || "medium",
+          ceuHours: parseFloat(a.in_service_trainings?.ceu_hours?.toString() || "0"),
+          assignmentId: a.id,
+          enrollmentId: null,
+          notes: a.notes || "",
+          completedModules: [],
+          viewedFiles: {},
+          moduleQuizScores: {},
+          moduleTimeSpent: {},
+          trainingId: a.training_id,
+        }))
+      
+      // Combine enrolled assignments with non-enrolled assignments
+      const combinedTrainings = [...assignedTrainings, ...assignmentsWithoutEnrollment]
+      
+      // Deduplicate by training_id (keep the first occurrence)
+      const seenTrainingIds = new Set<string>()
+      const allAssignedTrainings = combinedTrainings.filter((training: any) => {
+        if (seenTrainingIds.has(training.trainingId)) {
+          return false // Skip duplicates
+        }
+        seenTrainingIds.add(training.trainingId)
+        return true
+      })
+      
+      console.log(`[API] Employee ${emp.name} inProgressTrainings:`, inProgressTrainings)
+      console.log(`[API] Employee ${emp.name} assignedTrainings (with enrollments):`, assignedTrainings)
+      console.log(`[API] Employee ${emp.name} assignmentsWithoutEnrollment:`, assignmentsWithoutEnrollment)
+      console.log(`[API] Employee ${emp.name} allAssignedTrainings:`, allAssignedTrainings)
 
       // Get upcoming deadlines from assignments
       // Show assignments that are active, have a due date within 1 week (7 days or less), and are not yet completed
@@ -409,7 +496,7 @@ export async function GET(request: NextRequest) {
         nextDeadline: upcomingDeadlines[0]?.dueDate || "",
         completedTrainings,
         inProgressTrainings,
-        assignedTrainings, // Assigned but not started yet
+        assignedTrainings: allAssignedTrainings, // All assigned trainings (with and without enrollments)
         upcomingDeadlines,
       }
     }))

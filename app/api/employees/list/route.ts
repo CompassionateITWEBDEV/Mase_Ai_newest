@@ -3,47 +3,75 @@ import { createClient } from '@supabase/supabase-js'
 
 export async function GET(_request: NextRequest) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('[API] Supabase credentials not configured')
+      return NextResponse.json({ 
+        success: true, 
+        employees: [],
+        warning: 'Supabase not configured'
+      })
+    }
+
     const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-    // Get all applicant_ids that are marked as hired (status: accepted)
-    const { data: hiredApps, error: appsError } = await supabase
-      .from('job_applications')
-      .select('applicant_id')
-      .in('status', ['accepted', 'hired'])
-
-    if (appsError) {
-      return NextResponse.json({ success: false, error: appsError.message }, { status: 500 })
+    // Get ONLY active staff members from staff table (not hired applicants)
+    // This prevents duplicates when same person exists in both tables
+    const { data: staffList, error: staffError } = await supabase
+      .from('staff')
+      .select('id, name, email, role_id, department, credentials')
+      .eq('is_active', true)
+      .order('name', { ascending: true })
+    
+    if (staffError) {
+      console.error('[API] Database error fetching staff:', {
+        message: staffError.message,
+        code: staffError.code,
+        details: staffError.details,
+        hint: staffError.hint
+      })
+      
+      // Return empty array with warning instead of crashing
+      return NextResponse.json({ 
+        success: true, 
+        employees: [],
+        warning: 'Unable to fetch staff members. Please check database connection.'
+      })
     }
 
-    const applicantIds = Array.from(new Set((hiredApps || []).map(a => a.applicant_id).filter(Boolean)))
-
-    if (applicantIds.length === 0) {
-      return NextResponse.json({ success: true, employees: [] })
-    }
-
-    const { data: applicants, error: applicantsError } = await supabase
-      .from('applicants')
-      .select('id, first_name, last_name, email, phone, profession, city, state')
-      .in('id', applicantIds as string[])
-
-    if (applicantsError) {
-      return NextResponse.json({ success: false, error: applicantsError.message }, { status: 500 })
-    }
-
-    const employees = (applicants || []).map(a => ({
-      id: a.id,
-      name: `${a.first_name} ${a.last_name}`.trim(),
-      email: a.email,
-      phone: a.phone,
-      profession: a.profession,
-      location: [a.city, a.state].filter(Boolean).join(', '),
+    // Map staff to employee format
+    const employees = (staffList || []).map((s: any) => ({
+      id: s.id,
+      name: s.name,
+      role: s.credentials || s.role_id || 'Staff',
+      department: s.department || 'General',
+      email: s.email,
+      source: 'staff',
     }))
+    
+    console.log(`[API] Fetched ${employees.length} staff members for assignments (staff table only, no applicants)`)
 
-    return NextResponse.json({ success: true, employees })
+    return NextResponse.json({ 
+      success: true, 
+      employees,
+      count: employees.length
+    })
   } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message || 'Failed to load employees' }, { status: 500 })
+    console.error('[API] Unexpected error in employees/list:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    })
+    
+    // Return empty array with error info instead of crashing
+    return NextResponse.json({ 
+      success: true, 
+      employees: [],
+      error: error.message || 'Failed to load employees',
+      warning: 'An error occurred while fetching employees. Please try again.'
+    })
   }
 }
 
