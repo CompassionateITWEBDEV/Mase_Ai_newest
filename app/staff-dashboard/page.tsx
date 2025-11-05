@@ -339,18 +339,23 @@ export default function StaffDashboard() {
   useEffect(() => {
     const loadTrainings = async () => {
       if (!selectedStaff?.id) {
-        console.log("Staff Dashboard: No staff ID available, skipping training load")
+        console.error("Staff Dashboard: ❌ No staff ID available, skipping training load")
         setRealTrainingModules([])
         return
       }
 
-      console.log("Staff Dashboard: Loading trainings for staff ID:", selectedStaff.id)
+      console.log("Staff Dashboard: 🔄 Loading trainings for staff ID:", selectedStaff.id)
+      console.log("Staff Dashboard: 👤 Staff details:", {
+        id: selectedStaff.id,
+        name: selectedStaff.name,
+        email: selectedStaff.email
+      })
       
       try {
         setIsLoadingTrainings(true)
         // Fetch employee progress for this staff member
         const url = `/api/in-service/employee-progress?employeeId=${encodeURIComponent(selectedStaff.id)}`
-        console.log("Staff Dashboard: Fetching from:", url)
+        console.log("Staff Dashboard: 🌐 Fetching from:", url)
         
         const response = await fetch(url, {
           cache: "no-store",
@@ -374,27 +379,29 @@ export default function StaffDashboard() {
         }
 
         const data = await response.json()
-        console.log("Staff Dashboard: Training data received:", {
+        console.log("Staff Dashboard: ✅ Training data received:", {
           success: data.success,
           employeeCount: data.employees?.length,
           hasEmployees: !!data.employees,
-          fullData: data, // Log everything
+          employees: data.employees,
         })
         
         if (data.success && data.employees && data.employees.length > 0) {
           const employee = data.employees[0] // Should only be one employee
           
-          console.log("Staff Dashboard: Employee training data:", {
+          console.log("Staff Dashboard: 📊 Employee training data:", {
             employeeId: employee.id,
             employeeName: employee.name,
             assignedCount: employee.assignedTrainings?.length || 0,
             inProgressCount: employee.inProgressTrainings?.length || 0,
             completedCount: employee.completedTrainings?.length || 0,
             upcomingCount: employee.upcomingDeadlines?.length || 0,
-            assignedTrainings: employee.assignedTrainings,
-            inProgressTrainings: employee.inProgressTrainings,
-            completedTrainingsRaw: employee.completedTrainings,
           })
+          
+          console.log("Staff Dashboard: 📝 Assigned trainings:", employee.assignedTrainings)
+          console.log("Staff Dashboard: 🔄 In-progress trainings:", employee.inProgressTrainings)
+          console.log("Staff Dashboard: ✅ Completed trainings:", employee.completedTrainings)
+          console.log("Staff Dashboard: ⏰ Upcoming deadlines:", employee.upcomingDeadlines)
           
           // Combine all trainings: assigned, in-progress, and completed
           const allTrainings: Array<{
@@ -537,15 +544,29 @@ export default function StaffDashboard() {
             })
           }
 
-          console.log("Staff Dashboard: Total trainings to display:", allTrainings.length)
-          console.log("Staff Dashboard: All trainings array:", allTrainings)
+          console.log("Staff Dashboard: 🎯 Total trainings to display:", allTrainings.length)
+          console.log("Staff Dashboard: 📋 All trainings array:", allTrainings)
+          
+          if (allTrainings.length === 0) {
+            console.warn("Staff Dashboard: ⚠️ No trainings found for this employee!")
+            console.warn("Staff Dashboard: This could mean:")
+            console.warn("  1. No trainings assigned to this employee")
+            console.warn("  2. Employee ID mismatch between staff and training tables")
+            console.warn("  3. Training data not yet created in database")
+          }
+          
           setRealTrainingModules(allTrainings)
         } else {
-          console.log("Staff Dashboard: No employee data found or empty response")
+          console.error("Staff Dashboard: ❌ No employee data found or empty response")
+          console.error("Staff Dashboard: Response data:", data)
           setRealTrainingModules([])
         }
       } catch (error: any) {
-        console.error("Staff Dashboard: Error loading trainings:", error)
+        console.error("Staff Dashboard: ❌ ERROR loading trainings:", error)
+        console.error("Staff Dashboard: Error details:", {
+          message: error.message,
+          stack: error.stack,
+        })
         setRealTrainingModules([])
       } finally {
         setIsLoadingTrainings(false)
@@ -553,6 +574,7 @@ export default function StaffDashboard() {
     }
 
     // Load trainings when staff is selected or when training tab is active
+    console.log("Staff Dashboard: 🔍 useEffect triggered - activeTab:", activeTab, "selectedStaff.id:", selectedStaff?.id)
     if (activeTab === "training" || selectedStaff?.id) {
       loadTrainings()
     }
