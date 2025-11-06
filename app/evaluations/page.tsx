@@ -36,6 +36,7 @@ import {
   Download,
   Square,
   Loader2,
+  Lightbulb,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -82,6 +83,7 @@ export default function EvaluationsPage() {
   const [selectedEvaluation, setSelectedEvaluation] = useState<EvaluationRecord | null>(null)
   const [isDetailDialogOpen, setIsDetailDialogOpen] = useState(false)
   const [isNewEvaluationOpen, setIsNewEvaluationOpen] = useState(false)
+  const [isStandardEvaluationOpen, setIsStandardEvaluationOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Video evaluation state
@@ -106,7 +108,10 @@ export default function EvaluationsPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const recordingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordedChunksRef = useRef<Blob[]>([])
   const notesInputRef = useRef<HTMLInputElement>(null)
+  const [recordedVideoBlob, setRecordedVideoBlob] = useState<Blob | null>(null)
 
   // Check AI status on mount
   useEffect(() => {
@@ -362,18 +367,28 @@ export default function EvaluationsPage() {
 
   const stats = getOverviewStats()
 
-  const handleStartEvaluation = () => {
+  const handleStartEvaluation = (skipDialog = false) => {
     if (!selectedStaffMember || !selectedEvaluationType) {
-      alert("Please select both staff member and evaluation type")
+      toast({
+        title: "Missing Information",
+        description: "Please select both staff member and evaluation type",
+        variant: "destructive"
+      })
       return
     }
 
+    // If skipDialog is true (called from New Evaluation dialog), navigate directly
+    // Otherwise, show confirmation dialog first
+    if (skipDialog) {
     const [evalType, assessmentType] = selectedEvaluationType.split("-")
-    
     if (evalType === "competency") {
       router.push(`/staff-competency`)
     } else {
       router.push(`/self-evaluation?staffId=${selectedStaffMember}&type=${assessmentType}`)
+      }
+    } else {
+      // Open dialog for confirmation
+      setIsStandardEvaluationOpen(true)
     }
   }
 
@@ -424,36 +439,9 @@ export default function EvaluationsPage() {
       setLiveVideoStream(stream)
       setIsLiveCameraActive(true)
 
-      // Use requestAnimationFrame to ensure DOM is updated
-      requestAnimationFrame(() => {
-        setTimeout(async () => {
-          if (videoRef.current) {
-            console.log('Setting video srcObject...')
-            videoRef.current.srcObject = stream
-            try {
-              await videoRef.current.play()
-              console.log('Video playing successfully')
               toast({
                 title: "Camera active",
-                description: "Video feed is now live. Click 'Start Recording' to begin evaluation."
-              })
-            } catch (playError) {
-              console.error("Error playing video:", playError)
-              toast({
-                title: "Camera started",
-                description: "Camera active but playback may need user interaction. Try clicking Start Recording.",
-                variant: "default"
-              })
-            }
-          } else {
-            console.warn('Video ref not ready, will be set by useEffect')
-            // The useEffect will handle it when ref is ready
-            toast({
-              title: "Camera started",
-              description: "Video feed is initializing..."
-            })
-          }
-        }, 100)
+        description: "Video feed is initializing. Click 'Analyze Frame' or 'Start Recording' to begin evaluation."
       })
     } catch (error: any) {
       console.error("Error accessing camera:", error)
@@ -473,6 +461,11 @@ export default function EvaluationsPage() {
 
   // Stop live camera
   const stopLiveCamera = () => {
+    // Stop MediaRecorder if active
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+    }
+    
     if (liveVideoStream) {
       liveVideoStream.getTracks().forEach(track => track.stop())
       setLiveVideoStream(null)
@@ -486,14 +479,471 @@ export default function EvaluationsPage() {
       clearInterval(recordingIntervalRef.current)
       recordingIntervalRef.current = null
     }
+    mediaRecorderRef.current = null
+    recordedChunksRef.current = []
+    setRecordedVideoBlob(null)
     toast({
       title: "Camera stopped",
       description: "Video recording has been stopped"
     })
   }
 
-  // Start recording and analysis
+  // Start recording video
   const startRecording = async () => {
+    if (!isLiveCameraActive || !liveVideoStream) {
+      toast({
+        title: "Error",
+        description: "Please start the camera first",
+        variant: "destructive"
+      })
+      return
+    }
+
+    if (!selectedStaffMember || !selectedEvaluationType) {
+      toast({
+        title: "Error",
+        description: "Please select both staff member and evaluation type",
+        variant: "destructive"
+      })
+      return
+    }
+
+    try {
+      // Reset recorded chunks
+      recordedChunksRef.current = []
+      setRecordedVideoBlob(null)
+
+      // Check if MediaRecorder is supported
+      if (!window.MediaRecorder) {
+      toast({
+          title: "Not Supported",
+          description: "MediaRecorder is not supported in this browser",
+          variant: "destructive"
+        })
+        return
+      }
+
+      // Create MediaRecorder
+      const options: MediaRecorderOptions = {
+        mimeType: 'video/webm;codecs=vp9,opus'
+      }
+
+      // Try to find a supported mime type
+      if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
+        options.mimeType = 'video/webm;codecs=vp8,opus'
+        if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
+          options.mimeType = 'video/webm'
+          if (!MediaRecorder.isTypeSupported(options.mimeType!)) {
+            options.mimeType = '' // Let browser choose
+          }
+        }
+      }
+
+      const mediaRecorder = new MediaRecorder(liveVideoStream, options)
+      mediaRecorderRef.current = mediaRecorder
+
+      // Handle data available
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordedChunksRef.current.push(event.data)
+          console.log('Recorded chunk:', event.data.size, 'bytes')
+        }
+      }
+
+      // Handle recording stop
+      mediaRecorder.onstop = async () => {
+        console.log('Recording stopped, processing video...')
+        const videoBlob = new Blob(recordedChunksRef.current, { type: mediaRecorder.mimeType || 'video/webm' })
+        setRecordedVideoBlob(videoBlob)
+        console.log('Video blob created:', videoBlob.size, 'bytes', videoBlob.type)
+
+        // Analyze the recorded video
+        await analyzeRecordedVideo(videoBlob)
+      }
+
+      // Start recording
+      mediaRecorder.start(1000) // Collect data every second
+      setIsRecording(true)
+      setAnalysisPhase("Recording...")
+      setAiInsights([])
+      setEvaluationResult(null)
+
+      toast({
+        title: "Recording Started",
+        description: "Video is being recorded. Click 'Stop Recording' when done."
+      })
+    } catch (error: any) {
+      console.error('Error starting recording:', error)
+      toast({
+        title: "Recording Error",
+        description: error.message || "Failed to start recording",
+        variant: "destructive"
+      })
+    }
+  }
+
+  // Stop recording and analyze video
+  const stopRecording = async () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop()
+        setIsRecording(false)
+      setAnalysisPhase("Processing recorded video...")
+      toast({
+        title: "Recording Stopped",
+        description: "Processing and analyzing video..."
+      })
+    } else {
+      setIsRecording(false)
+      setAnalysisPhase("Recording stopped")
+    }
+  }
+
+  // Analyze recorded video
+  const analyzeRecordedVideo = async (videoBlob: Blob) => {
+    if (!selectedStaffMember || !selectedEvaluationType) {
+      toast({
+        title: "Error",
+        description: "Missing required information",
+        variant: "destructive"
+      })
+        return
+      }
+
+    setIsAnalyzing(true)
+    setAnalysisProgress(0)
+    setAnalysisPhase("Extracting frame from video for AI analysis...")
+
+    try {
+      // VERIFY: Log video details to confirm it's being sent
+      console.log('📹 VIDEO RECORDING VERIFICATION:')
+      console.log('  - Video blob size:', videoBlob.size, 'bytes')
+      console.log('  - Video blob type:', videoBlob.type)
+      
+      if (videoBlob.size < 1000) {
+        console.warn('⚠️ WARNING: Video blob is very small (', videoBlob.size, 'bytes). Recording may not have captured video properly.')
+        toast({
+          title: "⚠️ Video Too Small",
+          description: `Video recording is only ${videoBlob.size} bytes. Please ensure you actually recorded video content.`,
+          variant: "destructive"
+        })
+        setIsAnalyzing(false)
+          return
+        }
+
+      setAnalysisProgress(10)
+      setAnalysisPhase("Extracting representative frame from video...")
+      
+      // Extract a frame from the video for OpenAI Vision API
+      // OpenAI Vision API only supports images, not video files directly
+      const videoUrl = URL.createObjectURL(videoBlob)
+      const videoElement = document.createElement('video')
+      videoElement.src = videoUrl
+      videoElement.muted = true
+      videoElement.playsInline = true
+      videoElement.crossOrigin = 'anonymous'
+      
+      // Wait for video to load and extract a frame
+      await new Promise((resolve, reject) => {
+        videoElement.onloadedmetadata = () => {
+          // Check if duration is valid before setting currentTime
+          const duration = videoElement.duration
+          if (!isFinite(duration) || isNaN(duration) || duration <= 0) {
+            // If duration is invalid, just use the first frame (currentTime = 0)
+            console.log('⚠️ Video duration is invalid, using first frame')
+            videoElement.currentTime = 0
+            // Wait a bit for frame to be ready
+            setTimeout(() => resolve(true), 100)
+            return
+          }
+          
+          // Seek to middle of video for representative frame
+          const seekTime = Math.max(0, Math.min(duration / 2, duration - 0.1))
+          console.log(`📹 Seeking to ${seekTime.toFixed(2)}s (duration: ${duration.toFixed(2)}s)`)
+          videoElement.currentTime = seekTime
+        }
+        videoElement.onseeked = () => {
+          resolve(true)
+        }
+        videoElement.onerror = (error) => {
+          console.error('Video element error:', error)
+          reject(new Error('Failed to load video'))
+        }
+        videoElement.onloadeddata = () => {
+          // Fallback: if seeked doesn't fire, use loadeddata
+          if (videoElement.readyState >= 2) {
+            resolve(true)
+          }
+        }
+        setTimeout(() => reject(new Error('Video load timeout')), 10000)
+      })
+      
+      // Extract frame using canvas
+      const canvas = document.createElement('canvas')
+      canvas.width = videoElement.videoWidth || 1280
+      canvas.height = videoElement.videoHeight || 720
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        throw new Error('Failed to get canvas context')
+      }
+      
+      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height)
+      
+      // Convert canvas to blob (image)
+      const frameBlob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+            if (blob) resolve(blob)
+          else reject(new Error('Failed to extract frame'))
+        }, 'image/jpeg', 0.9)
+      })
+      
+      console.log('✅ Frame extracted from video:', frameBlob.size, 'bytes')
+      
+      // Clean up
+      URL.revokeObjectURL(videoUrl)
+      
+      setAnalysisProgress(30)
+      setAnalysisPhase("Sending video frame to OpenAI Medical AI for analysis...")
+
+      // Send frame image to API for analysis (OpenAI Vision API)
+        const formData = new FormData()
+        formData.append('staffId', selectedStaffMember)
+        formData.append('evaluatorId', currentUser?.id || '')
+      formData.append('evaluationType', 'recorded')
+      
+      // Send the full evaluation type (e.g., "competency-initial", "performance-annual")
+      // so AI can tailor recommendations and score based on the specific evaluation type
+      formData.append('competencyArea', selectedEvaluationType)
+      
+      // Estimate duration (approximate)
+      const duration = Math.round(videoBlob.size / 10000) // Rough estimate
+      formData.append('duration', duration.toString())
+      formData.append('notes', `Recorded video evaluation - ${new Date().toLocaleString()}`)
+      
+      // Send the extracted frame as an image (OpenAI Vision API supports images)
+      const frameFile = new File([frameBlob], `video_frame_${Date.now()}.jpg`, { type: 'image/jpeg' })
+      formData.append('frameImage', frameFile)
+      formData.append('isLiveFrame', 'false') // But we're sending a frame from recorded video
+      
+      // Also send the video file for reference (though Vision API will use the frame)
+      const videoFile = new File([videoBlob], `evaluation_${Date.now()}.webm`, { type: videoBlob.type })
+      formData.append('video', videoFile)
+
+      console.log('📤 SENDING VIDEO TO API:', {
+        staffId: selectedStaffMember,
+        evaluationType: selectedEvaluationType,
+        videoSize: videoFile.size,
+        videoType: videoFile.type
+      })
+
+      setAnalysisProgress(40)
+
+        const res = await fetch('/api/ai-competency/evaluate', {
+          method: 'POST',
+          body: formData
+        })
+
+        const result = await res.json()
+      console.log('🔍 Video Analysis Response:', result)
+      console.log('📋 Full result.data:', result.data)
+      console.log('📋 Training Recommendations:', result.data?.trainingRecommendations)
+      console.log('📋 Training Recommendations type:', typeof result.data?.trainingRecommendations)
+      console.log('📋 Training Recommendations is array?', Array.isArray(result.data?.trainingRecommendations))
+      console.log('📋 Competency Score Recommendations:', result.data?.competencyScores?.map((s: any) => ({ category: s.category, recommendations: s.recommendations, hasRecs: !!s.recommendations, recLength: s.recommendations?.length })))
+        
+        if (result.success && result.data) {
+        setAnalysisProgress(100)
+        setAnalysisPhase("Analysis complete!")
+
+        // Check if this is real AI or mock - use isMockMode flag from API
+        const isMockMode = result.isMockMode || 
+                          result.message?.toLowerCase().includes('mock') ||
+                          result.data.overallPerformanceJustification?.includes('MOCK ANALYSIS') ||
+                          result.data.competencyScores?.[0]?.observations?.some((obs: string) => obs.includes('MOCK ANALYSIS'))
+        
+        if (isMockMode) {
+              setAiStatus('mock')
+          toast({
+            title: "⚠️ Mock Analysis Mode",
+            description: "OpenAI API key not configured. Configure OPENAI_API_KEY in .env.local for real AI analysis. Mock mode gives low scores (20-30) to ensure accuracy.",
+            variant: "destructive"
+          })
+          } else {
+            if (aiStatus !== 'ready') {
+              setAiStatus('ready')
+            }
+          }
+          
+        // Build insights
+          const newInsights: string[] = []
+          
+        console.log('🔍 Building insights from result data:', {
+          hasCompetencyScores: !!result.data.competencyScores,
+          competencyScoresLength: result.data.competencyScores?.length,
+          hasTrainingRecommendations: !!result.data.trainingRecommendations,
+          trainingRecommendationsLength: result.data.trainingRecommendations?.length,
+          hasOverallScore: result.data.overallPerformanceScore !== undefined,
+          hasJustification: !!result.data.overallPerformanceJustification
+        })
+        
+        // Add competency scores
+          if (result.data.competencyScores && result.data.competencyScores.length > 0) {
+            result.data.competencyScores.slice(0, 4).forEach((score: any) => {
+            newInsights.push(`✅ ${score.category}: ${score.score}% (AI Confidence: ${score.confidence}% - how confident AI is in this score)`)
+            })
+          }
+          
+        // Add observations and recommendations from competency scores
+          if (result.data.competencyScores && result.data.competencyScores.length > 0) {
+            result.data.competencyScores.forEach((score: any) => {
+              if (score.observations && score.observations.length > 0) {
+                const observation = score.observations[0]
+                if (observation && observation.length > 0) {
+                  newInsights.push(`📋 ${score.category}: ${observation}`)
+              }
+            }
+            // Add recommendations from individual competency scores
+            if (score.recommendations && Array.isArray(score.recommendations) && score.recommendations.length > 0) {
+              console.log(`✅ Found ${score.recommendations.length} recommendations in ${score.category}`)
+              score.recommendations.slice(0, 2).forEach((rec: string) => {
+                if (rec && rec.trim().length > 0) {
+                  newInsights.push(`💡 ${score.category}: ${rec.trim()}`)
+                }
+              })
+            } else {
+              console.log(`⚠️ No recommendations found in ${score.category}`)
+            }
+          })
+        }
+        
+        // Add strengths
+          if (result.data.strengths && result.data.strengths.length > 0) {
+            result.data.strengths.slice(0, 2).forEach((strength: string) => {
+              newInsights.push(`✨ ${strength}`)
+            })
+          }
+          
+        // Add development areas
+          if (result.data.developmentAreas && result.data.developmentAreas.length > 0) {
+            result.data.developmentAreas.slice(0, 1).forEach((area: string) => {
+              newInsights.push(`⚠️ ${area}`)
+          })
+        }
+        
+        // Add training recommendations - CHECK MULTIPLE SOURCES
+        console.log('🔍 Checking training recommendations from multiple sources:')
+        console.log('  - result.data.trainingRecommendations:', result.data.trainingRecommendations)
+        console.log('  - result.data.trainingRecommendations type:', typeof result.data.trainingRecommendations)
+        console.log('  - result.data.trainingRecommendations is array?', Array.isArray(result.data.trainingRecommendations))
+        
+        // Try to get recommendations from multiple possible locations
+        let recommendationsToAdd: string[] = []
+        
+        // Source 1: Main trainingRecommendations array
+        if (result.data.trainingRecommendations && Array.isArray(result.data.trainingRecommendations) && result.data.trainingRecommendations.length > 0) {
+          console.log('✅ Found trainingRecommendations in main array:', result.data.trainingRecommendations.length)
+          recommendationsToAdd = [...recommendationsToAdd, ...result.data.trainingRecommendations]
+        }
+        
+        // Source 2: From competency scores recommendations
+        if (result.data.competencyScores && Array.isArray(result.data.competencyScores)) {
+          result.data.competencyScores.forEach((score: any) => {
+            if (score.recommendations && Array.isArray(score.recommendations) && score.recommendations.length > 0) {
+              console.log(`✅ Found recommendations in ${score.category}:`, score.recommendations.length)
+              recommendationsToAdd = [...recommendationsToAdd, ...score.recommendations]
+            }
+          })
+        }
+        
+        // Add unique recommendations to insights
+        if (recommendationsToAdd.length > 0) {
+          console.log('✅ Adding', recommendationsToAdd.length, 'recommendations to insights')
+          // Remove duplicates and add to insights
+          const uniqueRecs = [...new Set(recommendationsToAdd)]
+          uniqueRecs.slice(0, 5).forEach((recommendation: string) => {
+            if (recommendation && recommendation.trim().length > 0) {
+              newInsights.push(`💡 Recommendation: ${recommendation.trim()}`)
+            }
+          })
+        } else {
+          console.warn('⚠️ No training recommendations found in ANY source!')
+          // Add a fallback message
+          newInsights.push(`💡 Recommendation: Review evaluation results for specific improvement areas`)
+        }
+        
+        // Add AI confidence (how confident AI is in analysis accuracy)
+        if (result.data.aiConfidence !== undefined) {
+          const confidenceEmoji = result.data.aiConfidence >= 80 ? '🎯' : result.data.aiConfidence >= 60 ? '📊' : '❓'
+          newInsights.push(`${confidenceEmoji} AI Analysis Confidence: ${result.data.aiConfidence}% (How confident AI is in analysis accuracy)`)
+        }
+        
+        // Add overall performance score and justification if available
+        if (result.data.overallPerformanceScore !== undefined) {
+          const scoreEmoji = result.data.overallPerformanceScore >= 4 ? '⭐' : result.data.overallPerformanceScore >= 3 ? '📊' : '📉'
+          newInsights.push(`${scoreEmoji} Overall Performance: ${result.data.overallPerformanceScore}/5`)
+        }
+        
+        if (result.data.overallPerformanceJustification) {
+          // Truncate if too long, but show key points
+          const justification = result.data.overallPerformanceJustification.length > 150 
+            ? result.data.overallPerformanceJustification.substring(0, 150) + '...'
+            : result.data.overallPerformanceJustification
+          newInsights.push(`📝 ${justification}`)
+        }
+
+        // Update insights
+        console.log('📊 Total new insights to add:', newInsights.length)
+        console.log('📊 New insights content:', newInsights)
+        
+          if (newInsights.length > 0) {
+            setAiInsights(prev => {
+              const combined = [...prev, ...newInsights]
+              const unique = combined.filter((item, index) => {
+                const firstIndex = combined.findIndex(i => {
+                const itemText = item.replace(/[✅📋✨⚠️💡⭐📊📉📝]/g, '').trim()
+                const iText = i.replace(/[✅📋✨⚠️💡⭐📊📉📝]/g, '').trim()
+                  return itemText === iText
+                })
+                return index === firstIndex
+              })
+            const finalInsights = unique.slice(-15) // Increased from 10 to 15 to show more recommendations
+            console.log('✅ Final insights to display:', finalInsights.length, finalInsights)
+            return finalInsights
+            })
+        } else {
+          console.warn('⚠️ No insights to add!')
+          }
+
+          // Update result - store AI assessment ID for saving to competency
+          const aiAssessmentId = result.evaluationId || result.data?.evaluationId || result.data?.id
+          setEvaluationResult({
+            ...result.data,
+            evaluationId: aiAssessmentId,
+            aiAssessmentId: aiAssessmentId
+          })
+
+        toast({
+          title: "Analysis Complete",
+          description: `Video analyzed! Overall Score: ${result.data.overallScore}%. Click "Save to Competency" to add to Staff Assessments.`
+        })
+          } else {
+        throw new Error(result.error || 'Analysis failed')
+      }
+    } catch (error: any) {
+      console.error('Error analyzing video:', error)
+      toast({
+        title: "Analysis Error",
+        description: error.message || "Failed to analyze video. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsAnalyzing(false)
+      setAnalysisProgress(0)
+      setAnalysisPhase("")
+    }
+  }
+
+  // Manual analyze current frame
+  const analyzeCurrentFrame = async () => {
     if (!isLiveCameraActive || !videoRef.current || !canvasRef.current) {
       toast({
         title: "Error",
@@ -503,12 +953,14 @@ export default function EvaluationsPage() {
       return
     }
 
-    setIsRecording(true)
-    setIsAnalyzing(true)
-    setAnalysisProgress(0)
-    setAnalysisPhase("Initializing evaluation...")
-    setAiInsights([])
-    setEvaluationResult(null)
+    if (!selectedStaffMember || !selectedEvaluationType) {
+      toast({
+        title: "Error",
+        description: "Please select both staff member and evaluation type",
+        variant: "destructive"
+      })
+      return
+    }
 
     const video = videoRef.current
     const canvas = canvasRef.current
@@ -519,7 +971,6 @@ export default function EvaluationsPage() {
         description: "Failed to initialize canvas",
         variant: "destructive"
       })
-      setIsRecording(false)
       return
     }
 
@@ -529,267 +980,242 @@ export default function EvaluationsPage() {
         title: "Waiting for video",
         description: "Please wait for video to load..."
       })
-      
-      const waitForVideo = () => {
-        return new Promise<void>((resolve) => {
-          if (video.readyState >= 2) {
-            resolve()
-          } else {
-            video.addEventListener('loadedmetadata', () => resolve(), { once: true })
-            video.addEventListener('canplay', () => resolve(), { once: true })
-          }
-        })
-      }
-      
-      await waitForVideo()
+      return
     }
 
-    // Set canvas dimensions to match video
-    const videoWidth = video.videoWidth || 1280
-    const videoHeight = video.videoHeight || 720
-    canvas.width = videoWidth
-    canvas.height = videoHeight
-    console.log('Canvas dimensions set:', canvas.width, 'x', canvas.height)
+    setIsAnalyzing(true)
+    setAnalysisProgress(0)
+    setAnalysisPhase("Capturing frame...")
 
-    let frameCount = 0
-    const analysisDuration = 60000 // 60 seconds
-    const frameInterval = 5000 // Capture every 5 seconds
-    const startTime = Date.now()
+    try {
+      // Set canvas dimensions to match video
+      const videoWidth = video.videoWidth || 1280
+      const videoHeight = video.videoHeight || 720
+      canvas.width = videoWidth
+      canvas.height = videoHeight
 
-    const captureAndAnalyzeFrame = async () => {
-      if (Date.now() - startTime > analysisDuration || !isRecording) {
-        // Stop recording
-        setIsRecording(false)
-        setIsAnalyzing(false)
-        setAnalysisPhase("Evaluation complete!")
-        setAnalysisProgress(100)
-        if (recordingIntervalRef.current) {
-          clearInterval(recordingIntervalRef.current)
-        }
-        return
-      }
+      // Capture current frame
+      context.drawImage(video, 0, 0, canvas.width, canvas.height)
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob: Blob | null) => {
+          if (blob) resolve(blob)
+          else reject(new Error('Failed to capture frame'))
+        }, 'image/jpeg', 0.8)
+      })
 
-      try {
-        // Check if video is ready
-        if (video.readyState < 2) {
-          console.warn('Video not ready, skipping frame')
-          return
-        }
+      setAnalysisProgress(30)
+      setAnalysisPhase("Analyzing frame with AI...")
 
-        // Capture frame
-        context.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const blob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((blob: Blob | null) => {
-            if (blob) resolve(blob)
-          }, 'image/jpeg', 0.8)
-        })
-
-        frameCount++
-        const progress = Math.min(90, 10 + (frameCount * 15))
-        setAnalysisProgress(progress)
-        setAnalysisPhase(`Analyzing frame ${frameCount}...`)
-
-        // Send to OpenAI API for analysis
-        const formData = new FormData()
-        formData.append('staffId', selectedStaffMember)
-        formData.append('evaluatorId', currentUser?.id || '')
-        formData.append('evaluationType', 'live')
-        
-        const [evalType, assessmentType] = selectedEvaluationType.split("-")
-        const competencyArea = evalType === "competency" ? assessmentType : "performance"
-        formData.append('competencyArea', competencyArea)
-        formData.append('duration', '10')
-        formData.append('notes', `Live video evaluation - Frame ${frameCount}`)
-        formData.append('frameImage', blob, `frame_${frameCount}.jpg`)
-        formData.append('isLiveFrame', 'true')
-        formData.append('frameNumber', frameCount.toString())
-
-        const res = await fetch('/api/ai-competency/evaluate', {
-          method: 'POST',
-          body: formData
-        })
-
-        const result = await res.json()
-        console.log('🔍 AI Analysis Response:', result) // Debug log
-        
-        if (result.success && result.data) {
-          console.log('✅ AI Data received:', {
-            scores: result.data.competencyScores?.length || 0,
-            strengths: result.data.strengths?.length || 0,
-            observations: result.data.competencyScores?.[0]?.observations?.length || 0
-          })
-          
-          // Check if this is real AI or mock
-          if (result.message?.toLowerCase().includes('mock') || 
-              (result.data.aiConfidence >= 88 && result.data.aiConfidence <= 98 && 
-               result.data.strengths?.[0]?.includes('rapport'))) {
-            // Likely mock analysis - show warning
-            if (aiStatus !== 'mock') {
-              setAiStatus('mock')
-              setAiInsights(prev => [
-                '⚠️ Using simulated AI analysis. Configure OpenAI for real analysis.',
-                ...prev.filter(i => !i.includes('simulated'))
-              ].slice(0, 10))
-            }
-          } else {
-            // Real AI analysis
-            if (aiStatus !== 'ready') {
-              setAiStatus('ready')
-            }
-          }
-          
-          // Build all insights at once to avoid state update issues
-          const newInsights: string[] = []
-          
-          // Add competency scores to insights
-          if (result.data.competencyScores && result.data.competencyScores.length > 0) {
-            console.log('📊 Adding competency scores...')
-            result.data.competencyScores.slice(0, 4).forEach((score: any) => {
-              const insightText = `✅ ${score.category}: ${score.score}% (Confidence: ${score.confidence}%)`
-              newInsights.push(insightText)
-              console.log('Added score:', insightText)
-            })
-          }
-          
-          // Add observations to insights
-          if (result.data.competencyScores && result.data.competencyScores.length > 0) {
-            console.log('📋 Adding observations...')
-            result.data.competencyScores.forEach((score: any) => {
-              if (score.observations && score.observations.length > 0) {
-                // Add first observation from each category
-                const observation = score.observations[0]
-                if (observation && observation.length > 0) {
-                  newInsights.push(`📋 ${score.category}: ${observation}`)
-                  console.log('Added observation:', observation.substring(0, 50))
-                }
-              }
-            })
-          }
-          
-          // Add strengths to insights
-          if (result.data.strengths && result.data.strengths.length > 0) {
-            console.log('✨ Adding strengths...')
-            result.data.strengths.slice(0, 2).forEach((strength: string) => {
-              newInsights.push(`✨ ${strength}`)
-              console.log('Added strength:', strength)
-            })
-          }
-          
-          // Add development areas as warnings
-          if (result.data.developmentAreas && result.data.developmentAreas.length > 0) {
-            console.log('⚠️ Adding development areas...')
-            result.data.developmentAreas.slice(0, 1).forEach((area: string) => {
-              newInsights.push(`⚠️ ${area}`)
-              console.log('Added area:', area)
-            })
-          }
-          
-          // Update insights state with all new insights at once
-          if (newInsights.length > 0) {
-            console.log(`🎉 Adding ${newInsights.length} insights to display`)
-            setAiInsights(prev => {
-              const combined = [...prev, ...newInsights]
-              // Remove duplicates but keep order
-              const unique = combined.filter((item, index) => {
-                const firstIndex = combined.findIndex(i => {
-                  // Compare without emojis for better dedup
-                  const itemText = item.replace(/[✅📋✨⚠️]/g, '').trim()
-                  const iText = i.replace(/[✅📋✨⚠️]/g, '').trim()
-                  return itemText === iText
-                })
-                return index === firstIndex
-              })
-              return unique.slice(-10) // Keep last 10 insights
-            })
-          }
-
-          // Update result
-          if (frameCount === 1) {
-            setEvaluationResult(result.data)
-          } else {
-            // Merge results
-            setEvaluationResult((prev: any) => ({
-              ...result.data,
-              overallScore: Math.round((prev?.overallScore || 0 + result.data.overallScore) / 2),
-              competencyScores: result.data.competencyScores?.map((newScore: any, idx: number) => {
-                const prevScore = prev?.competencyScores?.[idx]
-                if (prevScore) {
-                  return {
-                    ...newScore,
-                    score: Math.round((prevScore.score + newScore.score) / 2),
-                    confidence: Math.round((prevScore.confidence + newScore.confidence) / 2)
-                  }
-                }
-                return newScore
-              }) || []
-            }))
-          }
-        }
-      } catch (error) {
-        console.error('Error analyzing frame:', error)
-        setAiInsights(prev => [...prev, "⚠️ Analysis error for this frame"].slice(0, 10))
-      }
-    }
-
-    // Start capturing frames
-    await captureAndAnalyzeFrame()
-    const interval = setInterval(captureAndAnalyzeFrame, frameInterval)
-    recordingIntervalRef.current = interval
-
-    // Auto-stop after duration
-    setTimeout(() => {
-      setIsRecording(false)
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current)
-        recordingIntervalRef.current = null
-      }
-      setAnalysisPhase("Finalizing evaluation...")
+      // Send to OpenAI API for analysis
+      const formData = new FormData()
+      formData.append('staffId', selectedStaffMember)
+      formData.append('evaluatorId', currentUser?.id || '')
+      formData.append('evaluationType', 'live')
       
-      // Finalize assessment
-      setTimeout(async () => {
-        try {
-          const finalizeRes = await fetch('/api/ai-competency/evaluate', {
+      // Send the full evaluation type (e.g., "competency-initial", "performance-annual")
+      // so AI can tailor recommendations and score based on the specific evaluation type
+      formData.append('competencyArea', selectedEvaluationType)
+      formData.append('duration', '10')
+      formData.append('notes', `Manual frame analysis - ${new Date().toLocaleTimeString()}`)
+      formData.append('frameImage', blob, `frame_${Date.now()}.jpg`)
+      formData.append('isLiveFrame', 'true')
+      formData.append('frameNumber', '1')
+
+      setAnalysisProgress(50)
+
+      const res = await fetch('/api/ai-competency/evaluate', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              staffId: selectedStaffMember,
-              evaluatorId: currentUser?.id || null,
-              evaluationType: 'live',
-              competencyArea: selectedEvaluationType.split("-")[1] || "general",
-              duration: analysisDuration / 1000,
-              notes: `Live video evaluation completed - ${frameCount} frames analyzed`,
-              finalizeAssessment: true,
-              assessmentId: evaluationResult?.evaluationId
-            })
-          })
-          
-          const finalizeData = await finalizeRes.json()
-          if (finalizeData.success) {
-            setEvaluationResult(finalizeData.data)
+        body: formData
+      })
+
+      const result = await res.json()
+      console.log('🔍 Manual AI Analysis Response:', result)
+
+      if (result.success && result.data) {
+        setAnalysisProgress(100)
+        setAnalysisPhase("Analysis complete!")
+
+        // Check if this is real AI or mock - use isMockMode flag from API
+        const isMockMode = result.isMockMode || 
+                          result.message?.toLowerCase().includes('mock') ||
+                          result.data.overallPerformanceJustification?.includes('MOCK ANALYSIS') ||
+                          result.data.competencyScores?.[0]?.observations?.some((obs: string) => obs.includes('MOCK ANALYSIS'))
+        
+        if (isMockMode) {
+          setAiStatus('mock')
             toast({
-              title: "Evaluation Complete",
-              description: `Assessment saved! Overall Score: ${finalizeData.data.overallScore}%`
-            })
+            title: "⚠️ Mock Analysis Mode",
+            description: "OpenAI API key not configured. Configure OPENAI_API_KEY in .env.local for real AI analysis.",
+            variant: "destructive"
+          })
+        } else {
+          if (aiStatus !== 'ready') {
+            setAiStatus('ready')
           }
-        } catch (error) {
-          console.error('Error finalizing assessment:', error)
+        }
+
+        // Build insights
+        const newInsights: string[] = []
+        
+        console.log('🔍 Building insights from result data:', {
+          hasCompetencyScores: !!result.data.competencyScores,
+          competencyScoresLength: result.data.competencyScores?.length,
+          hasTrainingRecommendations: !!result.data.trainingRecommendations,
+          trainingRecommendationsLength: result.data.trainingRecommendations?.length,
+          hasOverallScore: result.data.overallPerformanceScore !== undefined,
+          hasJustification: !!result.data.overallPerformanceJustification
+        })
+        
+        // Add competency scores
+        if (result.data.competencyScores && result.data.competencyScores.length > 0) {
+          result.data.competencyScores.slice(0, 4).forEach((score: any) => {
+            newInsights.push(`✅ ${score.category}: ${score.score}% (AI Confidence: ${score.confidence}% - how confident AI is in this score)`)
+          })
         }
         
-        setIsAnalyzing(false)
-        setAnalysisProgress(100)
-        setAnalysisPhase("✅ Evaluation complete!")
-      }, 1000)
-    }, analysisDuration)
-  }
+        // Add observations and recommendations from competency scores
+        if (result.data.competencyScores && result.data.competencyScores.length > 0) {
+          result.data.competencyScores.forEach((score: any) => {
+            if (score.observations && score.observations.length > 0) {
+              const observation = score.observations[0]
+              if (observation && observation.length > 0) {
+                newInsights.push(`📋 ${score.category}: ${observation}`)
+              }
+            }
+            // Add recommendations from individual competency scores
+            if (score.recommendations && Array.isArray(score.recommendations) && score.recommendations.length > 0) {
+              console.log(`✅ Found ${score.recommendations.length} recommendations in ${score.category}`)
+              score.recommendations.slice(0, 2).forEach((rec: string) => {
+                if (rec && rec.trim().length > 0) {
+                  newInsights.push(`💡 ${score.category}: ${rec.trim()}`)
+                }
+              })
+            } else {
+              console.log(`⚠️ No recommendations found in ${score.category}`)
+            }
+          })
+        }
+        
+        // Add strengths
+        if (result.data.strengths && result.data.strengths.length > 0) {
+          result.data.strengths.slice(0, 2).forEach((strength: string) => {
+            newInsights.push(`✨ ${strength}`)
+          })
+        }
+        
+        // Add development areas
+        if (result.data.developmentAreas && result.data.developmentAreas.length > 0) {
+          result.data.developmentAreas.slice(0, 1).forEach((area: string) => {
+            newInsights.push(`⚠️ ${area}`)
+          })
+        }
+        
+        // Add training recommendations - CHECK MULTIPLE SOURCES
+        console.log('🔍 Checking training recommendations from multiple sources:')
+        console.log('  - result.data.trainingRecommendations:', result.data.trainingRecommendations)
+        console.log('  - result.data.trainingRecommendations type:', typeof result.data.trainingRecommendations)
+        console.log('  - result.data.trainingRecommendations is array?', Array.isArray(result.data.trainingRecommendations))
+        
+        // Try to get recommendations from multiple possible locations
+        let recommendationsToAdd: string[] = []
+        
+        // Source 1: Main trainingRecommendations array
+        if (result.data.trainingRecommendations && Array.isArray(result.data.trainingRecommendations) && result.data.trainingRecommendations.length > 0) {
+          console.log('✅ Found trainingRecommendations in main array:', result.data.trainingRecommendations.length)
+          recommendationsToAdd = [...recommendationsToAdd, ...result.data.trainingRecommendations]
+        }
+        
+        // Source 2: From competency scores recommendations
+        if (result.data.competencyScores && Array.isArray(result.data.competencyScores)) {
+          result.data.competencyScores.forEach((score: any) => {
+            if (score.recommendations && Array.isArray(score.recommendations) && score.recommendations.length > 0) {
+              console.log(`✅ Found recommendations in ${score.category}:`, score.recommendations.length)
+              recommendationsToAdd = [...recommendationsToAdd, ...score.recommendations]
+            }
+          })
+        }
+        
+        // Add unique recommendations to insights
+        if (recommendationsToAdd.length > 0) {
+          console.log('✅ Adding', recommendationsToAdd.length, 'recommendations to insights')
+          // Remove duplicates and add to insights
+          const uniqueRecs = [...new Set(recommendationsToAdd)]
+          uniqueRecs.slice(0, 5).forEach((recommendation: string) => {
+            if (recommendation && recommendation.trim().length > 0) {
+              newInsights.push(`💡 Recommendation: ${recommendation.trim()}`)
+            }
+          })
+        } else {
+          console.warn('⚠️ No training recommendations found in ANY source!')
+          // Add a fallback message
+          newInsights.push(`💡 Recommendation: Review evaluation results for specific improvement areas`)
+        }
+        
+        // Add AI confidence (how confident AI is in analysis accuracy)
+        if (result.data.aiConfidence !== undefined) {
+          const confidenceEmoji = result.data.aiConfidence >= 80 ? '🎯' : result.data.aiConfidence >= 60 ? '📊' : '❓'
+          newInsights.push(`${confidenceEmoji} AI Analysis Confidence: ${result.data.aiConfidence}% (How confident AI is in analysis accuracy)`)
+        }
+        
+        // Add overall performance score and justification if available
+        if (result.data.overallPerformanceScore !== undefined) {
+          const scoreEmoji = result.data.overallPerformanceScore >= 4 ? '⭐' : result.data.overallPerformanceScore >= 3 ? '📊' : '📉'
+          newInsights.push(`${scoreEmoji} Overall Performance: ${result.data.overallPerformanceScore}/5`)
+        }
+        
+        if (result.data.overallPerformanceJustification) {
+          // Truncate if too long, but show key points
+          const justification = result.data.overallPerformanceJustification.length > 150 
+            ? result.data.overallPerformanceJustification.substring(0, 150) + '...'
+            : result.data.overallPerformanceJustification
+          newInsights.push(`📝 ${justification}`)
+        }
 
-  // Stop recording
-  const stopRecording = () => {
-    setIsRecording(false)
-    if (recordingIntervalRef.current) {
-      clearInterval(recordingIntervalRef.current)
-      recordingIntervalRef.current = null
+        // Update insights
+        console.log('📊 Total new insights to add:', newInsights.length)
+        console.log('📊 New insights content:', newInsights)
+        
+        if (newInsights.length > 0) {
+          setAiInsights(prev => {
+            const combined = [...prev, ...newInsights]
+            const unique = combined.filter((item, index) => {
+              const firstIndex = combined.findIndex(i => {
+                const itemText = item.replace(/[✅📋✨⚠️💡⭐📊📉📝]/g, '').trim()
+                const iText = i.replace(/[✅📋✨⚠️💡⭐📊📉📝]/g, '').trim()
+                return itemText === iText
+              })
+              return index === firstIndex
+            })
+            const finalInsights = unique.slice(-15) // Increased from 10 to 15 to show more recommendations
+            console.log('✅ Final insights to display:', finalInsights.length, finalInsights)
+            return finalInsights
+          })
+        } else {
+          console.warn('⚠️ No insights to add!')
+        }
+
+        // Update result
+        setEvaluationResult(result.data)
+
+        toast({
+          title: "Analysis Complete",
+          description: `Frame analyzed! Overall Score: ${result.data.overallScore}%`
+        })
+      } else {
+        throw new Error(result.error || 'Analysis failed')
+      }
+    } catch (error: any) {
+      console.error('Error analyzing frame:', error)
+      toast({
+        title: "Analysis Error",
+        description: error.message || "Failed to analyze frame. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsAnalyzing(false)
+      setAnalysisProgress(0)
+      setAnalysisPhase("")
     }
-    setAnalysisPhase("Recording stopped")
   }
 
   // Add note
@@ -805,6 +1231,9 @@ export default function EvaluationsPage() {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop()
+      }
       if (liveVideoStream) {
         liveVideoStream.getTracks().forEach(track => track.stop())
       }
@@ -818,25 +1247,41 @@ export default function EvaluationsPage() {
   useEffect(() => {
     if (liveVideoStream && videoRef.current) {
       const video = videoRef.current
-      video.srcObject = liveVideoStream
       
-      // Wait for video to be ready
-      const handleLoadedMetadata = () => {
-        console.log('Video stream loaded successfully')
-        video.play().catch((error) => {
-          console.log('Video play error (may need user interaction):', error)
-        })
+      // Only set srcObject if it's different to avoid interrupting play
+      if (video.srcObject !== liveVideoStream) {
+      video.srcObject = liveVideoStream
       }
       
-      video.addEventListener('loadedmetadata', handleLoadedMetadata)
+      // Wait for video to be ready before playing
+      let playAttempted = false
+      const handleCanPlay = async () => {
+        if (!playAttempted && video.paused) {
+          playAttempted = true
+          try {
+            await video.play()
+            console.log('Video playing successfully')
+          } catch (error: any) {
+            // Ignore "interrupted" errors - they're harmless
+            if (error.name !== 'AbortError' && error.message && !error.message.includes('interrupted')) {
+          console.log('Video play error (may need user interaction):', error)
+            }
+          }
+        }
+      }
       
-      // Try to play immediately
-      video.play().catch((error) => {
-        console.log('Initial play error (will retry on loadedmetadata):', error)
-      })
+      // Use canplay event which fires when video is ready to play
+      video.addEventListener('canplay', handleCanPlay, { once: true })
+      video.addEventListener('loadedmetadata', handleCanPlay, { once: true })
+      
+      // If video is already ready, try to play
+      if (video.readyState >= 3) {
+        handleCanPlay()
+      }
       
       return () => {
-        video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+        video.removeEventListener('canplay', handleCanPlay)
+        video.removeEventListener('loadedmetadata', handleCanPlay)
       }
     } else if (!liveVideoStream && videoRef.current) {
       // Clear video source when stream is stopped
@@ -1095,7 +1540,7 @@ export default function EvaluationsPage() {
                 <Button
                   disabled={!selectedStaffMember || !selectedEvaluationType || isLoadingStaff}
                   className="bg-indigo-600 hover:bg-indigo-700"
-                  onClick={handleStartEvaluation}
+                  onClick={() => handleStartEvaluation()}
                 >
                   <FileText className="h-4 w-4 mr-2" />
                   Start Standard Evaluation
@@ -1313,7 +1758,7 @@ export default function EvaluationsPage() {
                     </div>
 
                     {/* Video Feed Area */}
-                    <div className="bg-black rounded-lg aspect-video flex items-center justify-center border-2 border-dashed border-gray-700 relative overflow-hidden">
+                    <div className="bg-black rounded-lg aspect-video flex items-center justify-center border-2 border-dashed border-gray-700 relative overflow-hidden min-h-[400px]">
                       {isLiveCameraActive ? (
                         <>
                           <video
@@ -1321,15 +1766,8 @@ export default function EvaluationsPage() {
                             autoPlay
                             playsInline
                             muted
-                            className="w-full h-full object-contain"
-                            onLoadedMetadata={() => {
-                              console.log('Video metadata loaded')
-                              if (videoRef.current) {
-                                videoRef.current.play().catch(err => {
-                                  console.log('Play error (may need user interaction):', err)
-                                })
-                              }
-                            }}
+                            className="w-full h-full object-contain max-w-full max-h-full"
+                            style={{ minHeight: '400px' }}
                             onPlay={() => {
                               console.log('Video is playing!')
                             }}
@@ -1382,6 +1820,7 @@ export default function EvaluationsPage() {
                           <Button
                             className="flex-1 bg-red-600 hover:bg-red-700"
                             onClick={startRecording}
+                            disabled={isAnalyzing || !selectedStaffMember || !selectedEvaluationType}
                           >
                             <Video className="h-4 w-4 mr-2" />
                             Start Recording
@@ -1398,6 +1837,7 @@ export default function EvaluationsPage() {
                         <Button
                           variant="outline"
                           onClick={stopLiveCamera}
+                          disabled={isAnalyzing}
                         >
                           Stop Camera
                         </Button>
@@ -1439,12 +1879,36 @@ export default function EvaluationsPage() {
                         </Button>
                       </div>
                       {evaluationNotes.length > 0 && (
-                        <div className="mt-2 space-y-1 max-h-32 overflow-y-auto">
+                        <div className="mt-2 space-y-1 max-h-48 overflow-y-auto">
                           {evaluationNotes.map((note, idx) => (
-                            <div key={idx} className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
-                              {note}
+                            <div key={idx} className="flex items-start justify-between text-xs text-gray-600 bg-gray-50 p-2 rounded group">
+                              <span className="flex-1">{note}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-5 w-5 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                onClick={() => {
+                                  setEvaluationNotes(prev => prev.filter((_, i) => i !== idx))
+                                }}
+                              >
+                                <span className="text-red-500">×</span>
+                              </Button>
                             </div>
                           ))}
+                          {evaluationNotes.length > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full mt-2 text-xs"
+                              onClick={() => {
+                                if (confirm('Clear all notes?')) {
+                                  setEvaluationNotes([])
+                                }
+                              }}
+                            >
+                              Clear All Notes
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -1483,6 +1947,10 @@ export default function EvaluationsPage() {
                                     insight.includes('⚠️') ? 'bg-yellow-50 border-yellow-200' :
                                     insight.includes('📋') ? 'bg-blue-50 border-blue-200' :
                                     insight.includes('✨') ? 'bg-purple-50 border-purple-200' :
+                                    insight.includes('💡') ? 'bg-amber-50 border-amber-200' :
+                                    insight.includes('⭐') || insight.includes('📊') || insight.includes('📉') ? 'bg-indigo-50 border-indigo-200' :
+                                    insight.includes('📝') ? 'bg-cyan-50 border-cyan-200' :
+                                    insight.includes('🎯') || insight.includes('❓') ? 'bg-teal-50 border-teal-200' :
                                     'bg-gray-50 border-gray-200'
                                   }`}
                                 >
@@ -1491,6 +1959,10 @@ export default function EvaluationsPage() {
                                     insight.includes('⚠️') ? 'text-yellow-800' :
                                     insight.includes('📋') ? 'text-blue-800' :
                                     insight.includes('✨') ? 'text-purple-800' :
+                                    insight.includes('💡') ? 'text-amber-800 font-medium' :
+                                    insight.includes('⭐') || insight.includes('📊') || insight.includes('📉') ? 'text-indigo-800 font-semibold' :
+                                    insight.includes('📝') ? 'text-cyan-800' :
+                                    insight.includes('🎯') || insight.includes('❓') ? 'text-teal-800 font-medium' :
                                     'text-gray-800'
                                   }`}>
                                     {insight}
@@ -1522,8 +1994,99 @@ export default function EvaluationsPage() {
                                     Overall Score: {evaluationResult.overallScore}%
                                   </p>
                                   <p className="text-xs text-green-700">
-                                    AI Confidence: {evaluationResult.aiConfidence}%
+                                    AI Analysis Confidence: {evaluationResult.aiConfidence}%
+                                    <span className="text-gray-500 ml-1">(How confident AI is in analysis accuracy)</span>
                                   </p>
+                                  <div className="mt-3 pt-3 border-t border-green-300">
+                                    <Button
+                                      size="sm"
+                                      className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                                      onClick={async () => {
+                                        if (!evaluationResult?.aiAssessmentId || !selectedStaffMember) {
+                                          toast({
+                                            title: "Error",
+                                            description: "Missing assessment ID or staff member. Please record and analyze again.",
+                                            variant: "destructive"
+                                          })
+                                          return
+                                        }
+
+                                        try {
+                                          toast({
+                                            title: "Saving to Competency",
+                                            description: "Creating competency evaluation and linking AI assessment..."
+                                          })
+
+                                          // Step 1: Create competency evaluation
+                                          const evalRes = await fetch('/api/staff-performance/competency', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                              action: 'create-evaluation',
+                                              data: {
+                                                staffId: selectedStaffMember,
+                                                evaluationType: selectedEvaluationType?.includes('competency') 
+                                                  ? selectedEvaluationType.replace('competency-', '') 
+                                                  : 'annual',
+                                                evaluatorName: currentUser?.name || 'Evaluator',
+                                                evaluatorId: currentUser?.id || null,
+                                                competencyAreas: [] // Will be populated from AI assessment
+                                              }
+                                            })
+                                          })
+
+                                          const evalResult = await evalRes.json()
+                                          
+                                          if (!evalResult.success || !evalResult.evaluationId) {
+                                            throw new Error(evalResult.message || 'Failed to create competency evaluation')
+                                          }
+
+                                          // Step 2: Link AI assessment to competency evaluation
+                                          const linkRes = await fetch('/api/ai-competency/save-to-competency', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                              aiAssessmentId: evaluationResult.aiAssessmentId,
+                                              competencyEvaluationId: evalResult.evaluationId
+                                            })
+                                          })
+
+                                          const linkResult = await linkRes.json()
+
+                                          if (!linkResult.success) {
+                                            throw new Error(linkResult.error || 'Failed to link assessment')
+                                          }
+
+                                          toast({
+                                            title: "✅ Success!",
+                                            description: `Assessment saved! View results in Staff Competency → Staff Assessments tab.`,
+                                            duration: 5000
+                                          })
+
+                                          // Option to navigate to staff competency page
+                                          setTimeout(() => {
+                                            if (confirm('Would you like to view the results in Staff Assessments tab?')) {
+                                              router.push('/staff-competency')
+                                            }
+                                          }, 1000)
+
+                                        } catch (error: any) {
+                                          console.error('Error saving to competency:', error)
+                                          toast({
+                                            title: "Error",
+                                            description: error.message || "Failed to save assessment to competency",
+                                            variant: "destructive"
+                                          })
+                                        }
+                                      }}
+                                    >
+                                      <Target className="h-4 w-4 mr-2" />
+                                      Save to Competency Evaluations
+                                    </Button>
+                                    <p className="text-xs text-green-600 mt-2 text-center">
+                                      Save this assessment to view in Staff Assessments tab
+                                    </p>
+                                  </div>
                                 </div>
                                 {evaluationResult.competencyScores && evaluationResult.competencyScores.length > 0 && (
                                   <div className="space-y-1">
@@ -1542,13 +2105,86 @@ export default function EvaluationsPage() {
                       </CardContent>
                     </Card>
 
+                    {/* AI Recommendations Section - PROMINENTLY DISPLAYED */}
+                    {evaluationResult && (
+                      <Card className="border-amber-200 bg-amber-50/50">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-base flex items-center">
+                            <Lightbulb className="h-4 w-4 mr-2 text-amber-600" />
+                            AI Recommendations
+                          </CardTitle>
+                          <CardDescription className="text-xs">
+                            Training and coaching suggestions based on AI analysis
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {(() => {
+                            // Collect all recommendations from multiple sources
+                            const allRecommendations: string[] = []
+                            
+                            // Source 1: Main trainingRecommendations
+                            if (evaluationResult.trainingRecommendations && Array.isArray(evaluationResult.trainingRecommendations)) {
+                              evaluationResult.trainingRecommendations.forEach((rec: string) => {
+                                if (rec && rec.trim().length > 0) {
+                                  allRecommendations.push(rec.trim())
+                                }
+                              })
+                            }
+                            
+                            // Source 2: From competency scores
+                            if (evaluationResult.competencyScores && Array.isArray(evaluationResult.competencyScores)) {
+                              evaluationResult.competencyScores.forEach((score: any) => {
+                                if (score.recommendations && Array.isArray(score.recommendations)) {
+                                  score.recommendations.forEach((rec: string) => {
+                                    if (rec && rec.trim().length > 0) {
+                                      allRecommendations.push(`${score.category}: ${rec.trim()}`)
+                                    }
+                                  })
+                                }
+                              })
+                            }
+                            
+                            // Remove duplicates
+                            const uniqueRecs = [...new Set(allRecommendations)]
+                            
+                            if (uniqueRecs.length > 0) {
+                              return (
+                                <div className="space-y-2">
+                                  {uniqueRecs.slice(0, 8).map((recommendation, idx) => (
+                                    <div 
+                                      key={idx}
+                                      className="p-3 bg-white border border-amber-200 rounded-lg shadow-sm"
+                                    >
+                                      <div className="flex items-start">
+                                        <Lightbulb className="h-4 w-4 mr-2 mt-0.5 text-amber-600 flex-shrink-0" />
+                                        <p className="text-sm text-gray-800 flex-1">{recommendation}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            } else {
+                              return (
+                                <div className="text-center py-4">
+                                  <p className="text-sm text-gray-500">No specific recommendations available</p>
+                                  <p className="text-xs text-gray-400 mt-1">Review competency scores for improvement areas</p>
+                                </div>
+                              )
+                            }
+                          })()}
+                        </CardContent>
+                      </Card>
+                    )}
+
                     <Card>
                       <CardHeader className="pb-3">
                         <CardTitle className="text-base flex items-center">
                           <CheckCircle className="h-4 w-4 mr-2 text-green-600" />
                           Evaluation Checklist
                         </CardTitle>
-                        <CardDescription className="text-xs">0/8</CardDescription>
+                        <CardDescription className="text-xs">
+                          {Object.values(checklistItems).filter(Boolean).length} / {Object.keys(checklistItems).length} completed
+                        </CardDescription>
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-3">
@@ -1614,9 +2250,27 @@ export default function EvaluationsPage() {
                           </div>
                         </div>
                         <div className="mt-4 pt-4 border-t">
+                          <div className="flex items-center justify-between">
                           <p className="text-xs text-gray-600">
                             Completed: {Object.values(checklistItems).filter(Boolean).length} / {Object.keys(checklistItems).length}
                           </p>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              onClick={() => {
+                                setChecklistItems({
+                                  "hand-hygiene": false,
+                                  "patient-identification": false,
+                                  "communication": false,
+                                  "documentation": false,
+                                  "equipment": false,
+                                })
+                              }}
+                              className="text-xs"
+                            >
+                              Reset
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -1830,12 +2484,79 @@ export default function EvaluationsPage() {
               <Button 
                 className="bg-indigo-600 hover:bg-indigo-700"
                 onClick={() => {
-                  handleStartEvaluation()
+                  handleStartEvaluation(true) // Skip dialog, navigate directly
                   setIsNewEvaluationOpen(false)
                 }}
                 disabled={!selectedStaffMember || !selectedEvaluationType}
               >
                 Start Evaluation
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Standard Evaluation Dialog */}
+      <Dialog open={isStandardEvaluationOpen} onOpenChange={setIsStandardEvaluationOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Start Standard Evaluation</DialogTitle>
+            <DialogDescription>
+              {selectedStaffMember && staffMembers.find(s => s.id === selectedStaffMember) && (
+                <>Evaluating: <strong>{staffMembers.find(s => s.id === selectedStaffMember)?.name}</strong></>
+              )}
+              {selectedEvaluationType && (
+                <> • Type: <strong>{selectedEvaluationType.replace("-", " ").replace(/\b\w/g, (l) => l.toUpperCase())}</strong></>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm text-blue-900">
+                <strong>Note:</strong> Standard evaluations can be completed using the form-based evaluation system.
+              </p>
+              <p className="text-sm text-blue-800 mt-2">
+                Would you like to navigate to the evaluation form, or would you prefer to use the video evaluation feature on this page?
+              </p>
+            </div>
+            <div className="flex flex-col space-y-2">
+              <Button
+                className="w-full bg-indigo-600 hover:bg-indigo-700"
+                onClick={() => {
+                  const [evalType, assessmentType] = selectedEvaluationType.split("-")
+                  if (evalType === "competency") {
+                    router.push(`/staff-competency`)
+                  } else {
+                    router.push(`/self-evaluation?staffId=${selectedStaffMember}&type=${assessmentType}`)
+                  }
+                  setIsStandardEvaluationOpen(false)
+                }}
+              >
+                <FileText className="h-4 w-4 mr-2" />
+                Go to Evaluation Form
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setIsStandardEvaluationOpen(false)
+                  // Switch to video evaluation tab
+                  setActiveTab("video-evaluations")
+                  toast({
+                    title: "Switched to Video Evaluation",
+                    description: "You can now use the video evaluation feature on this page",
+                  })
+                }}
+              >
+                <Video className="h-4 w-4 mr-2" />
+                Use Video Evaluation Instead
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => setIsStandardEvaluationOpen(false)}
+              >
+                Cancel
               </Button>
             </div>
           </div>

@@ -323,3 +323,4 @@ WHERE employee_id = 'STAFF_ID'
 **Tested**: ✅ Dashboard → View Certificate → Opens Successfully  
 **Verified**: ✅ Console logs confirm proper flow
 
+

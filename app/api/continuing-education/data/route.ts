@@ -1,16 +1,43 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createClient, SupabaseClient } from "@supabase/supabase-js"
+
+// Configure runtime for Vercel Edge/Serverless
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic' // Disable caching for this route
+export const maxDuration = 30 // Maximum execution time in seconds
+
+// Singleton client for better connection management in serverless
+let supabaseClient: SupabaseClient | null = null
 
 // Helper to get service role client (bypasses RLS)
 function getServiceClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  })
+  // Validate environment variables
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Missing Supabase environment variables")
+  }
+
+  // Reuse existing client in serverless environment
+  if (!supabaseClient) {
+    supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+      db: {
+        schema: 'public',
+      },
+      global: {
+        headers: {
+          'x-connection-timeout': '30000',
+        },
+      },
+    })
+  }
+  
+  return supabaseClient
 }
 
 // Michigan state CEU requirements by role
@@ -118,6 +145,8 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const employeeId = searchParams.get("employeeId")
 
+    console.log("🔄 Starting data fetch for continuing education...")
+
     // Get all active staff members
     const { data: staffList, error: staffError } = await supabase
       .from("staff")
@@ -125,47 +154,100 @@ export async function GET(request: NextRequest) {
       .eq("is_active", true)
 
     if (staffError) {
-      console.error("Error fetching staff:", staffError)
-      return NextResponse.json({ error: "Failed to fetch staff" }, { status: 500 })
+      console.error("❌ Error fetching staff:", staffError)
+      return NextResponse.json({ 
+        error: "Failed to fetch staff", 
+        details: staffError.message 
+      }, { status: 500 })
     }
 
-    // Get training completions for all employees
-    const { data: completions } = await supabase
-      .from("in_service_completions")
-      .select(`
-        *,
-        in_service_trainings (
-          title,
-          category,
-          accreditation
-        )
-      `)
+    if (!staffList || staffList.length === 0) {
+      console.log("⚠️ No active staff found")
+      return NextResponse.json({
+        success: true,
+        employees: [],
+        stats: { total: 0, compliant: 0, atRisk: 0, dueSoon: 0, nonCompliant: 0, lockedOut: 0 },
+        stateRequirements: STATE_REQUIREMENTS,
+        onboardingModules: [],
+        enrollments: [],
+        completions: [],
+      })
+    }
 
-    // Get training enrollments
-    const { data: enrollments } = await supabase
-      .from("in_service_enrollments")
-      .select(`
-        *,
-        in_service_trainings (
-          title,
-          category,
-          ceu_hours
-        )
-      `)
+    console.log(`✅ Found ${staffList.length} active staff members`)
 
-    // Get training requirements
+    // Fetch all data in parallel with proper error handling
     const currentYear = new Date().getFullYear()
-    const { data: requirements } = await supabase
-      .from("employee_training_requirements")
-      .select("*")
-      .eq("year", currentYear)
+    
+    const [
+      completionsResult,
+      enrollmentsResult,
+      requirementsResult,
+      mandatoryTrainingsResult
+    ] = await Promise.allSettled([
+      supabase
+        .from("in_service_completions")
+        .select(`
+          *,
+          in_service_trainings (
+            title,
+            category,
+            accreditation
+          )
+        `),
+      supabase
+        .from("in_service_enrollments")
+        .select(`
+          *,
+          in_service_trainings (
+            title,
+            category,
+            ceu_hours
+          )
+        `),
+      supabase
+        .from("employee_training_requirements")
+        .select("*")
+        .eq("year", currentYear),
+      supabase
+        .from("in_service_trainings")
+        .select("*")
+        .eq("mandatory", true)
+        .eq("status", "active")
+    ])
 
-    // Get mandatory trainings (for onboarding tracking)
-    const { data: mandatoryTrainings } = await supabase
-      .from("in_service_trainings")
-      .select("*")
-      .eq("mandatory", true)
-      .eq("status", "active")
+    // Extract data with proper error handling
+    const completions = completionsResult.status === "fulfilled" && !completionsResult.value.error
+      ? completionsResult.value.data
+      : []
+    
+    const enrollments = enrollmentsResult.status === "fulfilled" && !enrollmentsResult.value.error
+      ? enrollmentsResult.value.data
+      : []
+    
+    const requirements = requirementsResult.status === "fulfilled" && !requirementsResult.value.error
+      ? requirementsResult.value.data
+      : []
+    
+    const mandatoryTrainings = mandatoryTrainingsResult.status === "fulfilled" && !mandatoryTrainingsResult.value.error
+      ? mandatoryTrainingsResult.value.data
+      : []
+
+    // Log any errors but continue processing
+    if (completionsResult.status === "rejected" || (completionsResult.status === "fulfilled" && completionsResult.value.error)) {
+      console.error("⚠️ Error fetching completions:", completionsResult.status === "rejected" ? completionsResult.reason : completionsResult.value.error)
+    }
+    if (enrollmentsResult.status === "rejected" || (enrollmentsResult.status === "fulfilled" && enrollmentsResult.value.error)) {
+      console.error("⚠️ Error fetching enrollments:", enrollmentsResult.status === "rejected" ? enrollmentsResult.reason : enrollmentsResult.value.error)
+    }
+    if (requirementsResult.status === "rejected" || (requirementsResult.status === "fulfilled" && requirementsResult.value.error)) {
+      console.error("⚠️ Error fetching requirements:", requirementsResult.status === "rejected" ? requirementsResult.reason : requirementsResult.value.error)
+    }
+    if (mandatoryTrainingsResult.status === "rejected" || (mandatoryTrainingsResult.status === "fulfilled" && mandatoryTrainingsResult.value.error)) {
+      console.error("⚠️ Error fetching mandatory trainings:", mandatoryTrainingsResult.status === "rejected" ? mandatoryTrainingsResult.reason : mandatoryTrainingsResult.value.error)
+    }
+
+    console.log(`📊 Data fetched - Completions: ${completions?.length || 0}, Enrollments: ${enrollments?.length || 0}, Requirements: ${requirements?.length || 0}, Mandatory: ${mandatoryTrainings?.length || 0}`)
 
     // Process each employee
     const employees = (staffList || []).map((staff: any) => {
@@ -402,7 +484,8 @@ export async function GET(request: NextRequest) {
       modules: training.modules || [], // Include modules from JSONB field
     }))
 
-    return NextResponse.json({
+    // Create response with proper headers for Vercel
+    const response = NextResponse.json({
       success: true,
       employees: filteredEmployees,
       stats,
@@ -410,11 +493,29 @@ export async function GET(request: NextRequest) {
       onboardingModules,
       enrollments: enrollments || [], // Include raw enrollment data for accurate statistics
       completions: completions || [], // Include raw completion data
+      timestamp: new Date().toISOString(), // Add timestamp for debugging
     })
-  } catch (error) {
-    console.error("Error in continuing education API:", error)
+
+    // Set cache control headers - disable caching for dynamic data
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    response.headers.set('CDN-Cache-Control', 'no-store')
+    response.headers.set('Vercel-CDN-Cache-Control', 'no-store')
+
+    console.log("✅ Successfully processed continuing education data")
+
+    return response
+  } catch (error: any) {
+    console.error("❌ Critical error in continuing education API:", error)
+    
+    // Return detailed error in development, generic in production
+    const isDevelopment = process.env.NODE_ENV === 'development'
+    
     return NextResponse.json(
-      { error: "Failed to fetch continuing education data" },
+      { 
+        error: "Failed to fetch continuing education data",
+        details: isDevelopment ? error.message : undefined,
+        timestamp: new Date().toISOString()
+      },
       { status: 500 }
     )
   }

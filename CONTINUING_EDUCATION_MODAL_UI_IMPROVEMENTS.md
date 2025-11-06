@@ -360,3 +360,4 @@ The employee details modal now:
 
 The modal provides administrators with a complete, accurate view of each employee's continuing education compliance status at a glance. 🎉
 
+

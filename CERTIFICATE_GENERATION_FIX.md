@@ -389,3 +389,4 @@ Potential improvements:
 **Breaking Changes**: None  
 **Impact**: Certificates now work for all completed trainings!
 
+

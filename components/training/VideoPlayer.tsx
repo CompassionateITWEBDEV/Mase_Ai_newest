@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Card } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Play,
   Pause,
@@ -15,6 +16,7 @@ import {
   Bookmark,
   MessageSquare,
   CheckCircle,
+  Eye,
 } from "lucide-react"
 import { Textarea } from "@/components/ui/textarea"
 

@@ -120,7 +120,7 @@ export function TrainingDashboardCard({ module, onContinue, onViewCertificate, s
                   {module.ceuHours && (
                     <span className="text-xs text-gray-600 flex items-center">
                       <Award className="h-3 w-3 mr-1" />
-                      {module.ceuHours} CEU
+                      {Math.round(module.ceuHours * 10) / 10} CEU
                     </span>
                   )}
                 </div>

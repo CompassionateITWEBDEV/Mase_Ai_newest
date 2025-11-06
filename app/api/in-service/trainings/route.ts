@@ -1,23 +1,50 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createClient, SupabaseClient } from "@supabase/supabase-js"
+
+// Configure runtime for Vercel
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 30
+
+// Singleton clients for better connection management
+let serviceClient: SupabaseClient | null = null
+let anonClient: SupabaseClient | null = null
 
 // Helper to get service role client (bypasses RLS)
 function getServiceClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  })
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Missing Supabase service role credentials")
+  }
+
+  if (!serviceClient) {
+    serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    })
+  }
+
+  return serviceClient
 }
 
 // Helper to get regular client (respects RLS)
 function getClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  return createClient(supabaseUrl, supabaseAnonKey)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Missing Supabase anon credentials")
+  }
+
+  if (!anonClient) {
+    anonClient = createClient(supabaseUrl, supabaseAnonKey)
+  }
+
+  return anonClient
 }
 
 export async function GET(request: NextRequest) {
@@ -123,16 +150,24 @@ export async function GET(request: NextRequest) {
     
     if (trainingIds.length > 0 && trainingIds.length <= 200) {
       // Only fetch counts if reasonable number of trainings (prevent timeout)
-      try {
-        console.log("Fetching enrollment and completion counts...")
-        
-        // Fetch all enrollments with id and status in one query
-        const { data: enrollments, error: enrollError } = await supabase
+      console.log("Fetching enrollment and completion counts...")
+      
+      // Use Promise.allSettled for parallel queries with proper error handling
+      const [enrollmentsResult, completionsResult] = await Promise.allSettled([
+        supabase
           .from("in_service_enrollments")
           .select("id, training_id, status")
+          .in("training_id", trainingIds),
+        supabase
+          .from("in_service_completions")
+          .select("training_id, enrollment_id")
           .in("training_id", trainingIds)
-        
-        if (!enrollError && enrollments) {
+      ])
+
+      // Handle enrollments result
+      if (enrollmentsResult.status === "fulfilled" && !enrollmentsResult.value.error) {
+        const enrollments = enrollmentsResult.value.data
+        if (enrollments) {
           // Count ALL enrollments (regardless of status) for enrolledCount
           enrollmentsCount = enrollments.reduce((acc: Record<string, number>, e: any) => {
             acc[e.training_id] = (acc[e.training_id] || 0) + 1
@@ -140,14 +175,16 @@ export async function GET(request: NextRequest) {
           }, {})
           console.log(`✅ Counted enrollments for ${Object.keys(enrollmentsCount).length} trainings`)
         }
+      } else {
+        console.warn("⚠️ Error fetching enrollments:", enrollmentsResult.status === "rejected" ? enrollmentsResult.reason : enrollmentsResult.value.error)
+      }
+
+      // Handle completions result
+      if (completionsResult.status === "fulfilled" && !completionsResult.value.error) {
+        const completions = completionsResult.value.data
+        const enrollments = enrollmentsResult.status === "fulfilled" ? enrollmentsResult.value.data : null
         
-        // Fetch completions from completions table (with enrollment_id to avoid double counting)
-        const { data: completions, error: completeError } = await supabase
-          .from("in_service_completions")
-          .select("training_id, enrollment_id")
-          .in("training_id", trainingIds)
-        
-        if (!completeError && completions && enrollments) {
+        if (completions && enrollments) {
           // Get enrollment IDs that have completion records
           const enrollmentIdsWithCompletions = new Set(
             completions.map((c: any) => c.enrollment_id).filter(Boolean)
@@ -171,9 +208,8 @@ export async function GET(request: NextRequest) {
           
           console.log(`✅ Counted completions for ${Object.keys(completionsCount).length} trainings (from both sources, no double counting)`)
         }
-      } catch (countError: any) {
-        console.warn("⚠️ Error calculating counts (non-critical):", countError.message)
-        // If count queries fail, skip them - trainings will show 0 counts
+      } else {
+        console.warn("⚠️ Error fetching completions:", completionsResult.status === "rejected" ? completionsResult.reason : completionsResult.value.error)
       }
     } else if (trainingIds.length > 200) {
       console.warn(`⚠️ Too many trainings (${trainingIds.length}) - skipping count queries to prevent timeout`)
@@ -245,17 +281,23 @@ export async function GET(request: NextRequest) {
           : 0,
     }
 
-    const response = {
+    const jsonResponse = NextResponse.json({
       success: true,
       trainings: transformedTrainings || [],
       total: transformedTrainings?.length || 0,
       summary,
-    }
+      timestamp: new Date().toISOString(),
+    })
+
+    // Disable caching for fresh data
+    jsonResponse.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    jsonResponse.headers.set('CDN-Cache-Control', 'no-store')
+    jsonResponse.headers.set('Vercel-CDN-Cache-Control', 'no-store')
     
     console.log("=== GET /api/in-service/trainings - SUCCESS ===")
-    console.log(`Returning ${response.trainings.length} trainings`)
+    console.log(`Returning ${transformedTrainings.length} trainings`)
     
-    return NextResponse.json(response)
+    return jsonResponse
   } catch (error: any) {
     console.error("=== GET /api/in-service/trainings - EXCEPTION ===")
     console.error("Error:", error.message)
@@ -322,16 +364,65 @@ export async function POST(request: NextRequest) {
       title: dbData.title,
       modules_count: Array.isArray(dbData.modules) ? dbData.modules.length : 0,
     })
+    
+    // Optimize modules data to prevent timeout with large video files
     if (Array.isArray(dbData.modules) && dbData.modules.length > 0) {
       console.log("Modules to save:", dbData.modules.map((m: any) => ({
         id: m.id,
         title: m.title,
         duration: m.duration,
         fileName: m.fileName,
-        fileUrl: m.fileUrl ? "SET" : "MISSING",
+        fileUrl: m.fileUrl ? (
+          m.fileUrl.startsWith('http') 
+            ? `${m.fileUrl.substring(0, 80)}... (Storage URL)` 
+            : m.fileUrl.length > 100 
+              ? `${m.fileUrl.substring(0, 100)}... (Base64)` 
+              : m.fileUrl
+        ) : "MISSING",
+        storageType: m.fileUrl?.startsWith('http') ? 'Storage' : m.fileUrl?.startsWith('data:') ? 'Base64' : 'None',
       })))
+      
+      // Log storage vs base64 usage
+      const storageCount = dbData.modules.filter((m: any) => m.fileUrl?.startsWith('http')).length
+      const base64Count = dbData.modules.filter((m: any) => m.fileUrl?.startsWith('data:')).length
+      console.log(`📊 Storage usage: ${storageCount} storage URLs, ${base64Count} base64 files`)
+      
+      // Optimize modules: Only check base64 files (storage URLs are small and fast)
+      dbData.modules = dbData.modules.map((m: any) => {
+        const module = { ...m }
+        // Only log warnings for base64 files (storage URLs won't cause timeout)
+        if (module.fileUrl && module.fileUrl.startsWith('data:')) {
+          const base64Size = module.fileUrl.length
+          if (base64Size > 10 * 1024 * 1024) { // > 10MB base64
+            console.warn(`⚠️ Large base64 file: ${module.fileName} (${Math.round(base64Size / 1024 / 1024)}MB base64)`)
+            console.warn(`💡 Consider using Supabase Storage for faster uploads`)
+          }
+        } else if (module.fileUrl && module.fileUrl.startsWith('http')) {
+          console.log(`✓ Using storage URL for: ${module.fileName} (fast, no timeout risk)`)
+        }
+        return module
+      })
     }
     
+    // Check for very large base64 video files that might cause timeout
+    // Note: Storage URLs won't cause timeout, so we only check base64
+    let hasLargeVideos = false
+    if (Array.isArray(dbData.modules)) {
+      for (const module of dbData.modules) {
+        // Only check base64 videos (storage URLs are safe)
+        if (module.fileUrl && module.fileUrl.startsWith('data:video/')) {
+          const base64Size = module.fileUrl.length
+          if (base64Size > 50 * 1024 * 1024) { // > 50MB base64 (~37MB actual video)
+            hasLargeVideos = true
+            console.warn(`⚠️ Large base64 video detected: ${module.fileName} (${Math.round(base64Size / 1024 / 1024)}MB base64)`)
+            console.warn(`⚠️ This may cause timeout. Videos should use Supabase Storage.`)
+          }
+        }
+      }
+    }
+    
+    // Insert training with optimized query
+    // Note: For very large videos, consider using Supabase Storage instead of base64
     const { data: newTraining, error } = await supabase
       .from("in_service_trainings")
       .insert(dbData)
@@ -353,6 +444,21 @@ export async function POST(request: NextRequest) {
           code: error.code,
           hint: "Run the SQL script in your Supabase SQL editor",
         }, { status: 500 })
+      }
+      
+      // Handle timeout errors specifically
+      if (error.code === "57014" || error.message?.includes("timeout") || error.message?.includes("canceling statement")) {
+        const errorMessage = hasLargeVideos
+          ? "Training creation timed out. Large video files (>50MB) may cause timeouts. Please try:\n1. Compress videos to <50MB\n2. Use shorter videos\n3. Split into multiple smaller modules\n4. Consider using Supabase Storage for large videos"
+          : "Training creation timed out. The database operation took too long. Please try:\n1. Reduce the number of modules\n2. Use smaller file sizes\n3. Try again in a moment"
+        
+        return NextResponse.json({ 
+          error: errorMessage,
+          code: error.code,
+          details: "Statement timeout - operation exceeded database timeout limit",
+          hint: "Reduce file sizes or number of modules",
+          timeout: true,
+        }, { status: 504 }) // 504 Gateway Timeout
       }
       
       return NextResponse.json({ 

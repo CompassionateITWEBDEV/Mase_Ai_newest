@@ -81,6 +81,8 @@ export default function ContinuingEducation() {
     file: File | null
     fileName: string
     fileUrl?: string
+    type?: string
+    fileType?: string
   }>>([])
 
   // Real data states
@@ -296,14 +298,32 @@ export default function ContinuingEducation() {
               console.log("Upload result:", uploadResult)
               
               if (uploadResult.success && uploadResult.fileUrl) {
+                // Detect file type from extension or MIME type
+                const fileName = uploadResult.fileName || module.fileName
+                const fileExt = fileName.split('.').pop()?.toLowerCase() || ''
+                const mimeType = uploadResult.fileType || module.file?.type || ''
+                
+                let fileType = 'document' // default
+                if (mimeType.startsWith('video/') || ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(fileExt)) {
+                  fileType = 'video'
+                } else if (mimeType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif'].includes(fileExt)) {
+                  fileType = 'image'
+                } else if (mimeType === 'application/pdf' || fileExt === 'pdf') {
+                  fileType = 'pdf'
+                } else if (['ppt', 'pptx'].includes(fileExt)) {
+                  fileType = 'powerpoint'
+                }
+                
                 uploadedModules.push({
                   id: module.id,
                   title: module.title,
                   duration: module.duration,
                   fileUrl: uploadResult.fileUrl,
-                  fileName: uploadResult.fileName || module.fileName,
+                  fileName: fileName,
+                  type: fileType, // Store detected file type
+                  fileType: fileType, // Also store as fileType for compatibility
                 })
-                console.log(`✓ Module file uploaded: ${uploadResult.fileName} -> ${uploadResult.fileUrl}`)
+                console.log(`✓ Module file uploaded: ${fileName} -> ${uploadResult.fileUrl} (type: ${fileType})`)
               } else {
                 const errorMsg = uploadResult.error || "Unknown upload error"
                 console.error("Upload failed:", errorMsg)
@@ -318,12 +338,33 @@ export default function ContinuingEducation() {
           } else if (module.fileUrl) {
             // Module already has a fileUrl (when editing and not changing the file)
             console.log(`Module already has fileUrl, preserving: ${module.fileUrl}`)
+            
+            // Detect file type from existing file
+            const fileName = module.fileName || ''
+            const fileExt = fileName.split('.').pop()?.toLowerCase() || ''
+            let fileType = module.type || module.fileType || 'document'
+            
+            // If type not set, detect from extension
+            if (!module.type && !module.fileType) {
+              if (['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(fileExt)) {
+                fileType = 'video'
+              } else if (['jpg', 'jpeg', 'png', 'gif'].includes(fileExt)) {
+                fileType = 'image'
+              } else if (fileExt === 'pdf') {
+                fileType = 'pdf'
+              } else if (['ppt', 'pptx'].includes(fileExt)) {
+                fileType = 'powerpoint'
+              }
+            }
+            
             uploadedModules.push({
               id: module.id,
               title: module.title,
               duration: module.duration,
               fileUrl: module.fileUrl,
               fileName: module.fileName,
+              type: fileType, // Preserve or detect file type
+              fileType: fileType, // Also store as fileType for compatibility
             })
           } else {
             // Module without file and no fileUrl
@@ -2481,10 +2522,33 @@ export default function ContinuingEducation() {
                               <input
                                 id={`module-file-${module.id}`}
                                 type="file"
-                                accept=".pdf,.doc,.docx,.ppt,.pptx,.txt"
+                                accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.mp4,.webm,.ogg,.mov,.avi,.mkv"
                                 onChange={(e) => {
                                   const file = e.target.files?.[0]
                                   if (file) {
+                                    // Check if it's a large video file
+                                    const isVideo = file.type.startsWith('video/') || 
+                                                  ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'].includes('.' + file.name.split('.').pop()?.toLowerCase())
+                                    const fileSizeMB = file.size / (1024 * 1024)
+                                    
+                                    if (isVideo && fileSizeMB > 50) {
+                                      const proceed = confirm(
+                                        `⚠️ Large Video File Detected\n\n` +
+                                        `File: ${file.name}\n` +
+                                        `Size: ${fileSizeMB.toFixed(2)}MB\n\n` +
+                                        `Videos larger than 50MB may cause timeout errors when creating the training.\n\n` +
+                                        `Recommendations:\n` +
+                                        `• Compress the video to <50MB\n` +
+                                        `• Use a shorter video\n` +
+                                        `• Split into multiple smaller modules\n\n` +
+                                        `Do you want to continue?`
+                                      )
+                                      if (!proceed) {
+                                        e.target.value = '' // Clear the input
+                                        return
+                                      }
+                                    }
+                                    
                                     const updated = trainingModules.map((m) =>
                                       m.id === module.id
                                         ? { ...m, file: file, fileName: file.name, fileUrl: undefined }

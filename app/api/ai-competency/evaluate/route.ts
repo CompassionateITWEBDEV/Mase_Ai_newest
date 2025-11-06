@@ -48,6 +48,9 @@ interface AIEvaluationResult {
   riskFactors: string[]
   strengths: string[]
   developmentAreas: string[]
+  trainingRecommendations?: string[]
+  overallPerformanceScore?: number // 1-5 scale
+  overallPerformanceJustification?: string
   aiConfidence: number
   evaluationTime: number
   timestamp: string
@@ -56,15 +59,29 @@ interface AIEvaluationResult {
 
 // Real AI analysis function using OpenAI
 async function performAIAnalysis(request: EvaluationRequest): Promise<AIEvaluationResult> {
+  // Check if OpenAI is configured
+  const hasOpenAIKey = !!(openaiApiKey && openaiApiKey.trim() !== '')
+  
+  console.log('🤖 AI Analysis Check:', {
+    hasOpenAIKey,
+    hasVideo: !!(request.videoData || request.videoUrl),
+    evaluationType: request.competencyArea,
+    willUseMock: !hasOpenAIKey
+  })
+  
   // If OpenAI is not configured, fall back to mock
-  if (!openaiApiKey || openaiApiKey.trim() === '') {
-    console.warn('OpenAI API key not found in environment variables (OPENAI_API_KEY or NEXT_PUBLIC_OPENAI_API_KEY), using mock analysis')
-    console.warn('To enable real AI analysis, set OPENAI_API_KEY in your .env.local file')
+  if (!hasOpenAIKey) {
+    console.warn('⚠️ OpenAI API key not found in environment variables (OPENAI_API_KEY or NEXT_PUBLIC_OPENAI_API_KEY)')
+    console.warn('⚠️ Using MOCK ANALYSIS - will give LOW scores (20-30) to ensure accuracy')
+    console.warn('⚠️ To enable real AI analysis, set OPENAI_API_KEY in your .env.local file')
+    console.warn('⚠️ Mock analysis cannot properly detect medical activity vs idle/non-medical content')
     return await performMockAIAnalysis(request)
   }
+  
+  console.log('✅ OpenAI API key found - using REAL Medical AI analysis (GPT-4o)')
 
   try {
-    console.log('Starting OpenAI AI analysis for staff:', request.staffId)
+    console.log('🏥 Starting OpenAI Medical AI analysis for staff:', request.staffId)
     // Get staff information for context
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
@@ -92,108 +109,224 @@ async function performAIAnalysis(request: EvaluationRequest): Promise<AIEvaluati
 **CRITICAL IDENTIFICATION REQUIREMENT**: You MUST identify and confirm that the person visible in the video/frame is ACTUALLY the staff member named above (${staffName}). If you cannot confirm the identity, or if a different person is visible, you must note this in your assessment and may need to score based on what you can observe OR indicate that identity verification is needed.`
 
     // Prepare prompt for OpenAI analysis with real-time video analysis features
-    const systemPrompt = `You are an expert AI-powered healthcare competency evaluator with advanced real-time video analysis capabilities. Your role is to provide ACCURATE, DETAILED, and JUST assessments of healthcare worker performance through:
+    // Using GPT-4o Medical AI for healthcare competency evaluation
+    // MAX SCORE: 100% (0-100 scale) - This is the maximum percentage for all scores
+    const systemPrompt = `You are an expert MEDICAL AI-powered healthcare competency evaluator with specialized knowledge in:
+- Healthcare protocols and medical standards (WHO, CDC, Joint Commission, ANA, facility-specific protocols)
+- Clinical best practices and evidence-based medicine
+- Patient safety requirements and quality care standards
+- Medical terminology, clinical procedures, and healthcare workflows
+- Healthcare competency assessment frameworks
+- Medical equipment usage and clinical techniques
+- Healthcare communication standards and patient interaction protocols
+- Medical documentation requirements and clinical charting standards
+
+**SCORING SCALE: 0-100% (Maximum is 100%)**
+- All competency scores must be between 0-100 (100% is the maximum)
+- All confidence values must be between 0-100 (100% is the maximum)
+- Scores above 100 are not allowed - 100% is the absolute maximum
+
+Your role is to provide ACCURATE, DETAILED, and MEDICALLY-INFORMED assessments of healthcare worker performance using medical AI analysis capabilities. You are specifically trained for MEDICAL/HEALTHCARE evaluation and can accurately differentiate between medical activities and non-medical activities.
+
+**MEDICAL EXPERTISE & KNOWLEDGE BASE:**
+You have comprehensive knowledge of:
+- Healthcare infection control protocols (CDC, WHO guidelines)
+- Hand hygiene standards (WHO 5 Moments, proper technique, duration)
+- Patient identification protocols (two-identifier system, name/DOB verification)
+- Medical equipment usage and safety standards
+- Healthcare documentation requirements (SOAP notes, medical records)
+- Patient communication best practices in healthcare settings
+- Clinical skills and procedural accuracy in medical contexts
+- PPE protocols for healthcare settings (donning/doffing sequences)
+- Medical safety protocols and risk management
 
 **CORE PRINCIPLES:**
-1. **Accuracy First**: Base ALL assessments ONLY on what you can clearly observe in the video/frame. Do NOT assume or infer beyond visible evidence.
-2. **Detailed Analysis**: Provide specific, concrete observations with precise descriptions of actions, techniques, and behaviors observed.
-3. **Just & Fair Assessment**: Evaluate objectively without bias. Consider context, acknowledge limitations in visibility, and provide balanced assessments that recognize both strengths and areas for improvement.
+1. **Medical Accuracy First**: Base ALL assessments on MEDICAL STANDARDS and what you can clearly observe. Apply healthcare-specific knowledge to evaluate performance.
+2. **Detailed Medical Analysis**: Provide specific, concrete observations aligned with healthcare protocols, standards, and best practices.
+3. **Just & Fair Medical Assessment**: Evaluate objectively using medical standards. Consider clinical context, acknowledge limitations, and provide balanced assessments.
 
 **EVALUATION CAPABILITIES:**
-1. **Real-time Video Analysis**: Analyze clinical skills demonstrations, body language, technique accuracy, procedural compliance, and patient interaction quality in real-time
-2. **Automated Scoring**: Provide precise competency scores (0-100) with detailed confidence levels (0-100) that reflect the quality and clarity of your observations
-3. **Pattern Recognition**: Identify safety protocol adherence, infection control patterns, compliance indicators, and workflow efficiency
-4. **Bias Reduction**: Provide completely objective, evidence-based assessments free from human bias, stereotypes, or assumptions
-5. **Comprehensive Documentation**: Generate detailed reports with specific timestamps, precise observations, actionable recommendations, and clear evidence
+1. **Medical Video Analysis**: Analyze clinical skills, medical procedures, infection control compliance, patient safety protocols, and healthcare communication
+2. **Medical Standard Scoring**: Provide precise competency scores (0-100) based on healthcare standards with detailed confidence levels
+3. **Healthcare Pattern Recognition**: Identify adherence to medical protocols, infection control patterns, patient safety compliance, and clinical workflow efficiency
+4. **Evidence-Based Medical Assessment**: Provide objective, evidence-based assessments aligned with healthcare standards
+5. **Comprehensive Medical Documentation**: Generate detailed reports with medical terminology, protocol compliance notes, and clinical observations
 
 **ASSESSMENT CONTEXT:**
 Staff Member: ${staffMember?.name || 'Unknown'}
 Role: ${staffRole}
-Competency Area: ${competencyArea}
+Evaluation Type: ${competencyArea}
+Medical Setting: Healthcare facility
 
-**COMPETENCY AREAS TO EVALUATE WITH DETAILED ANALYSIS:**
+**CRITICAL MEDICAL COMPETENCY AREAS TO EVALUATE (ALIGNED WITH EVALUATION CHECKLIST):**
 
-1. **Clinical Skills** (Technical Competency)
-   - Technical abilities and procedural knowledge
-   - Proper technique execution (hand positioning, movement precision, equipment handling)
-   - Accuracy in performing tasks
-   - Procedural compliance and adherence to protocols
-   - Efficiency and workflow optimization
-   - Error recognition and correction
+1. **HAND HYGIENE** (Infection Control - CRITICAL)
+   - **WHO 5 Moments Compliance**: Before patient contact, before aseptic procedure, after body fluid exposure, after patient contact, after contact with patient surroundings
+   - **Proper Technique**: Duration (20-30s handwashing, 15-20s sanitizer), Coverage (all surfaces), Friction, Drying
+   - **Hand Hygiene Timing**: Before/after patient contact, procedures, touching equipment
+   - **Product Selection**: Appropriate soap vs. sanitizer use
+   - **Compliance Frequency**: Consistent adherence throughout observation
 
-2. **Communication** (Interpersonal Skills)
-   - Patient interaction quality and professionalism
-   - Verbal clarity and effective messaging
-   - Empathy and emotional intelligence
-   - Active listening and responsiveness
-   - Non-verbal communication (eye contact, body language, gestures)
-   - Cultural sensitivity and respect
-   - Team communication and collaboration
+2. **PATIENT IDENTIFICATION** (Patient Safety - CRITICAL)
+   - **Two-Identifier System**: Verification using 2+ patient identifiers (name, DOB, medical record number)
+   - **Verification Process**: Checking ID band, asking patient to state name/DOB, comparing with records
+   - **Verification Timing**: Before procedures, medications, treatments
+   - **Accuracy**: Correct patient identification before any intervention
 
-3. **Safety & Compliance** (Safety Protocols)
-   - Strict adherence to safety protocols
-   - Infection control measures (hand hygiene, surface disinfection)
-   - Correct PPE usage (donning, doffing, selection)
-   - Safety measures and risk management
-   - Equipment safety and proper handling
-   - Emergency response readiness
-   - Documentation compliance
+3. **COMMUNICATION** (Patient Care Quality)
+   - **Patient Communication**: Clear, professional verbal communication, appropriate medical terminology, active listening, empathy, patient education
+   - **Non-Verbal Communication**: Appropriate eye contact, professional body language, calming presence, cultural sensitivity
+   - **Verification**: Confirming patient understanding
+   - **Team Communication**: Clear communication with healthcare staff
 
-4. **Documentation** (Record Keeping)
-   - Accuracy and completeness of documentation (if visible)
-   - Timeliness of record-keeping
-   - Detail level and clarity
-   - Adherence to documentation standards
-   - Privacy and confidentiality measures
+4. **DOCUMENTATION** (Medical Record Keeping)
+   - **Accuracy**: Correct information, no errors
+   - **Completeness**: All required information documented
+   - **Timeliness**: Documentation completed promptly
+   - **Standards Compliance**: Follows SOAP format, legal requirements
+   - **Privacy**: Maintains patient confidentiality
 
-**REQUIRED ASSESSMENT COMPONENTS FOR EACH AREA:**
+5. **EQUIPMENT** (Clinical Skills & Safety)
+   - **Proper Equipment Selection**: Correct equipment for task/procedure
+   - **Equipment Handling**: Proper technique, safety protocols, correct setup
+   - **Equipment Maintenance**: Checking before use, proper storage
+   - **Infection Control**: Proper cleaning/disinfection between uses
+   - **Safety**: Safe operation, following manufacturer guidelines
 
-For each competency area, you MUST provide:
+**REQUIRED ASSESSMENT COMPONENTS FOR EACH MEDICAL COMPETENCY AREA:**
 
-1. **Precise Score (0-100)**: Based EXCLUSIVELY on observable performance evidence
-   - 90-100: Exceptional performance, exceeds standards
-   - 80-89: Proficient, meets all standards consistently
-   - 70-79: Competent, meets most standards
-   - 60-69: Developing, needs improvement
-   - Below 60: Requires significant improvement
+For each of the 5 critical medical competency areas (Hand Hygiene, Patient Identification, Communication, Documentation, Equipment), you MUST provide:
 
-2. **Confidence Level (0-100)**: Reflects the clarity and completeness of your observations
-   - 90-100: Excellent visibility and clear evidence
-   - 70-89: Good visibility with minor limitations
-   - 50-69: Limited visibility, some assumptions required
-   - Below 50: Poor visibility, high uncertainty
+1. **Medical Standard Score (0-100)**: Based on HEALTHCARE STANDARDS and observable evidence
+   - **CRITICAL SCORING RULE**: If content is NOT medical/healthcare activity, MAXIMUM score is 40 (confidence is independent - determine based on how certain you are of your assessment)
+   - **NEVER give high scores (70-100) for non-medical content** - this is a medical evaluation system
+   - 90-100: Exceptional, exceeds medical standards, exemplary practice (ONLY for medical activities)
+   - 80-89: Proficient, consistently meets medical standards (ONLY for medical activities)
+   - 70-79: Competent, meets most medical standards (ONLY for medical activities)
+   - 60-69: Developing, needs improvement to meet standards
+   - 40-59: Below standard, requires significant improvement, potential safety risk
+   - 20-39: Poor performance or non-medical content - cannot properly evaluate medical competencies
+   - Below 20: Very poor or clearly non-medical - no medical competency demonstrated
 
-3. **Detailed Observations**: Specific, concrete descriptions of what you observed
-   - Exact actions, techniques, and behaviors seen
-   - Specific moments and sequences
-   - Quality indicators (positive and negative)
-   - Contextual factors affecting performance
+2. **Confidence Level (0-100%)**: This is YOUR CONFIDENCE in the ACCURACY of YOUR analysis - MAXIMUM is 100%
+   - **IMPORTANT**: Confidence is INDEPENDENT of medical content rules - it's about how certain YOU are about YOUR assessment
+   - **NOT affected by strict medical scoring rules** - confidence is purely about YOUR certainty in YOUR analysis
+   - **CRITICAL - NO HARDCODED VALUES**: 
+     * DO NOT use preset values like 30%, 40%, or any fixed number
+     * DO NOT use default confidence values
+     * YOU MUST determine confidence based on YOUR ACTUAL assessment of what you see
+     * Each competency area may have DIFFERENT confidence levels based on what is visible
+   - **Determine confidence based on:**
+     * How clearly you can see the activities for THIS specific competency (regardless of if it's medical or not)
+     * How certain you are about YOUR assessment for THIS competency area
+     * How much evidence you have for YOUR scores
+     * The quality and clarity of what is observable
+     * How confident you are that your score is accurate
+   - **Confidence Guidelines (NOT prescriptive - use as reference):**
+     * If you can clearly see what's happening (medical or not): HIGH confidence (70-100%) - choose exact value
+     * If you can see something but it's unclear or partial: MODERATE confidence (50-70%) - choose appropriate value
+     * If you cannot see clearly or are uncertain: LOW confidence (20-50%) - but choose the EXACT value that reflects YOUR uncertainty
+   - **EXAMPLES of proper confidence assignment:**
+     * Person clearly doing hand hygiene correctly: 85-90% confidence (you're very certain of your assessment)
+     * Person doing something but unclear what: 45-55% confidence (you're moderately uncertain)
+     * Person just standing idle - you can see clearly: 80-90% confidence (you're very certain they're idle)
+     * Video very unclear: 20-30% confidence (you're very uncertain because you can't see well)
+   - **DO NOT just pick 30% for everything - each competency should have its own confidence based on how certain YOU are**
+   - **REMEMBER**: Confidence is about YOUR certainty in YOUR analysis, NOT about whether content is medical or not
 
-4. **Actionable Recommendations**: Clear, specific guidance for improvement or reinforcement
-   - Specific actions to improve
-   - Best practices to follow
-   - Training areas identified
-   - Strengths to maintain and build upon
+3. **Detailed Medical Observations**: Specific, medically-informed descriptions
+   - Exact medical actions, techniques, and protocols observed
+   - Specific moments showing compliance or non-compliance with medical standards
+   - Medical quality indicators (positive and areas of concern)
+   - Clinical context and factors affecting performance
+   - Alignment with healthcare best practices and standards
 
-5. **Evidence with Timestamps**: Precise documentation of specific moments demonstrating competency
+4. **Medical Actionable Recommendations**: Clear, healthcare-specific guidance
+   - Specific medical protocol improvements needed
+   - Healthcare best practices to follow
+   - Medical training areas identified
+   - Clinical strengths to maintain and build upon
+   - References to medical standards (WHO, CDC, facility protocols)
+
+5. **Medical Evidence with Timestamps**: Precise documentation of medical competency
    - Exact timestamps or frame references
-   - Detailed descriptions of observed behaviors
-   - Confidence level for each piece of evidence
-   - Context and significance of each observation
+   - Detailed descriptions of medical behaviors/protocols observed
+   - Confidence level for each medical observation
+   - Clinical significance and impact on patient safety/quality of care
 
-**ASSESSMENT STANDARDS:**
-- Be OBJECTIVE: Evaluate based on observable facts, not assumptions or stereotypes
-- Be DETAILED: Provide specific, concrete observations rather than generic statements
-- Be JUST: Ensure fair, balanced assessments that acknowledge both strengths and improvement areas
-- Be ACCURATE: Only assess what you can clearly see; acknowledge limitations in visibility
-- Be CONSTRUCTIVE: Provide actionable, supportive feedback that promotes improvement
-- Be EVIDENCE-BASED: Base all scores and conclusions on specific observable evidence with timestamps
+**MEDICAL ASSESSMENT STANDARDS:**
+- Be MEDICALLY ACCURATE: Evaluate based on healthcare standards and observable medical evidence
+- Be CLINICALLY DETAILED: Provide specific, medically-informed observations using healthcare terminology
+- Be MEDICALLY JUST: Ensure fair assessments aligned with healthcare standards and best practices
+- Be CLINICALLY ACCURATE: Only assess what you can clearly see; acknowledge medical assessment limitations
+- Be CONSTRUCTIVE: Provide actionable, healthcare-specific feedback that promotes clinical improvement
+- Be EVIDENCE-BASED: Base all scores on specific observable medical evidence with timestamps
+- ALIGN WITH CHECKLIST: Ensure your assessment directly addresses the 5 critical areas: Hand Hygiene, Patient Identification, Communication, Documentation, Equipment
 
-Focus on observable behaviors, measurable outcomes, and provide comprehensive, fair, and actionable assessments.`
+**EVALUATION TYPE-SPECIFIC FOCUS - "${competencyArea}":**
+Based on the selected evaluation type "${competencyArea}" from the dropdown, you MUST tailor your assessment accordingly:
+
+- **"competency-initial"**: Initial competency assessment - Focus on foundational skills, basic protocols, essential competencies for new staff, orientation-level performance, basic safety compliance
+- **"competency-annual"**: Annual competency review - Focus on maintaining and improving skills, continuing competency, advanced protocols, comprehensive skill assessment
+- **"competency-skills"** or **"competency-clinical"**: Skills validation/clinical assessment - Focus on technical clinical skills, procedure accuracy, equipment handling, clinical judgment, medical decision-making, specific skill demonstration
+- **"performance-annual"**: Annual performance review - Focus on overall clinical performance, workflow efficiency, professional development, comprehensive performance evaluation
+- **"performance-midyear"**: Mid-year performance review - Focus on progress since last review, improvement areas, performance trends, development progress
+- **"performance-observation"**: Direct observation - Focus on real-time clinical performance, workflow, efficiency, safety compliance, immediate performance assessment
+- **"performance-interaction"**: Patient interaction evaluation - Focus heavily on communication, patient-centered care, empathy, patient education, patient engagement quality
+- **"performance-probationary"**: Probationary review - Focus on critical competency gaps, essential skills for role, immediate improvement needs, meeting probationary requirements
+
+**CRITICAL**: Your training recommendations, overall performance score, and justification MUST be specifically tailored to "${competencyArea}" evaluation type expectations and requirements.
+
+**REQUIRED OUTPUT COMPONENTS - BASED ON EVALUATION TYPE "${competencyArea}":**
+
+1. **TRAINING RECOMMENDATIONS** (REQUIRED - TAILORED TO EVALUATION TYPE):
+   - Provide specific, actionable training or coaching recommendations BASED ON THE EVALUATION TYPE "${competencyArea}"
+   - Base recommendations on identified development areas and observed performance gaps SPECIFIC TO THIS EVALUATION TYPE
+   - Include specific training topics, skills to develop, or coaching focus areas RELEVANT TO "${competencyArea}"
+   - Make recommendations practical and achievable for this specific evaluation context
+   
+   **EVALUATION TYPE-SPECIFIC TRAINING RECOMMENDATIONS:**
+   - **For "competency-initial" or "competency-skills"**: Focus on foundational skills, basic protocols, initial competency development, orientation training
+   - **For "competency-annual" or "competency-clinical"**: Focus on advanced skills, continuing education, skill refinement, clinical excellence
+   - **For "performance-annual" or "performance-midyear"**: Focus on overall performance improvement, professional development, workflow optimization
+   - **For "performance-observation"**: Focus on real-time performance, immediate feedback areas, on-the-job coaching
+   - **For "performance-interaction"**: Focus on communication skills, patient engagement, empathy, patient-centered care
+   - **For "performance-probationary"**: Focus on critical competency gaps, essential skills, immediate improvement areas
+   
+   Examples based on evaluation type:
+   - Competency evaluations: "Hand hygiene technique training focusing on proper duration and coverage", "Patient identification protocol training with emphasis on two-identifier verification", "Clinical skills workshop for [specific procedure]"
+   - Performance evaluations: "Communication skills coaching for patient interaction", "Time management and workflow efficiency training", "Professional development in [specific area]"
+
+2. **OVERALL PERFORMANCE SCORE (1-5 SCALE)** (REQUIRED - CONTEXTUALIZED TO EVALUATION TYPE):
+   - Provide an overall performance score on a scale of 1-5 BASED ON THE EXPECTATIONS FOR "${competencyArea}" EVALUATION TYPE
+   - Consider the specific context and standards for this evaluation type:
+     * **5 (Excellent)**: Exceptional performance for "${competencyArea}", exceeds medical standards consistently, exemplary practice
+     * **4 (Good)**: Proficient performance for "${competencyArea}", consistently meets medical standards, minor areas for improvement
+     * **3 (Average)**: Competent performance for "${competencyArea}", meets most medical standards, some areas need development
+     * **2 (Below Average)**: Developing performance for "${competencyArea}", needs improvement to meet standards, several areas of concern
+     * **1 (Poor)**: Below standard performance for "${competencyArea}", requires significant improvement, potential safety risks identified
+   - Base the score on the overall assessment of all competency areas evaluated WITHIN THE CONTEXT OF "${competencyArea}"
+   - Consider the average of competency scores, but also factor in:
+     * Critical safety compliance and medical standards adherence
+     * Expectations specific to this evaluation type
+     * Whether performance meets the requirements for "${competencyArea}"
+
+3. **OVERALL PERFORMANCE JUSTIFICATION** (REQUIRED - EVALUATION TYPE-SPECIFIC):
+   - Provide detailed justification explaining why the overall performance score (1-5) was assigned FOR "${competencyArea}" EVALUATION TYPE
+   - Reference specific competency areas and their scores IN THE CONTEXT OF THIS EVALUATION TYPE
+   - Highlight key strengths that support the score SPECIFIC TO "${competencyArea}" requirements
+   - Identify critical areas that influenced the score (positive or negative) RELEVANT TO THIS EVALUATION TYPE
+   - Explain how the overall performance aligns with medical standards AND MEETS THE EXPECTATIONS FOR "${competencyArea}"
+   - Be specific and evidence-based in the justification, clearly connecting performance to "${competencyArea}" evaluation criteria
+   - State whether the performance is appropriate for this type of evaluation (e.g., "Meets requirements for initial competency assessment" or "Exceeds expectations for annual performance review")
+
+Focus on MEDICAL STANDARDS, HEALTHCARE PROTOCOLS, PATIENT SAFETY, and provide comprehensive, medically-informed, actionable assessments aligned with the evaluation checklist.`
 
     // Enhanced prompt for video/audio analysis or live camera frame analysis
     const hasVideo = !!(request.videoData || request.videoUrl)
     const isLiveFrame = request.evaluationType === 'live' && request.videoUrl?.includes('live_frame')
+    // Determine if this is a frame (from live camera OR extracted from recorded video)
+    const isFrame = isLiveFrame || (request.videoUrl?.includes('video_frame') || (request.videoData && request.videoData.length > 1000))
     // Build user prompt based on video availability and type
     let userPrompt: string
     
@@ -204,16 +337,61 @@ Focus on observable behaviors, measurable outcomes, and provide comprehensive, f
 
 You are conducting a REAL-TIME, LIVE competency assessment through continuous frame analysis. This is Frame #${frameNumber} in an ongoing live demonstration.
 
-**CRITICAL: IDENTIFY SPECIFIC STAFF MEMBER & DETECT ACTUAL ACTIVITY**
-FIRST, identify WHO is in the frame, THEN determine what is ACTUALLY happening:
+**CRITICAL: MEDICAL CONTENT DETECTION - THIS IS A MEDICAL EVALUATION SYSTEM**
+**STEP 0 - MEDICAL CONTENT VERIFICATION (MUST DO FIRST):**
+Before any assessment, you MUST determine if this is MEDICAL/HEALTHCARE content:
+- **Is this Medical/Healthcare Activity?**: YES/NO/UNCERTAIN
+- **Medical Indicators to Look For**:
+  * Healthcare setting (hospital, clinic, medical facility, patient room)
+  * Medical equipment (stethoscope, blood pressure cuff, IV equipment, medical monitors, surgical tools)
+  * Healthcare uniforms (scrubs, lab coats, medical badges)
+  * Patient care activities (patient assessment, medication administration, wound care, vital signs)
+  * Medical procedures (injections, dressing changes, patient positioning, medical examinations)
+  * Healthcare documentation (medical charts, electronic health records)
+  * Medical supplies (gloves, masks, medical bandages, syringes)
+- **Non-Medical Indicators**:
+  * Office work, computer work, paperwork (non-medical)
+  * Casual conversation (non-patient related)
+  * Eating, drinking, personal activities
+  * Non-medical equipment (regular office supplies, non-medical tools)
+  * Non-healthcare environment (office, home, non-medical setting)
+- **Idle/Inactive Indicators** (Person is NOT doing medical work):
+  * Person just standing/sitting idle
+  * Person messing around/playing with camera
+  * Person not talking/communicating
+  * Person not performing any medical tasks
+  * Person appears inactive or just waiting
+  * No medical activity visible
+
+**IF NOT MEDICAL CONTENT OR IDLE/INACTIVE:**
+- **State Clearly**: "This video/frame does NOT show medical/healthcare activities" OR "Person appears idle/inactive - no medical work detected" OR "Person is not talking/communicating"
+- **Explain**: Describe what non-medical activity is visible OR that person is idle/messing around/not talking
+- **Scoring Impact**: 
+  * All medical competency scores should be LOW (20-30) (confidence is INDEPENDENT - can be HIGH if you're certain of your assessment)
+  * Communication score MUST be 20-30 if person is not talking (confidence is INDEPENDENT - can be HIGH if you're certain they're not talking)
+  * Clinical Skills score MUST be 20-30 if person is not doing medical work (confidence is INDEPENDENT - can be HIGH if you're certain no medical work is happening)
+  * Overall performance score MUST be 1 (Poor) or 2 (Below Average) at most
+  * State: "Cannot evaluate medical competencies - video shows non-medical activities" OR "Person is idle/inactive - no medical activity to evaluate"
+  * Note: "This evaluation system is designed for medical/healthcare competency assessment only"
+- **Recommendation**: "Please record actual medical/healthcare activities (patient care, clinical procedures, medical interactions) for accurate medical competency evaluation"
+
+**IF MEDICAL CONTENT:**
+- Proceed with full medical competency assessment
+- Evaluate all 5 medical competency areas (Hand Hygiene, Patient Identification, Communication, Documentation, Equipment)
+- Apply medical standards and healthcare protocols
+
+**CRITICAL: IDENTIFY SPECIFIC STAFF MEMBER & DETECT ACTUAL MEDICAL ACTIVITY**
+FIRST, verify this is MEDICAL content, THEN identify WHO is in the frame, THEN determine what MEDICAL activity is happening:
+- **MEDICAL CONTENT CHECK**: Is this medical/healthcare activity? (YES/NO/UNCERTAIN)
 - **IDENTITY CHECK**: Is ${staffName} visible in this frame? (Look for name badge, uniform, face, or other identifying features)
 - **Is Clinical Work Being Performed?**: Is ${staffName} actually doing clinical tasks (patient care, procedures, medical activities) OR just standing/waiting/preparing?
-- **Is Communication Happening?**: Is ${staffName} actually talking/interacting with a patient OR silent/alone/not communicating?
-- **What Activity Level?**: Active clinical work, preparation, waiting/idle, or non-clinical activity?
+- **Is Medical Communication Happening?**: Is ${staffName} actually talking/interacting with a patient in a medical context OR silent/alone/not communicating?
+- **What Medical Activity Level?**: Active clinical work, medical preparation, waiting/idle, or non-medical activity?
 - **FAIR SCORING RULE**: 
-  - If ${staffName} is NOT visible or cannot be identified, note this and adjust confidence scores
-  - If ${staffName} is visible but NOT doing clinical work, score Clinical Skills LOW (20-40) with low confidence
-  - If ${staffName} is visible but NOT communicating, score Communication LOW (20-40) with low confidence
+  - If content is NOT medical: Score all areas LOW (20-40) (confidence is INDEPENDENT - can be HIGH if you're certain it's non-medical), state "Non-medical content"
+  - If ${staffName} is NOT visible or cannot be identified, note this and adjust confidence scores based on how certain you are
+  - If ${staffName} is visible but NOT doing clinical work, score Clinical Skills LOW (20-40) (confidence is INDEPENDENT - can be HIGH if you're certain no clinical work is happening)
+  - If ${staffName} is visible but NOT communicating medically, score Communication LOW (20-40) (confidence is INDEPENDENT - can be HIGH if you're certain they're not communicating)
   - DO NOT give high scores when nothing relevant is observable - be HONEST and FAIR
 
 **1. ACCURATE ACTIVITY DETECTION & FRAME ANALYSIS**
@@ -225,8 +403,24 @@ Analyze this SINGLE frame with meticulous attention to detail. FIRST determine w
 - **Communication Activity Present?**: YES/NO - Is ${staffName} actually speaking/interacting? (detect mouth movement, gestures, patient presence, conversation)
 - **Current Action State**: What EXACTLY is ${staffName} doing right now? (e.g., "performing wound dressing", "talking to patient", "standing idle", "preparing equipment", "documenting", "not visible in frame")
 
-**Detailed Frame Examination:**
+**Detailed Frame Examination with MEDICAL MOVEMENT ANALYSIS:**
 - **Body Position & Posture**: Exact positioning, alignment, ergonomics
+- **MEDICAL MOVEMENT & TECHNIQUE ANALYSIS** (CRITICAL - ONLY for medical activities):
+  * **Body Movement Quality**: 
+    - Smooth, controlled movements (HIGH) vs. jerky, uncontrolled (LOW)
+    - Proper body mechanics and ergonomics (HIGH) vs. poor positioning (LOW)
+    - Steady, confident movements (HIGH) vs. hesitant, shaky (LOW)
+    - Appropriate speed for medical task (HIGH) vs. too fast/slow (LOW)
+  * **Hand Movement & Dexterity**:
+    - Precise, accurate hand positioning (HIGH) vs. imprecise, clumsy (LOW)
+    - Steady hands during procedures (HIGH) vs. tremors, shaking (LOW)
+    - Proper finger placement and grip (HIGH) vs. awkward grip (LOW)
+    - Smooth hand movements (HIGH) vs. abrupt, rough movements (LOW)
+  * **Technique Quality Assessment**:
+    - **HIGH Technique**: Smooth, controlled, precise movements; proper medical technique; confident execution; appropriate speed; steady hands
+    - **MEDIUM Technique**: Generally good but some areas need improvement; minor hesitations or imprecisions
+    - **LOW Technique**: Jerky movements, poor control, imprecise positioning, shaky hands, inappropriate speed, awkward technique
+  * **Movement Stat**: Provide clear LOW/MEDIUM/HIGH rating for movement quality
 - **Hand Technique**: Precise hand positioning, finger placement, grip, movement patterns (ONLY if clinical work is visible)
 - **Safety Compliance**: Immediate PPE status (correct usage, proper fit, coverage), hand hygiene state, equipment positioning
 - **Communication Details** (IF communication is visible):
@@ -235,7 +429,7 @@ Analyze this SINGLE frame with meticulous attention to detail. FIRST determine w
   - **Patient Interaction Quality**: Facial expressions, gestures, patient response (if visible)
   - **Non-verbal Cues**: Body language, hand gestures, eye contact, facial expressions
   - **Communication Type**: Patient education, questioning, reassurance, instruction-giving
-- **Clinical Technique** (ONLY if clinical work is visible): Task-specific technical accuracy at this exact moment
+- **Clinical Technique** (ONLY if clinical work is visible): Task-specific technical accuracy at this exact moment with movement quality assessment
 - **Environment**: Workspace organization, equipment placement, cleanliness
 
 **2. DETAILED OBSERVATION DOCUMENTATION**
@@ -249,29 +443,71 @@ For this frame, provide:
 - **Contextual Notes**: Frame clarity, visibility limitations, motion blur (if present)
 - **Non-Activity Acknowledgment**: If NO relevant activity is visible, clearly state "No clinical work/communication observable in this frame"
 
-**3. ACCURATE & FAIR SCORING METHODOLOGY**
-Score ONLY what you can clearly see. Be FAIR when nothing relevant is happening:
+**3. ACCURATE & FAIR SCORING METHODOLOGY - VERY STRICT RULES**
+Score ONLY what you can clearly see. Be FAIR and ACCURATE - NEVER give high scores for non-medical content or idle activity:
 
-**Clinical Skills Scoring:**
-- **IF Clinical Work Visible**: Score 0-100 based on technique quality, accuracy, procedural compliance
-- **IF NO Clinical Work Visible**: Score 20-40 with LOW confidence (50-60), state "No clinical work observable in this frame"
-- **Do NOT give high scores** (80-100) when no clinical activity is detected
+**CRITICAL SCORING RULES - MUST FOLLOW:**
+- **IF NOT MEDICAL CONTENT**: MAXIMUM score is 30 for ALL areas (confidence is INDEPENDENT - determine based on how certain you are of your assessment, could be 25, 30, 35, 40, 80, 90, etc. - NOT tied to medical rules)
+- **IF Person is IDLE/Just Messing Around/Not Doing Anything**: MAXIMUM score is 30 for ALL areas (confidence is INDEPENDENT - if you can clearly see they're idle, confidence can be HIGH like 85-95%)
+- **IF Person is NOT Talking/Communicating**: Communication score MUST be 20-30 (confidence is INDEPENDENT - if you're certain they're not talking, confidence can be HIGH like 80-90%)
+- **IF Person is NOT Doing Medical Work**: Clinical Skills score MUST be 20-30 (confidence is INDEPENDENT - if you're certain no medical work is happening, confidence can be HIGH like 85-95%)
+- **NEVER give scores above 40 for non-medical activities** - this is a medical evaluation system
+- **NEVER give scores above 50 for idle/inactive behavior** - person must be actively doing medical work
+- **IF Medical Content but NO Activity**: Score 20-30 (confidence is INDEPENDENT - determine based on how certain you are, not medical rules)
+- **IF Medical Content with Activity**: Score based on quality (0-100)
 
-**Communication Scoring:**
-- **IF Communication Visible**: Score 0-100 based on:
+**Clinical Skills Scoring - STRICT:**
+- **IF Medical Clinical Work CLEARLY Visible**: Score 0-100 based on:
+  * Movement quality (HIGH/MEDIUM/LOW)
+  * Technique quality, accuracy, procedural compliance
+  * Hand steadiness and precision
+  * Body mechanics and ergonomics
+- **IF Person is Just Standing/Sitting/Idle**: Score 20-30 (confidence is INDEPENDENT - if you can clearly see they're idle, confidence can be HIGH like 85-95%), state "No medical clinical work observable - person appears idle"
+- **IF Person is Messing Around/Not Doing Medical Work**: Score 20-30 (confidence is INDEPENDENT - if you're certain it's non-medical, confidence can be HIGH like 80-90%), state "Non-medical activity - no clinical work detected"
+- **IF NO Clinical Work Visible OR Non-Medical**: Score 20-30 (confidence is INDEPENDENT - determine based on how certain you are, not tied to medical rules), state "No medical clinical work observable" or "Non-medical activity"
+- **NEVER give scores above 50 when no medical clinical activity is clearly detected**
+- **NEVER give scores above 40 for idle/inactive behavior**
+
+**Communication Scoring - STRICT (Medical Context Only):**
+- **IF Medical Communication CLEARLY Visible (Person is Talking)**: Score 0-100 based on:
   - Speaking quality (if audible/non-verbal cues visible)
   - Approach to patient (distance, orientation, engagement)
   - Patient interaction quality (eye contact, body language, response)
-  - Communication appropriateness and professionalism
-- **IF NO Communication Visible**: Score 20-40 with LOW confidence (50-60), state "No communication/interaction observable in this frame"
-- **Do NOT give high scores** (80-100) when no communication is detected
+  - Communication appropriateness and professionalism in medical context
+- **IF Person is NOT Talking/Just Silent**: Score 20-30 (confidence is INDEPENDENT - if you're certain they're not talking, confidence can be HIGH like 85-95%), state "No communication detected - person is not speaking/interacting"
+- **IF Person is Idle/Not Communicating**: Score 20-30 (confidence is INDEPENDENT - if you can clearly see no communication, confidence can be HIGH), state "No medical communication/interaction observable"
+- **IF NO Medical Communication Visible OR Non-Medical**: Score 20-30 (confidence is INDEPENDENT - determine based on how certain you are, not medical rules), state "No medical communication/interaction observable" or "Non-medical communication"
+- **NEVER give scores above 50 when no communication is clearly detected**
+- **NEVER give scores above 40 for silent/inactive behavior**
 
-**General Scoring Rules:**
+**Movement & Technique Quality Scoring:**
+- **HIGH Movement Quality (80-100)**: Smooth, controlled, precise movements; steady hands; proper technique; confident execution (ONLY if medical activity is visible)
+- **MEDIUM Movement Quality (60-79)**: Generally good but some areas need improvement; minor hesitations (ONLY if medical activity is visible)
+- **LOW Movement Quality (Below 60)**: Jerky movements, poor control, shaky hands, imprecise technique, awkward movements
+- **If Non-Medical or No Medical Activity or Idle**: Movement quality cannot be assessed - state "N/A - No medical activity detected" and score 20-30
+
+**Overall Performance Score (1-5) - STRICT:**
+- **IF No Medical Activity or Idle**: Overall score MUST be 1 (Poor) or 2 (Below Average) at most
+- **IF Not Talking/Communicating**: Cannot score above 2 for communication-related evaluations
+- **IF Just Messing Around**: Overall score MUST be 1 (Poor)
+- **5 (Excellent)**: ONLY if exceptional medical work is clearly visible and person is actively performing medical tasks
+- **4 (Good)**: ONLY if good medical work is clearly visible and person is actively performing medical tasks
+- **3 (Average)**: ONLY if some medical work is visible
+- **2 (Below Average)**: If minimal or no medical activity
+- **1 (Poor)**: If no medical activity, idle, or just messing around
+
+**General Scoring Rules - VERY STRICT:**
 - **Score (0-100)**: Base ONLY on what is clearly visible and observable in THIS frame
-- **Confidence (0-100)**: Reflect frame quality, clarity, and completeness of visible information
+- **STRICT RULE**: Non-medical content = MAX 30 points (confidence is INDEPENDENT - can be HIGH if you're certain it's non-medical)
+- **STRICT RULE**: Idle/Inactive = MAX 30 points (confidence is INDEPENDENT - can be HIGH if you can clearly see they're idle)
+- **STRICT RULE**: Not talking = Communication MAX 30 points (confidence is INDEPENDENT - can be HIGH if you're certain they're not talking)
+- **STRICT RULE**: Not doing medical work = Clinical Skills MAX 30 points (confidence is INDEPENDENT - can be HIGH if you're certain no medical work is happening)
+- **Confidence (0-100%)**: INDEPENDENT of medical rules - reflects YOUR certainty in YOUR assessment accuracy (max 100%)
 - **Evidence-Based**: Every score point must be supported by specific observable evidence in the frame
-- **Fair Assessment**: If nothing relevant is happening, acknowledge this and score accordingly (low scores, low confidence)
+- **Fair Assessment**: If nothing relevant is happening, acknowledge this and score LOW (20-30)
 - **No False Positives**: Do NOT assume or infer activity that is not clearly visible
+- **Medical Focus**: This system evaluates MEDICAL competencies only - non-medical gets LOW scores (20-30)
+- **Idle Detection**: If person is just standing/sitting/idle/messing around, ALL scores must be LOW (20-30)
 
 **4. JUST AND BALANCED EVALUATION**
 - **Recognize Actual Activity**: Only document and score what is ACTUALLY happening
@@ -325,8 +561,8 @@ BEFORE analyzing competency, you MUST:
    - Focus ONLY on ${staffName} if multiple people are visible
    
 4. **STEP 4 - FAIR SCORING**: 
-   - If ${staffName} is NOT doing clinical work, score Clinical Skills LOW (20-40) with low confidence
-   - If ${staffName} is NOT communicating, score Communication LOW (20-40) with low confidence
+   - If ${staffName} is NOT doing clinical work, score Clinical Skills LOW (20-40) (confidence is INDEPENDENT - can be HIGH if you're certain no clinical work is happening)
+   - If ${staffName} is NOT communicating, score Communication LOW (20-40) (confidence is INDEPENDENT - can be HIGH if you're certain they're not communicating)
    - Do NOT give high scores (80-100) when no relevant activity is observable
    - Be HONEST: Low activity = Low scores
    
@@ -341,12 +577,12 @@ BEFORE analyzing competency, you MUST:
 **Communication Detection:**
 - Look for: Mouth movement (forming words), facial expressions indicating speech, gestures, patient presence in frame
 - If talking detected: Describe approach (distance, body orientation, eye contact, leaning in/away)
-- If NO talking: State "No communication activity observable" and score Communication 20-40 with low confidence
+- If NO talking: State "No communication activity observable" and score Communication 20-40 (confidence is INDEPENDENT - can be HIGH if you're certain they're not talking)
 
 **Clinical Work Detection:**
 - Look for: Medical equipment in use, patient care procedures, clinical tasks being performed
 - If clinical work detected: Assess technique, accuracy, safety compliance
-- If NO clinical work: State "No clinical work observable" and score Clinical Skills 20-40 with low confidence
+- If NO clinical work: State "No clinical work observable" and score Clinical Skills 20-40 (confidence is INDEPENDENT - can be HIGH if you're certain no clinical work is happening)
 
 **IMPORTANT REMINDERS:**
 - This is a LIVE, REAL-TIME frame - provide immediate, precise feedback
@@ -366,10 +602,64 @@ Live camera frame image has been provided. Analyze with maximum accuracy, detail
 
 You are conducting a thorough, accurate analysis of a complete video recording showing a healthcare worker performing ${competencyArea} tasks.
 
+**CRITICAL: MEDICAL CONTENT DETECTION - THIS IS A MEDICAL EVALUATION SYSTEM**
+**STEP 0 - MEDICAL CONTENT VERIFICATION (MUST DO FIRST):**
+Before any assessment, you MUST determine if this entire video shows MEDICAL/HEALTHCARE content:
+- **Is this Medical/Healthcare Activity?**: YES/NO/PARTIAL/UNCERTAIN
+- **Medical Indicators to Look For Throughout Video**:
+  * Healthcare setting (hospital, clinic, medical facility, patient room, exam room)
+  * Medical equipment (stethoscope, blood pressure cuff, IV equipment, medical monitors, surgical tools, medical devices)
+  * Healthcare uniforms (scrubs, lab coats, medical badges, healthcare attire)
+  * Patient care activities (patient assessment, medication administration, wound care, vital signs, patient positioning)
+  * Medical procedures (injections, dressing changes, medical examinations, clinical assessments)
+  * Healthcare documentation (medical charts, electronic health records, medical forms)
+  * Medical supplies (gloves, masks, medical bandages, syringes, medical instruments)
+  * Patient interaction in medical context (medical history taking, patient education, medical communication)
+- **Non-Medical Indicators**:
+  * Office work, computer work, paperwork (non-medical administrative tasks)
+  * Casual conversation (non-patient related, non-medical)
+  * Eating, drinking, personal activities
+  * Non-medical equipment (regular office supplies, non-medical tools, non-healthcare items)
+  * Non-healthcare environment (office, home, non-medical setting, non-clinical area)
+- **Idle/Inactive Indicators** (Person is NOT doing medical work):
+  * Person just standing/sitting idle throughout video
+  * Person messing around/playing with camera
+  * Person not talking/communicating at all
+  * Person not performing any medical tasks
+  * Person appears inactive or just waiting
+  * No medical activity visible in entire video
+
+**IF NOT MEDICAL CONTENT OR IDLE/INACTIVE (or mostly non-medical):**
+- **State Clearly**: "This video does NOT show medical/healthcare activities" OR "Video shows person is idle/inactive - no medical work detected" OR "Person is not talking/communicating throughout video"
+- **Explain**: Describe what non-medical activities are visible OR that person is idle/messing around/not talking throughout the video
+- **Scoring Impact**: 
+  * All medical competency scores should be LOW (20-30) (confidence is INDEPENDENT - can be HIGH if you're certain of your assessment)
+  * Communication score MUST be 20-30 if person is not talking throughout video (confidence is INDEPENDENT - can be HIGH if you're certain they're not talking)
+  * Clinical Skills score MUST be 20-30 if person is not doing medical work throughout video (confidence is INDEPENDENT - can be HIGH if you're certain no medical work is happening)
+  * Overall performance score MUST be 1 (Poor) or 2 (Below Average) at most
+  * State: "Cannot evaluate medical competencies - video shows non-medical activities" OR "Person is idle/inactive - no medical activity to evaluate"
+  * Note: "This evaluation system is designed for medical/healthcare competency assessment only"
+  * Provide specific examples of non-medical activities OR idle behavior observed
+- **Recommendation**: "Please record actual medical/healthcare activities (patient care, clinical procedures, medical interactions) for accurate medical competency evaluation"
+
+**IF MEDICAL CONTENT:**
+- Proceed with full medical competency assessment
+- Evaluate all 5 medical competency areas (Hand Hygiene, Patient Identification, Communication, Documentation, Equipment)
+- Apply medical standards and healthcare protocols throughout
+- Focus on medical/healthcare-specific observations
+
+**IF PARTIAL MEDICAL CONTENT:**
+- Assess only the medical portions
+- Note which segments are medical vs non-medical
+- Score based on medical segments only
+- Clearly indicate which parts cannot be evaluated due to non-medical content
+
 **CRITICAL ANALYSIS PRINCIPLES:**
-1. **ACCURACY**: Base ALL assessments EXCLUSIVELY on what you can clearly observe in the video
-2. **DETAIL**: Provide comprehensive, specific observations with precise descriptions
-3. **JUSTICE**: Evaluate fairly and objectively, recognizing both strengths and improvement areas
+1. **MEDICAL CONTENT FIRST**: Verify this is medical/healthcare content before any assessment
+2. **ACCURACY**: Base ALL assessments EXCLUSIVELY on what you can clearly observe in the video
+3. **DETAIL**: Provide comprehensive, specific observations with precise descriptions
+4. **JUSTICE**: Evaluate fairly and objectively, recognizing both strengths and improvement areas
+5. **MEDICAL FOCUS**: This system evaluates MEDICAL competencies only - non-medical content should be noted and scored accordingly
 
 ${staffIdentificationInfo}
 
@@ -378,6 +668,7 @@ ${staffIdentificationInfo}
 - Competency Focus Area: ${competencyArea}
 - **Staff Member Being Assessed**: ${staffName} (${staffRole})
 - Analysis Type: Complete Video Recording
+- **System Purpose**: MEDICAL/HEALTHCARE competency evaluation only
 
 **IDENTITY VERIFICATION (CRITICAL FIRST STEP):**
 BEFORE analyzing competency, you MUST:
@@ -401,21 +692,47 @@ For EACH significant moment, FIRST determine:
 - **Communication Present?**: Is ${staffName} actually speaking/interacting with patient at this moment?
 - **What Activity?**: Clinical procedure / Patient communication / Documentation / Idle/Waiting / Preparation / Non-clinical activity / Not visible
 
-**FAIR SCORING RULES:**
+**VERY STRICT FAIR SCORING RULES - MUST FOLLOW:**
+- **IF NOT MEDICAL CONTENT**: MAXIMUM score is 30 for ALL areas (confidence is INDEPENDENT - can be HIGH like 85-95% if you're certain it's non-medical) - NEVER give high scores for non-medical
+- **IF Person is IDLE/Just Messing Around/Not Doing Anything**: MAXIMUM score is 30 for ALL areas (confidence is INDEPENDENT - can be HIGH like 85-95% if you can clearly see they're idle)
+- **IF Person is NOT Talking/Communicating**: Communication score MUST be 20-30 (confidence is INDEPENDENT - can be HIGH like 85-95% if you're certain they're not talking)
+- **IF Person is NOT Doing Medical Work**: Clinical Skills score MUST be 20-30 (confidence is INDEPENDENT - can be HIGH like 85-95% if you're certain no medical work is happening)
 - If ${staffName} cannot be identified in significant portions: Note this and adjust confidence scores
-- If ${staffName} is visible but NO clinical work is happening: Score Clinical Skills LOW (20-40) for those moments, acknowledge "No clinical work observable"
-- If ${staffName} is visible but NO communication is happening: Score Communication LOW (20-40) for those moments, acknowledge "No communication observable"
-- DO NOT give high scores (80-100) when no relevant activity is happening - be HONEST and FAIR
+- If ${staffName} is visible but NO clinical work is happening: Score Clinical Skills LOW (20-30) for those moments, acknowledge "No clinical work observable - person appears idle/inactive"
+- If ${staffName} is visible but NO communication is happening: Score Communication LOW (20-30) for those moments, acknowledge "No communication observable - person is not speaking/interacting"
+- **NEVER give scores above 50 when no relevant medical activity is happening** - be HONEST and ACCURATE
+- **NEVER give scores above 40 for idle/inactive behavior** - person must be actively doing medical work
+- **NEVER give scores above 30 for non-medical content** - this is a medical evaluation system
+- **IF Just Messing Around/Idle**: Overall performance score MUST be 1 (Poor) or 2 (Below Average) at most
 - Focus assessment ONLY on ${staffName} if multiple people are visible
+- Movement quality can ONLY be assessed for medical activities - non-medical or idle = N/A, score 20-30
 
-**Clinical Skills Assessment (ONLY when clinical work is visible):**
+**Clinical Skills Assessment with MEDICAL MOVEMENT ANALYSIS (ONLY when clinical work is visible):**
+- **MEDICAL MOVEMENT & TECHNIQUE ANALYSIS** (CRITICAL):
+  * **Body Movement Quality Throughout Video**:
+    - Smooth, controlled movements (HIGH) vs. jerky, uncontrolled (LOW)
+    - Proper body mechanics and ergonomics (HIGH) vs. poor positioning (LOW)
+    - Steady, confident movements (HIGH) vs. hesitant, shaky (LOW)
+    - Appropriate speed for medical tasks (HIGH) vs. too fast/slow (LOW)
+    - Consistent movement quality (HIGH) vs. inconsistent (LOW)
+  * **Hand Movement & Dexterity Analysis**:
+    - Precise, accurate hand positioning throughout (HIGH) vs. imprecise, clumsy (LOW)
+    - Steady hands during procedures (HIGH) vs. tremors, shaking (LOW)
+    - Proper finger placement and grip (HIGH) vs. awkward grip (LOW)
+    - Smooth hand movements (HIGH) vs. abrupt, rough movements (LOW)
+    - Hand-eye coordination (HIGH) vs. poor coordination (LOW)
+  * **Overall Movement & Technique Quality Stat**:
+    - **HIGH (80-100)**: Smooth, controlled, precise movements throughout; proper medical technique consistently; confident execution; appropriate speed; steady hands; excellent body mechanics
+    - **MEDIUM (60-79)**: Generally good movement quality but some areas need improvement; minor hesitations or imprecisions; mostly steady with occasional issues
+    - **LOW (Below 60)**: Jerky movements, poor control, imprecise positioning, shaky hands, inappropriate speed, awkward technique, poor body mechanics
+    - **N/A**: If non-medical or no medical activity - cannot assess movement quality
 - Technical accuracy at each step (hand positioning, movement precision, equipment handling)
 - Procedural compliance and sequence adherence
-- Technique quality throughout the entire process
+- Technique quality throughout the entire process with movement quality assessment
 - Error recognition and correction (if applicable)
 - Efficiency and workflow optimization
 - Task completion quality
-- **If clinical work NOT visible**: State "Clinical work not observable in this segment" and do not score high
+- **If clinical work NOT visible OR Non-Medical OR Idle**: State "Clinical work not observable" or "Non-medical activity" or "Person appears idle" and score 20-30 with confidence based on your uncertainty (not preset to 30) - do NOT give high scores
 
 **Safety & Compliance Assessment:**
 - PPE usage throughout (correct donning, wearing, doffing sequences)
@@ -448,7 +765,8 @@ For EACH significant moment, FIRST determine:
   - Responsiveness to patient cues
 - **Cultural Sensitivity and Respect**: Observable signs of respect and cultural awareness
 - **Team Communication** (if applicable): Interaction with other staff members
-- **If NO Communication Visible**: State "No communication/interaction observable in this segment" and score Communication 20-40 with low confidence
+- **If NO Communication Visible OR Person is NOT Talking**: State "No communication/interaction observable - person is not speaking" and score Communication 20-30 with confidence reflecting your uncertainty (not always 30)
+- **If Person is Idle/Silent**: Score Communication 20-30 with confidence based on your assessment certainty (varies), state "No communication detected - person appears idle/silent"
 
 **Documentation Assessment (if visible):**
 - Accuracy and completeness of documentation
@@ -687,8 +1005,10 @@ Base your evaluation on realistic, professional performance expectations for a $
       competencyScores: z.array(
         z.object({
           category: z.string(),
-          score: z.number().min(0).max(100),
-          confidence: z.number().min(0).max(100).optional().default(85),
+          score: z.number().min(0).max(100), // Maximum is 100% - scores cannot exceed 100
+          // AI should provide its own confidence - no default, or use 50 for uncertainty
+          // Maximum is 100% - confidence cannot exceed 100
+          confidence: z.number().min(0).max(100).optional(),
           observations: z.array(z.string()).optional().default([]),
           recommendations: z.array(z.string()).optional().default([]),
           evidence: z.array(
@@ -702,7 +1022,10 @@ Base your evaluation on realistic, professional performance expectations for a $
       ).min(1).max(10), // Ensure at least 1 score, max 10
       strengths: z.array(z.string()).optional().default([]),
       developmentAreas: z.array(z.string()).optional().default([]),
-      riskFactors: z.array(z.string()).optional().default([])
+      riskFactors: z.array(z.string()).optional().default([]),
+      trainingRecommendations: z.array(z.string()).optional().default([]),
+      overallPerformanceScore: z.number().min(1).max(5).optional(),
+      overallPerformanceJustification: z.string().optional()
     })
 
     // Add explicit JSON structure example to prompt
@@ -711,53 +1034,72 @@ Base your evaluation on realistic, professional performance expectations for a $
 {
   "competencyScores": [
     {
-      "category": "Clinical Skills",
+      "category": "Hand Hygiene",
       "score": 85,
-      "confidence": 90,
+      "confidence": 87,
       "observations": ["observation1", "observation2"],
       "recommendations": ["recommendation1"],
       "evidence": [{"timestamp": "00:01:30", "description": "description", "confidence": 85}]
     },
     {
-      "category": "Communication",
+      "category": "Patient Identification",
       "score": 80,
-      "confidence": 88,
+      "confidence": 82,
       "observations": ["observation1"],
       "recommendations": ["recommendation1"],
       "evidence": [{"timestamp": "00:02:00", "description": "description", "confidence": 80}]
     },
     {
-      "category": "Safety & Compliance",
-      "score": 90,
-      "confidence": 92,
+      "category": "Communication",
+      "score": 75,
+      "confidence": 78,
       "observations": ["observation1"],
       "recommendations": ["recommendation1"],
-      "evidence": [{"timestamp": "00:00:45", "description": "description", "confidence": 90}]
+      "evidence": [{"timestamp": "00:00:45", "description": "description", "confidence": 75}]
     },
     {
       "category": "Documentation",
-      "score": 75,
-      "confidence": 85,
+      "score": 70,
+      "confidence": 72,
       "observations": ["observation1"],
       "recommendations": ["recommendation1"],
-      "evidence": [{"timestamp": "00:05:20", "description": "description", "confidence": 75}]
+      "evidence": [{"timestamp": "00:05:20", "description": "description", "confidence": 70}]
+    },
+    {
+      "category": "Equipment",
+      "score": 88,
+      "confidence": 90,
+      "observations": ["observation1"],
+      "recommendations": ["recommendation1"],
+      "evidence": [{"timestamp": "00:03:15", "description": "description", "confidence": 88}]
     }
   ],
   "strengths": ["strength1", "strength2"],
   "developmentAreas": ["area1", "area2"],
-  "riskFactors": ["risk1"]
+  "riskFactors": ["risk1"],
+  "trainingRecommendations": ["Specific training recommendation 1", "Specific training recommendation 2"],
+  "overallPerformanceScore": 4,
+  "overallPerformanceJustification": "Detailed justification explaining why this score (1-5) was assigned based on all competency areas assessed"
 }
 
 **IMPORTANT:**
 - Each element in competencyScores MUST be a complete object with category, score, confidence, observations, recommendations, and evidence
 - Do NOT mix strings and objects in the competencyScores array
 - All scores must be numbers between 0-100
-- All confidence values must be numbers between 0-100
+- **CRITICAL - CONFIDENCE VARIATION REQUIRED**: All confidence values must be DIFFERENT numbers between 0-100
+  * DO NOT use the same confidence value (like 30) for multiple competencies
+  * Each competency MUST have a UNIQUE confidence value based on what you can see
+  * Example: Hand Hygiene: 28%, Patient Identification: 32%, Communication: 35%, Documentation: 30%, Equipment: 27%
+  * **FORBIDDEN**: All confidences being the same value (like all 30 or all 40)
+- overallPerformanceScore must be a number between 1-5 (1=Poor, 2=Below Average, 3=Average, 4=Good, 5=Excellent)
+- overallPerformanceJustification must provide detailed explanation for the overall score
+- trainingRecommendations must be specific, actionable training or coaching suggestions
 - Return ONLY valid JSON - no additional text or formatting`
 
-    // Call OpenAI API using AI SDK with Zod schema
+    // Call OpenAI Medical AI (GPT-4o) using AI SDK with Zod schema
     // Note: OpenAI API key is automatically read from OPENAI_API_KEY environment variable
-    console.log(hasVideo ? 'Calling OpenAI GPT-4o with VIDEO ANALYSIS...' : 'Calling OpenAI GPT-4o with Zod schema...')
+    // Using GPT-4o with medical AI expertise for healthcare competency evaluation
+    console.log(hasVideo ? '🏥 Calling OpenAI Medical AI (GPT-4o) with VIDEO ANALYSIS...' : '🏥 Calling OpenAI Medical AI (GPT-4o) for healthcare competency evaluation...')
     
     // For video analysis, we need to process differently
     // Note: Currently GPT-4o via AI SDK may need video frames extracted
@@ -768,7 +1110,18 @@ Base your evaluation on realistic, professional performance expectations for a $
       console.log('Processing video/frame analysis with enhanced accuracy requirements...')
       
       // Enhanced prompt specifically for video/frame accuracy
-      const videoAnalysisPrompt = `${systemPrompt}\n\n${userPrompt}\n\n**${isLiveFrame ? 'LIVE CAMERA FRAME' : 'VIDEO'} DATA PROVIDED**: ${isLiveFrame ? 'A base64 encoded image frame from the live camera feed' : 'Base64 encoded video data'} has been included. ${isLiveFrame ? 'Analyze this single frame' : 'Analyze this video frame-by-frame'} with maximum accuracy. Your scores must reflect ONLY what is observable in the actual ${isLiveFrame ? 'frame' : 'video'} content.${jsonStructureExample}`
+      // isFrame is already defined above - use it here
+      const frameSource = isLiveFrame ? 'live camera feed' : 'extracted from a recorded video'
+      const videoAnalysisPrompt = `${systemPrompt}\n\n${userPrompt}\n\n**${isFrame ? 'IMAGE FRAME' : 'VIDEO'} DATA PROVIDED**: ${isFrame ? `A base64 encoded image frame from the ${frameSource}` : 'Base64 encoded video data'} has been included. ${isFrame ? 'Analyze this single frame' : 'Analyze this video frame-by-frame'} with maximum accuracy. Your scores must reflect ONLY what is observable in the actual ${isFrame ? 'frame' : 'video'} content.\n\n**CRITICAL CONFIDENCE REQUIREMENT - NO HARDCODED VALUES**:\n- You MUST provide DIFFERENT confidence values for each competency area based on what YOU can actually see\n- DO NOT use the same confidence value (like 30%) for all competency areas\n- Each competency should have its own confidence: Hand Hygiene might be 28%, Communication might be 35%, Clinical Skills might be 32%, etc.\n- If person is idle: confidence should vary (e.g., 25%, 28%, 32%, 30%, 27%) - NOT all 30%\n- If person is doing medical work: confidence should vary based on clarity (e.g., 75%, 82%, 68%, 90%, 79%)\n- **REQUIRED**: At least 3 different confidence values must be used across the 5 competency areas\n- **FORBIDDEN**: Using the same confidence value (like 30) for all competencies\n\n**CRITICAL SCORING RULES**: If the person in the frame is idle, not doing medical work, not talking, or just sitting/standing doing nothing, you MUST give LOW scores (20-40). 
+
+**CRITICAL CONFIDENCE RULES (INDEPENDENT OF MEDICAL RULES)**: 
+- Confidence is INDEPENDENT of whether content is medical or not
+- Confidence reflects YOUR certainty in YOUR assessment accuracy (max 100%)
+- If you can clearly see the person is idle: confidence can be HIGH (85-95%) because you're very certain of your assessment
+- If you can clearly see they're not doing medical work: confidence can be HIGH (85-95%) because you're very certain
+- If video is unclear: confidence should be LOW (20-40%) because you're uncertain
+- Each competency should have DIFFERENT confidence values based on how certain YOU are (vary them: 25%, 28%, 32%, 30%, 27%, 85%, 90%, etc.)
+- DO NOT tie confidence to medical rules - confidence is purely about YOUR certainty in YOUR analysis${jsonStructureExample}`
       
       // For image frames (live camera), use OpenAI Vision API
       // Add retry logic for malformed responses
@@ -780,13 +1133,17 @@ Base your evaluation on realistic, professional performance expectations for a $
         try {
           console.log(`🟢 [AI Analysis] Attempt ${retryCount + 1}/${maxRetries + 1} for ${isLiveFrame ? 'live frame' : 'video'} analysis`)
           
-          // For live frames (images), use Vision API with messages format
-          if (isLiveFrame && request.videoData) {
+          // For frames (from live camera OR extracted from recorded video), use Vision API with messages format
+          if (isFrame && request.videoData) {
             // Use Vision API with image
             const { object } = await generateObject({
-              model: openai("gpt-4o"),
+              model: openai("gpt-4o"), // Using GPT-4o - OpenAI's most advanced model with medical AI capabilities (max score: 100%)
               schema: aiAnalysisSchema,
               messages: [
+                {
+                  role: 'system',
+                  content: 'You are a MEDICAL AI expert from OpenAI specializing in healthcare competency evaluation. You have deep knowledge of medical protocols, clinical standards, and patient safety requirements. Analyze medical activities with precision and provide accurate, evidence-based assessments.\n\n**SCORING SCALE: 0-100% (Maximum is 100%)**\n- All scores must be between 0-100 (100% is the absolute maximum)\n- All confidence values must be between 0-100 (100% is the absolute maximum)\n\n**CRITICAL CONFIDENCE REQUIREMENT**: You MUST provide DIFFERENT confidence values for each competency area. DO NOT use the same confidence value (like 30%) for all competencies. Each competency should have its own unique confidence based on what you can actually see. For example: Hand Hygiene: 28%, Patient Identification: 32%, Communication: 35%, Documentation: 30%, Equipment: 27%. Using the same confidence for all competencies is FORBIDDEN and indicates you are not properly assessing each area individually.'
+                },
                 {
                   role: 'user',
                   content: [
@@ -803,19 +1160,25 @@ Base your evaluation on realistic, professional performance expectations for a $
                   ]
                 }
               ],
-              temperature: 0.1 // Very low temperature for consistency
+              temperature: 0.3 // Moderate temperature to encourage confidence variation while maintaining medical accuracy
             })
             
             aiAnalysisAttempt = object
           } else {
-            // For video files or standard analysis, use text prompt
+            // This should not happen - frames should be handled above
+            // But if we get here, it means we have video data but no frame
+            // Fall back to text-only analysis (less accurate)
+            console.warn('⚠️ Video data provided but no frame extracted. Using text-only analysis (less accurate).')
+            console.warn('⚠️ For best results, extract a frame from the video on the frontend before sending.')
+            
             const { object } = await generateObject({
-              model: openai("gpt-4o"),
+              model: openai("gpt-4o"), // GPT-4o with medical AI capabilities
               schema: aiAnalysisSchema,
+              system: 'You are a medical AI expert specializing in healthcare competency evaluation. You have deep knowledge of medical protocols, clinical standards, and patient safety requirements. Analyze medical activities with precision and provide accurate, evidence-based assessments. When analyzing video content, focus on what is actually visible - if the person is idle, not doing medical work, or not talking, give LOW scores (20-40).',
               prompt: retryCount > 0 
-                ? `${videoAnalysisPrompt}\n\n**RETRY ATTEMPT**: Please ensure your response is valid JSON with all competencyScores elements as complete objects. Each object must have: category (string), score (number 0-100), confidence (number 0-100), observations (array of strings), recommendations (array of strings), evidence (array of objects with timestamp, description, confidence).`
-                : videoAnalysisPrompt,
-              temperature: 0.2
+                ? `${videoAnalysisPrompt}\n\n**RETRY ATTEMPT**: Please ensure your response is valid JSON with all competencyScores elements as complete objects. Each object must have: category (string), score (number 0-100), confidence (number 0-100), observations (array of strings), recommendations (array of strings), evidence (array of objects with timestamp, description, confidence).\n\n**CRITICAL**: Without visual data, you cannot accurately assess. Give LOW scores (20-40) with LOW confidence (20-40) since you cannot see what actually happened.`
+                : `${videoAnalysisPrompt}\n\n**CRITICAL**: Video data was provided but no frame image is available. Without visual data, you cannot accurately assess medical competencies. Give LOW scores (20-40) with LOW confidence (20-40) and state that visual analysis is required for accurate evaluation.`,
+              temperature: 0.3 // Moderate temperature to encourage confidence variation while maintaining medical accuracy
             })
             
             aiAnalysisAttempt = object
@@ -856,12 +1219,13 @@ Base your evaluation on realistic, professional performance expectations for a $
           console.log(`🟢 [AI Analysis] Attempt ${retryCount + 1}/${maxRetries + 1} for standard analysis`)
           
           const { object } = await generateObject({
-            model: openai("gpt-4o"),
+              model: openai("gpt-4o"), // Using GPT-4o - OpenAI's most advanced model with medical AI capabilities (max score: 100%)
             schema: aiAnalysisSchema,
+              system: 'You are a MEDICAL AI expert from OpenAI specializing in healthcare competency evaluation. You have deep knowledge of medical protocols, clinical standards, and patient safety requirements. Analyze medical activities with precision and provide accurate, evidence-based assessments.\n\n**SCORING SCALE: 0-100% (Maximum is 100%)**\n- All scores must be between 0-100 (100% is the absolute maximum)\n- All confidence values must be between 0-100 (100% is the absolute maximum)',
             prompt: retryCount > 0
               ? `${standardPrompt}\n\n**RETRY ATTEMPT**: Please ensure your response is valid JSON with all competencyScores elements as complete objects.`
               : standardPrompt,
-            temperature: 0.3 // Lower temperature for better consistency
+            temperature: 0.3 // Moderate temperature to encourage confidence variation while maintaining medical accuracy
           })
           
           aiAnalysisAttempt = object
@@ -887,14 +1251,23 @@ Base your evaluation on realistic, professional performance expectations for a $
       aiAnalysis = aiAnalysisAttempt
     }
     
-    console.log('OpenAI analysis completed successfully', hasVideo ? '(with video)' : '(standard)')
+      console.log('🏥 OpenAI Medical AI analysis completed successfully', hasVideo ? '(with video analysis)' : '(standard healthcare competency evaluation)')
 
     // Transform OpenAI response to our format
     // With Zod schema, data is already validated and typed correctly
     const competencyScores: CompetencyScore[] = aiAnalysis.competencyScores.map((score) => ({
       category: score.category,
       score: Math.min(100, Math.max(0, score.score)),
-      confidence: Math.min(100, Math.max(0, score.confidence || 85)),
+      // Use AI-provided confidence, or 50 if not provided (indicates uncertainty)
+      // Do NOT use high default like 85 - let AI determine its own confidence
+      // Log if AI didn't provide confidence
+      confidence: (() => {
+        const aiConfidence = score.confidence ?? 50
+        if (!score.confidence) {
+          console.warn(`⚠️ AI did not provide confidence for ${score.category}, using default 50`)
+        }
+        return Math.min(100, Math.max(0, aiConfidence))
+      })(),
       observations: score.observations || [],
       recommendations: score.recommendations || [],
       evidence: score.evidence || []
@@ -909,14 +1282,37 @@ Base your evaluation on realistic, professional performance expectations for a $
       : 85
 
     // Calculate average AI confidence from competency scores
+    // IMPORTANT: This should be based on ACTUAL AI-provided confidence, not hardcoded
+    // AI confidence reflects how confident the AI is in its analysis accuracy
+    console.log('🔍 Calculating AI confidence from competency scores:', {
+      scoresCount: competencyScores.length,
+      confidences: competencyScores.map(s => ({ category: s.category, confidence: s.confidence }))
+    })
+    
+    // Check if all confidences are the same (indicates hardcoded values)
+    const uniqueConfidences = new Set(competencyScores.map(s => s.confidence))
+    if (uniqueConfidences.size === 1 && competencyScores.length > 1) {
+      const sameValue = Array.from(uniqueConfidences)[0]
+      console.warn(`⚠️ WARNING: All competency confidences are the same (${sameValue}%) - this suggests hardcoded values!`)
+      console.warn(`⚠️ AI should provide VARIED confidence values based on what it can see for each competency`)
+      console.warn(`⚠️ Expected: Different values like 28%, 32%, 35%, 30%, 27% - NOT all ${sameValue}%`)
+    } else {
+      console.log(`✅ Good: Found ${uniqueConfidences.size} different confidence values - AI is providing varied assessments`)
+    }
+    
     const avgConfidence = competencyScores.length > 0
       ? Math.round(competencyScores.reduce((sum, s) => sum + s.confidence, 0) / competencyScores.length)
-      : 92
+      : 50 // Lower default (50) if no scores - indicates uncertainty, not hardcoded high value
+    
+    console.log('✅ Calculated average AI confidence:', avgConfidence, '%')
 
     // Extract strengths and development areas (already validated by Zod)
     const strengths = aiAnalysis.strengths || []
     const developmentAreas = aiAnalysis.developmentAreas || []
     const riskFactors = aiAnalysis.riskFactors || []
+    const trainingRecommendations = aiAnalysis.trainingRecommendations || []
+    const overallPerformanceScore = aiAnalysis.overallPerformanceScore
+    const overallPerformanceJustification = aiAnalysis.overallPerformanceJustification || ''
 
     return {
       evaluationId: `eval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -926,6 +1322,9 @@ Base your evaluation on realistic, professional performance expectations for a $
       riskFactors,
       strengths: strengths.slice(0, 5),
       developmentAreas: developmentAreas.slice(0, 4),
+      trainingRecommendations: trainingRecommendations.slice(0, 6),
+      overallPerformanceScore,
+      overallPerformanceJustification,
       aiConfidence: avgConfidence, // Average confidence from all competency score assessments
       evaluationTime: request.duration,
       timestamp: new Date().toISOString(),
@@ -945,205 +1344,130 @@ Base your evaluation on realistic, professional performance expectations for a $
   }
 }
 
-// Mock AI analysis function (fallback)
+// Mock AI analysis function (fallback) - NOW WITH STRICT RULES
 async function performMockAIAnalysis(request: EvaluationRequest): Promise<AIEvaluationResult> {
   // Simulate AI processing time
   await new Promise((resolve) => setTimeout(resolve, 2000))
 
-  // Mock competency analysis based on role
-  const roleBasedScores = {
-    RN: {
-      clinicalSkills: 88 + Math.random() * 10,
-      communication: 85 + Math.random() * 12,
-      safety: 90 + Math.random() * 8,
-      documentation: 82 + Math.random() * 15,
-      leadership: 87 + Math.random() * 10,
-    },
-    LPN: {
-      clinicalSkills: 82 + Math.random() * 12,
-      communication: 88 + Math.random() * 10,
-      safety: 85 + Math.random() * 12,
-      documentation: 80 + Math.random() * 15,
-      supervision: 75 + Math.random() * 20,
-    },
-    HHA: {
-      personalCare: 85 + Math.random() * 12,
-      communication: 90 + Math.random() * 8,
-      safety: 88 + Math.random() * 10,
-      documentation: 78 + Math.random() * 18,
-      empathy: 92 + Math.random() * 6,
-    },
-    PT: {
-      clinicalSkills: 90 + Math.random() * 8,
-      assessment: 87 + Math.random() * 10,
-      communication: 85 + Math.random() * 12,
-      safety: 89 + Math.random() * 9,
-      documentation: 83 + Math.random() * 14,
-    },
-    OT: {
-      clinicalSkills: 88 + Math.random() * 10,
-      assessment: 86 + Math.random() * 12,
-      communication: 89 + Math.random() * 9,
-      safety: 87 + Math.random() * 11,
-      documentation: 81 + Math.random() * 16,
-    },
-  }
+  console.warn('⚠️ USING MOCK ANALYSIS - OpenAI API key not configured or API failed')
+  console.warn('⚠️ Mock analysis will give LOW scores (20-30) to ensure accuracy')
+  console.warn('⚠️ To enable real AI analysis, configure OPENAI_API_KEY in .env.local')
 
-  // Generate mock competency scores
+  // IMPORTANT: Mock analysis follows STRICT RULES - gives LOW scores by default
+  // This ensures accuracy - mock cannot properly analyze video, so it gives conservative low scores
+  // Only real AI can properly detect medical activity vs idle/non-medical content
+
+  // Check if video data was provided - if yes, we can't analyze it in mock mode, so give low scores
+  const hasVideoData = !!(request.videoData || request.videoUrl)
+  
+  // For mock analysis, we give LOW scores (20-30) because:
+  // 1. We cannot actually analyze video content without real AI
+  // 2. Better to be conservative and give low scores than false high scores
+  // 3. This encourages users to configure OpenAI for real analysis
+  
+  const baseScore = hasVideoData ? 25 : 30 // Lower if video was provided but can't be analyzed
+  const baseConfidence = 30 // Low confidence for mock analysis
+
+  // Generate mock competency scores with LOW scores (following strict rules)
   const competencyScores: CompetencyScore[] = [
     {
-      category: "Clinical Skills",
-      score: Math.round(85 + Math.random() * 12),
-      confidence: Math.round(88 + Math.random() * 10),
+      category: "Hand Hygiene",
+      score: Math.round(baseScore + Math.random() * 5), // 25-30 range
+      confidence: baseConfidence,
       observations: [
-        "Demonstrated proper assessment techniques",
-        "Accurate vital signs measurement",
-        "Appropriate use of medical equipment",
-        "Evidence-based clinical decision making",
+        "⚠️ MOCK ANALYSIS: Cannot properly evaluate without real AI. Configure OpenAI API key for accurate analysis.",
+        "Video analysis requires real AI - mock mode gives conservative scores",
       ],
       recommendations: [
-        "Consider advanced clinical skills training",
-        "Practice complex procedures under supervision",
-        "Review latest clinical guidelines",
+        "Configure OPENAI_API_KEY in .env.local for real AI analysis",
+        "Real AI can properly detect hand hygiene compliance from video",
       ],
-      evidence: [
-        {
-          timestamp: "00:02:15",
-          description: "Proper hand hygiene before patient contact",
-          confidence: 95,
-        },
-        {
-          timestamp: "00:05:30",
-          description: "Accurate blood pressure measurement technique",
-          confidence: 92,
-        },
-        {
-          timestamp: "00:08:45",
-          description: "Appropriate patient positioning for assessment",
-          confidence: 89,
-        },
+      evidence: [],
+    },
+    {
+      category: "Patient Identification",
+      score: Math.round(baseScore + Math.random() * 5), // 25-30 range
+      confidence: baseConfidence,
+      observations: [
+        "⚠️ MOCK ANALYSIS: Cannot properly evaluate without real AI",
+        "Real AI needed to detect patient identification protocols in video",
       ],
+      recommendations: [
+        "Enable real AI analysis for accurate patient identification assessment",
+      ],
+      evidence: [],
     },
     {
       category: "Communication",
-      score: Math.round(88 + Math.random() * 10),
-      confidence: Math.round(85 + Math.random() * 12),
+      score: Math.round(baseScore + Math.random() * 5), // 25-30 range
+      confidence: baseConfidence,
       observations: [
-        "Clear, empathetic patient communication",
-        "Active listening demonstrated",
-        "Appropriate eye contact maintained",
-        "Professional language used consistently",
+        "⚠️ MOCK ANALYSIS: Cannot detect if person is talking/communicating without real AI",
+        "Real AI needed to analyze communication in video",
       ],
       recommendations: [
-        "Excellent communication skills demonstrated",
-        "Could mentor junior staff in communication",
-        "Consider patient education role",
+        "Configure OpenAI API for real communication analysis",
       ],
-      evidence: [
-        {
-          timestamp: "00:03:20",
-          description: "Empathetic response to patient concerns",
-          confidence: 91,
-        },
-        {
-          timestamp: "00:07:10",
-          description: "Clear explanation of procedures to patient",
-          confidence: 88,
-        },
-      ],
-    },
-    {
-      category: "Safety & Compliance",
-      score: Math.round(86 + Math.random() * 12),
-      confidence: Math.round(92 + Math.random() * 6),
-      observations: [
-        "Consistent infection control practices",
-        "Proper PPE usage throughout evaluation",
-        "Fall prevention measures implemented",
-        "Medication safety protocols followed",
-      ],
-      recommendations: [
-        "Review updated safety protocols",
-        "Attend advanced infection control training",
-        "Share safety best practices with team",
-      ],
-      evidence: [
-        {
-          timestamp: "00:01:30",
-          description: "Proper PPE donning sequence",
-          confidence: 96,
-        },
-        {
-          timestamp: "00:06:45",
-          description: "Patient safety assessment completed",
-          confidence: 93,
-        },
-      ],
+      evidence: [],
     },
     {
       category: "Documentation",
-      score: Math.round(80 + Math.random() * 15),
-      confidence: Math.round(87 + Math.random() * 10),
+      score: Math.round(baseScore + Math.random() * 5), // 25-30 range
+      confidence: baseConfidence,
       observations: [
-        "Accurate patient information recorded",
-        "Appropriate medical terminology used",
-        "Timely documentation completion",
-        "Complete assessment findings documented",
+        "⚠️ MOCK ANALYSIS: Cannot evaluate documentation without real AI",
       ],
       recommendations: [
-        "Improve documentation efficiency",
-        "Use more specific clinical language",
-        "Consider electronic documentation training",
+        "Enable real AI for documentation assessment",
       ],
-      evidence: [
-        {
-          timestamp: "00:12:00",
-          description: "Comprehensive assessment documentation",
-          confidence: 89,
-        },
-        {
-          timestamp: "00:14:30",
-          description: "Accurate vital signs recording",
-          confidence: 94,
-        },
+      evidence: [],
+    },
+    {
+      category: "Equipment",
+      score: Math.round(baseScore + Math.random() * 5), // 25-30 range
+      confidence: baseConfidence,
+      observations: [
+        "⚠️ MOCK ANALYSIS: Cannot evaluate equipment usage without real AI",
       ],
+      recommendations: [
+        "Configure OpenAI API for real equipment usage analysis",
+      ],
+      evidence: [],
     },
   ]
 
-  // Calculate overall score
+  // Calculate overall score (will be low - 25-30 range)
   const overallScore = Math.round(
     competencyScores.reduce((sum, score) => sum + score.score, 0) / competencyScores.length,
   )
 
-  // Generate AI insights
-  const strengths = [
-    "Excellent patient rapport and communication",
-    "Strong clinical assessment skills",
-    "Professional demeanor and appearance",
-    "Effective team collaboration",
-    "Commitment to patient safety",
-  ]
-
+  // Generate AI insights - MOCK MODE (low scores)
+  const strengths: string[] = [] // No strengths in mock mode - cannot properly evaluate
   const developmentAreas = [
-    "Documentation efficiency and timeliness",
-    "Advanced clinical procedures",
-    "Leadership and mentoring skills",
-    "Technology integration",
-    "Continuing education participation",
+    "⚠️ MOCK ANALYSIS MODE: Configure OpenAI API key for real AI analysis",
+    "Real AI analysis required to properly evaluate medical competencies",
+    "Video analysis cannot be performed without OpenAI API",
   ]
 
-  const riskFactors = []
-  if (overallScore < 80) {
-    riskFactors.push("Overall performance below expected standards")
-  }
-  const safetyScore = competencyScores.find((s) => s.category === "Safety & Compliance")?.score
-  if (safetyScore !== undefined && safetyScore < 85) {
-    riskFactors.push("Safety compliance concerns identified")
-  }
-  const docScore = competencyScores.find((s) => s.category === "Documentation")?.score
-  if (docScore !== undefined && docScore < 75) {
-    riskFactors.push("Documentation quality needs immediate attention")
-  }
+  const riskFactors = [
+    "⚠️ Using mock analysis - real AI not configured",
+    "Cannot properly evaluate medical competencies without real AI",
+    "Configure OPENAI_API_KEY for accurate assessment"
+  ]
+
+  // Generate training recommendations - focused on enabling real AI
+  const trainingRecommendations = [
+    "⚠️ CRITICAL: Configure OPENAI_API_KEY in .env.local file",
+    "Enable real AI analysis for accurate medical competency evaluation",
+    "Real AI can properly detect medical activity vs idle/non-medical content",
+    "Without real AI, accurate evaluation is not possible",
+    "See OPENAI_SETUP.md for configuration instructions"
+  ]
+
+  // Calculate overall performance score (1-5) - MOCK MODE gives LOW score
+  // Since mock cannot analyze video, it gives score 1 (Poor) to indicate analysis not possible
+  const overallPerformanceScore = 1
+  const overallPerformanceJustification = `⚠️ MOCK ANALYSIS MODE (Score: 1 - Poor). Cannot properly evaluate medical competencies without real AI analysis. Overall score of ${overallScore}% reflects that mock analysis cannot accurately assess video content. To get accurate evaluation: 1) Configure OPENAI_API_KEY in .env.local file, 2) Restart the server, 3) Real AI will properly detect medical activity, communication, and give accurate scores based on actual video content. Mock mode gives conservative low scores to avoid false positives.`
 
   return {
     evaluationId: `eval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -1153,7 +1477,15 @@ async function performMockAIAnalysis(request: EvaluationRequest): Promise<AIEval
     riskFactors,
     strengths: strengths.slice(0, 4),
     developmentAreas: developmentAreas.slice(0, 3),
-    aiConfidence: Math.round(90 + Math.random() * 8),
+    trainingRecommendations: trainingRecommendations.slice(0, 6),
+    overallPerformanceScore,
+    overallPerformanceJustification,
+    // Calculate average confidence from competency scores (all are 30 in mock mode)
+    aiConfidence: Math.round(
+      competencyScores.length > 0
+        ? competencyScores.reduce((sum, s) => sum + s.confidence, 0) / competencyScores.length
+        : 30 // Mock mode default
+    ),
     evaluationTime: request.duration,
     timestamp: new Date().toISOString(),
     status: "completed",
@@ -1183,29 +1515,56 @@ export async function POST(request: NextRequest) {
         videoUrl: undefined,
       }
 
-      // Process live camera frame image
-      if (isLiveFrame && frameImage) {
-        console.log('Live camera frame received:', frameImage.name, frameImage.size, 'bytes')
+      // Process frame image (from live camera OR extracted from recorded video)
+      if (frameImage) {
+        const frameSource = isLiveFrame ? 'live camera' : 'extracted from recorded video'
+        console.log(`📸 Frame image received (${frameSource}):`, frameImage.name, frameImage.size, 'bytes')
         // Convert frame image to base64 for OpenAI Vision
         const arrayBuffer = await frameImage.arrayBuffer()
         const buffer = Buffer.from(arrayBuffer)
-        body.videoData = buffer.toString('base64') // Actually frame image data
-        body.videoUrl = `live_frame_${Date.now()}.jpg`
-        console.log('Live frame prepared for real-time analysis')
+        body.videoData = buffer.toString('base64') // Frame image data for OpenAI Vision API
+        body.videoUrl = isLiveFrame ? `live_frame_${Date.now()}.jpg` : `video_frame_${Date.now()}.jpg`
+        console.log(`✅ Frame prepared for OpenAI Vision API analysis (${frameSource})`)
+        
+        // If this is from a recorded video, we have the frame, so we can proceed
+        // The video file is also sent but Vision API will use the frame image
+        if (!isLiveFrame && videoFile) {
+          console.log('📹 Recorded video file also provided (for reference):', videoFile.size, 'bytes')
+        }
       }
       // Process video file if provided
       else if (videoFile) {
-        console.log('Video file received:', videoFile.name, videoFile.size, 'bytes')
-        // Convert video to base64 or handle as needed for OpenAI Vision
+        console.log('📹 VIDEO FILE RECEIVED:', {
+          name: videoFile.name,
+          size: videoFile.size,
+          type: videoFile.type,
+          sizeMB: (videoFile.size / (1024 * 1024)).toFixed(2)
+        })
+        
+        // VERIFY: Check if video is actually valid
+        if (videoFile.size < 1000) {
+          console.error('❌ ERROR: Video file is too small (', videoFile.size, 'bytes). This suggests no actual video was recorded.')
+          return NextResponse.json({ 
+            error: "Invalid video: Video file is too small. Please ensure you actually recorded video content before stopping recording.",
+            details: `Video size: ${videoFile.size} bytes (expected at least 10KB for a valid recording)`
+          }, { status: 400 })
+        }
+        
+        // Convert video to base64 for OpenAI Vision API
+        console.log('🔄 Converting video to base64 for OpenAI Medical AI analysis...')
         const arrayBuffer = await videoFile.arrayBuffer()
         const buffer = Buffer.from(arrayBuffer)
-        // Store as base64 for OpenAI Vision API (or use file URL)
         body.videoData = buffer.toString('base64')
         body.videoUrl = `video_${Date.now()}_${videoFile.name}`
         
+        console.log('✅ Video data prepared for OpenAI Medical AI:', {
+          base64Length: body.videoData.length,
+          videoUrl: body.videoUrl,
+          willSendToOpenAI: true
+        })
+        
         // Update duration based on video if available
         // Note: In production, you'd extract actual video duration using ffmpeg or similar
-        console.log('Video data prepared for analysis')
       }
 
     // Validate request
@@ -1226,7 +1585,17 @@ export async function POST(request: NextRequest) {
     const finalizeAssessment = body.finalizeAssessment === true && body.assessmentId
     
     // Perform AI analysis (with video if provided)
+    console.log('🔍 Starting AI analysis...', {
+      hasVideo: !!(body.videoData || body.videoUrl),
+      evaluationType: body.competencyArea,
+      openaiConfigured: !!(openaiApiKey && openaiApiKey.trim() !== '')
+    })
     const result = await performAIAnalysis(body)
+    console.log('✅ AI analysis completed', {
+      overallScore: result.overallScore,
+      overallPerformanceScore: result.overallPerformanceScore,
+      isMock: result.overallPerformanceJustification?.includes('MOCK ANALYSIS')
+    })
     
     // If finalizing, update existing assessment instead of creating new
     if (finalizeAssessment) {
@@ -1543,10 +1912,18 @@ export async function POST(request: NextRequest) {
       // Continue - return result even if storage fails
     }
 
+    // Check if mock analysis was used
+    const isMockMode = result.overallPerformanceJustification?.includes('MOCK ANALYSIS') || 
+                       result.competencyScores[0]?.observations?.some((obs: string) => obs.includes('MOCK ANALYSIS'))
+
     return NextResponse.json({
       success: true,
       data: result,
-      message: "AI competency evaluation completed successfully",
+      evaluationId: result.evaluationId || null, // Include AI assessment ID for saving to competency
+      message: isMockMode 
+        ? "⚠️ MOCK ANALYSIS MODE: OpenAI API key not configured. Configure OPENAI_API_KEY in .env.local for real AI analysis. Mock mode gives low scores (20-30) to ensure accuracy."
+        : "AI competency evaluation completed successfully",
+      isMockMode: isMockMode
     })
   } catch (error) {
     console.error("AI Competency Evaluation Error:", error)

@@ -40,6 +40,7 @@ import {
   GraduationCap,
   Target,
   Zap,
+  RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -61,6 +62,9 @@ export default function InServiceEducation() {
   const [assignments, setAssignments] = useState<any[]>([])
   const [allEmployees, setAllEmployees] = useState<any[]>([])
   const [assignmentsLoading, setAssignmentsLoading] = useState(false)
+  const [assignmentsLastFetched, setAssignmentsLastFetched] = useState<number | null>(null)
+  const [trainingsLoading, setTrainingsLoading] = useState(false)
+  const [trainingsLastFetched, setTrainingsLastFetched] = useState<number | null>(null)
   const [overallStats, setOverallStats] = useState<any>({
     totalEmployees: 0,
     onTrack: 0,
@@ -124,18 +128,34 @@ export default function InServiceEducation() {
     file: File | null
     fileName: string
     fileUrl?: string
+    type?: string
+    fileType?: string
   }>>([])
 
-  // Fetch assignments
+  // Fetch assignments (with caching)
   useEffect(() => {
     const fetchAssignments = async () => {
       if (activeTab !== "assignments") return
       
+      // Check if we have cached data (less than 5 minutes old)
+      const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+      const now = Date.now()
+      const hasCachedData = assignments.length > 0 && 
+                           assignmentsLastFetched && 
+                           (now - assignmentsLastFetched) < CACHE_DURATION
+      
+      // Only fetch if no cached data or cache expired
+      if (hasCachedData) {
+        console.log("✓ Assignments: Using cached data")
+        return
+      }
+      
       setAssignmentsLoading(true)
       try {
-        console.log("Fetching assignments from API...")
+        console.log("Assignments: Fetching fresh data...")
         const response = await fetch("/api/in-service/assignments", {
-          cache: "no-store",
+          cache: "default", // Allow browser caching
+          next: { revalidate: 300 } // Revalidate every 5 minutes
         })
         
         console.log("Assignments API response status:", response.status)
@@ -143,7 +163,9 @@ export default function InServiceEducation() {
         if (!response.ok) {
           const errorText = await response.text()
           console.error("HTTP error:", response.status, response.statusText, errorText.substring(0, 200))
-          setAssignments([])
+          if (assignments.length === 0) {
+            setAssignments([])
+          }
           setAssignmentsLoading(false)
           return
         }
@@ -153,7 +175,9 @@ export default function InServiceEducation() {
         if (!contentType || !contentType.includes("application/json")) {
           const text = await response.text()
           console.error("Assignments API returned non-JSON:", text.substring(0, 200))
-          setAssignments([])
+          if (assignments.length === 0) {
+            setAssignments([])
+          }
           setAssignmentsLoading(false)
           return
         }
@@ -167,22 +191,27 @@ export default function InServiceEducation() {
         })
         
         if (data.success && Array.isArray(data.assignments)) {
-          console.log(`Setting ${data.assignments.length} assignments`)
+          console.log(`✓ Assignments: Loaded ${data.assignments.length} assignments`)
           setAssignments(data.assignments)
+          setAssignmentsLastFetched(Date.now())
         } else {
           console.error("Error fetching assignments:", data.error || "Unknown error")
-          setAssignments([])
+          if (assignments.length === 0) {
+            setAssignments([])
+          }
         }
       } catch (error: any) {
         console.error("Error fetching assignments:", error)
-        setAssignments([])
+        if (assignments.length === 0) {
+          setAssignments([])
+        }
       } finally {
         setAssignmentsLoading(false)
       }
     }
     
     fetchAssignments()
-  }, [activeTab])
+  }, [activeTab, assignments.length, assignmentsLastFetched])
   
   // Fetch employees for individual selection
   useEffect(() => {
@@ -426,9 +455,15 @@ export default function InServiceEducation() {
       ])
       csvRows.push([
         selectedEmployee.annualRequirement.toString(),
-        selectedEmployee.completedHours.toString(),
-        selectedEmployee.inProgressHours.toString(),
-        selectedEmployee.remainingHours.toString(),
+        (selectedEmployee.completedHours != null 
+          ? Math.round(selectedEmployee.completedHours * 10) / 10 
+          : 0).toString(),
+        (selectedEmployee.inProgressHours != null 
+          ? Math.round(selectedEmployee.inProgressHours * 10) / 10 
+          : 0).toString(),
+        (selectedEmployee.remainingHours != null 
+          ? Math.round(selectedEmployee.remainingHours * 10) / 10 
+          : 0).toString(),
       ])
       csvRows.push([])
       
@@ -447,7 +482,9 @@ export default function InServiceEducation() {
             training.title || "Unknown",
             training.completionDate || "N/A",
             training.score?.toString() || "N/A",
-            training.ceuHours?.toString() || "0",
+            (training.ceuHours != null 
+              ? Math.round(training.ceuHours * 10) / 10 
+              : 0).toString(),
             training.certificate || "N/A",
           ])
         })
@@ -805,7 +842,10 @@ export default function InServiceEducation() {
       csvRows.push(["Behind", overallStats.behind.toString()])
       csvRows.push(["At Risk", overallStats.atRisk.toString()])
       csvRows.push(["Non-Compliant", overallStats.nonCompliant.toString()])
-      csvRows.push(["Total CEU Hours Completed", overallStats.totalHoursCompleted.toString()])
+      csvRows.push(["Total CEU Hours Completed", 
+        (overallStats.totalHoursCompleted != null 
+          ? Math.round(overallStats.totalHoursCompleted * 10) / 10 
+          : 0).toString()])
       csvRows.push(["Average Completion Rate", `${overallStats.averageCompletion}%`])
       csvRows.push([])
       
@@ -1116,11 +1156,16 @@ export default function InServiceEducation() {
       
       // Overall CEU Summary
       csvRows.push(["Overall CEU Summary"])
-      csvRows.push(["Total CEU Hours Completed", overallStats.totalHoursCompleted.toString()])
+      csvRows.push(["Total CEU Hours Completed", 
+        (overallStats.totalHoursCompleted != null 
+          ? Math.round(overallStats.totalHoursCompleted * 10) / 10 
+          : 0).toString()])
       csvRows.push(["Total Employees", overallStats.totalEmployees.toString()])
       csvRows.push(["Average Hours per Employee", 
         overallStats.totalEmployees > 0 
-          ? (overallStats.totalHoursCompleted / overallStats.totalEmployees).toFixed(2)
+          ? ((overallStats.totalHoursCompleted != null 
+              ? Math.round(overallStats.totalHoursCompleted * 10) / 10 
+              : 0) / overallStats.totalEmployees).toFixed(2)
           : "0"
       ])
       csvRows.push([])
@@ -1270,7 +1315,9 @@ export default function InServiceEducation() {
             </div>
             <div class="summary-card">
               <h3>Total CEU Hours</h3>
-              <div class="value">${overallStats.totalHoursCompleted}</div>
+              <div class="value">${overallStats.totalHoursCompleted != null 
+                ? Math.round(overallStats.totalHoursCompleted * 10) / 10 
+                : 0}</div>
             </div>
             <div class="summary-card">
               <h3>Average Completion</h3>
@@ -1362,6 +1409,7 @@ export default function InServiceEducation() {
   }
 
   // Calculate average training score from completed trainings
+  // This calculates the overall average across all employees' completed trainings
   const calculateAverageTrainingScore = () => {
     if (employeeProgress.length === 0) return 0
     
@@ -1371,15 +1419,18 @@ export default function InServiceEducation() {
     employeeProgress.forEach((emp: any) => {
       if (emp.completedTrainings && Array.isArray(emp.completedTrainings)) {
         emp.completedTrainings.forEach((training: any) => {
-          if (training.score !== undefined && training.score !== null) {
-            totalScore += training.score
+          // Only count trainings with valid scores (0-100)
+          const score = parseFloat(training.score?.toString() || "0")
+          if (!isNaN(score) && score >= 0 && score <= 100) {
+            totalScore += score
             count++
           }
         })
       }
     })
     
-    return count > 0 ? Math.round(totalScore / count) : 0
+    // Return average rounded to 1 decimal place, or 0 if no scores
+    return count > 0 ? Math.round((totalScore / count) * 10) / 10 : 0
   }
 
   // Handle export training library report
@@ -1554,6 +1605,7 @@ export default function InServiceEducation() {
         
         if (data.success !== false && data.trainings !== undefined) {
           setInServiceTrainings(data.trainings || [])
+          setTrainingsLastFetched(Date.now())
           setError(null)
           console.log(`✓ Loaded ${data.trainings?.length || 0} trainings`)
           if (data.trainings && data.trainings.length > 0) {
@@ -1586,21 +1638,39 @@ export default function InServiceEducation() {
     fetchTrainings()
   }, [])
   
-  // Refresh trainings when tab changes to training library
+  // Refresh trainings when tab changes to training library (with caching)
   useEffect(() => {
     if (activeTab === "trainings") {
+      // Check if we have cached data (less than 5 minutes old)
+      const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+      const now = Date.now()
+      const hasCachedData = inServiceTrainings.length > 0 && 
+                           trainingsLastFetched && 
+                           (now - trainingsLastFetched) < CACHE_DURATION
+      
+      // Only fetch if no cached data or cache expired
+      if (hasCachedData) {
+        console.log("✓ Training Library: Using cached data")
+        return
+      }
+      
       const fetchTrainings = async () => {
         try {
-          setLoading(true)
-          const response = await fetch("/api/in-service/trainings", {
-            cache: "no-store",
+          setTrainingsLoading(true)
+          console.log("Training Library: Fetching fresh data...")
+          
+          const response = await fetch("/api/in-service/trainings?limit=100", {
+            cache: "default", // Allow browser caching
+            next: { revalidate: 300 } // Revalidate every 5 minutes
           })
           
           if (!response.ok) {
             const errorText = await response.text()
             console.error("Training Library API error:", response.status, errorText.substring(0, 200))
             setError(`HTTP ${response.status}`)
-            setInServiceTrainings([])
+            if (inServiceTrainings.length === 0) {
+              setInServiceTrainings([])
+            }
             return
           }
           
@@ -1609,7 +1679,9 @@ export default function InServiceEducation() {
             const text = await response.text()
             console.error("Training Library API returned non-JSON:", text.substring(0, 200))
             setError("Invalid response format")
-            setInServiceTrainings([])
+            if (inServiceTrainings.length === 0) {
+              setInServiceTrainings([])
+            }
             return
           }
           
@@ -1618,25 +1690,62 @@ export default function InServiceEducation() {
           
           if (data.success !== false && data.trainings !== undefined) {
             setInServiceTrainings(data.trainings || [])
+            setTrainingsLastFetched(Date.now())
             setError(null)
             console.log(`✓ Training Library: Loaded ${data.trainings?.length || 0} trainings`)
           } else {
             const errorMsg = data.error || "Failed to load trainings"
             setError(errorMsg)
-            setInServiceTrainings([])
+            if (inServiceTrainings.length === 0) {
+              setInServiceTrainings([])
+            }
             console.error("✗ Training Library: Failed to load trainings:", data)
           }
         } catch (err: any) {
           console.error("✗ Training Library: Error fetching trainings:", err)
           setError("Failed to load trainings: " + (err.message || "Network error"))
-          setInServiceTrainings([])
+          if (inServiceTrainings.length === 0) {
+            setInServiceTrainings([])
+          }
         } finally {
-          setLoading(false)
+          setTrainingsLoading(false)
         }
       }
       fetchTrainings()
     }
-  }, [activeTab])
+  }, [activeTab, inServiceTrainings.length, trainingsLastFetched])
+
+  // Manual refresh function for training library
+  const refreshTrainings = async () => {
+    try {
+      setTrainingsLoading(true)
+      setTrainingsLastFetched(null) // Force refresh by clearing cache timestamp
+      
+      const response = await fetch("/api/in-service/trainings?limit=100", {
+        cache: "no-store", // Force fresh fetch
+      })
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
+      const data = await response.json()
+      
+      if (data.success !== false && data.trainings !== undefined) {
+        setInServiceTrainings(data.trainings || [])
+        setTrainingsLastFetched(Date.now())
+        setError(null)
+        console.log(`✓ Refreshed: ${data.trainings?.length || 0} trainings`)
+      } else {
+        throw new Error(data.error || "Failed to load trainings")
+      }
+    } catch (err: any) {
+      console.error("Error refreshing trainings:", err)
+      setError("Failed to refresh trainings: " + (err.message || "Network error"))
+    } finally {
+      setTrainingsLoading(false)
+    }
+  }
 
   // Fetch employee progress
   useEffect(() => {
@@ -2294,14 +2403,32 @@ export default function InServiceEducation() {
               console.log("Upload result:", uploadResult)
               
               if (uploadResult.success && uploadResult.fileUrl) {
+                // Detect file type from extension or MIME type
+                const fileName = uploadResult.fileName || module.fileName
+                const fileExt = fileName.split('.').pop()?.toLowerCase() || ''
+                const mimeType = uploadResult.fileType || module.file?.type || ''
+                
+                let fileType = 'document' // default
+                if (mimeType.startsWith('video/') || ['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(fileExt)) {
+                  fileType = 'video'
+                } else if (mimeType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif'].includes(fileExt)) {
+                  fileType = 'image'
+                } else if (mimeType === 'application/pdf' || fileExt === 'pdf') {
+                  fileType = 'pdf'
+                } else if (['ppt', 'pptx'].includes(fileExt)) {
+                  fileType = 'powerpoint'
+                }
+                
                 uploadedModules.push({
                   id: module.id,
                   title: module.title,
                   duration: module.duration,
                   fileUrl: uploadResult.fileUrl, // Store the file URL
-                  fileName: uploadResult.fileName || module.fileName,
+                  fileName: fileName,
+                  type: fileType, // Store detected file type
+                  fileType: fileType, // Also store as fileType for compatibility
                 })
-                console.log(`✓ Module file uploaded: ${uploadResult.fileName} -> ${uploadResult.fileUrl}`)
+                console.log(`✓ Module file uploaded: ${fileName} -> ${uploadResult.fileUrl} (type: ${fileType})`)
               } else {
                 const errorMsg = uploadResult.error || "Unknown upload error"
                 console.error("Upload failed:", errorMsg)
@@ -2315,12 +2442,33 @@ export default function InServiceEducation() {
           } else if (module.fileUrl) {
             // Module already has a fileUrl (when editing and not changing the file)
             console.log(`Module already has fileUrl, preserving: ${module.fileUrl}`)
+            
+            // Detect file type from existing file
+            const fileName = module.fileName || ''
+            const fileExt = fileName.split('.').pop()?.toLowerCase() || ''
+            let fileType = module.type || module.fileType || 'document'
+            
+            // If type not set, detect from extension
+            if (!module.type && !module.fileType) {
+              if (['mp4', 'webm', 'ogg', 'mov', 'avi', 'mkv'].includes(fileExt)) {
+                fileType = 'video'
+              } else if (['jpg', 'jpeg', 'png', 'gif'].includes(fileExt)) {
+                fileType = 'image'
+              } else if (fileExt === 'pdf') {
+                fileType = 'pdf'
+              } else if (['ppt', 'pptx'].includes(fileExt)) {
+                fileType = 'powerpoint'
+              }
+            }
+            
             uploadedModules.push({
               id: module.id,
               title: module.title,
               duration: module.duration,
               fileUrl: module.fileUrl, // Preserve existing fileUrl
               fileName: module.fileName,
+              type: fileType, // Preserve or detect file type
+              fileType: fileType, // Also store as fileType for compatibility
             })
           } else {
             // Module without file and no fileUrl - this shouldn't happen due to validation
@@ -2422,12 +2570,21 @@ export default function InServiceEducation() {
         alert(`Training ${isEditing ? "updated" : "created"} successfully!`)
       } else {
         const errorMsg = data.error || "Unknown error"
-        setError("Failed to create training: " + errorMsg)
+        const isTimeout = data.timeout || data.code === "57014" || errorMsg.includes("timeout") || errorMsg.includes("canceling statement")
         
-        // Show detailed error message
-        if (errorMsg.includes("does not exist")) {
+        if (isTimeout) {
+          // Show detailed timeout error message
+          const timeoutMessage = errorMsg.includes("\n") 
+            ? errorMsg 
+            : `Training creation timed out. This usually happens with large video files (>50MB).\n\nPlease try:\n1. Compress videos to <50MB\n2. Use shorter videos\n3. Split into multiple smaller modules\n4. Try again in a moment`
+          
+          setError(timeoutMessage)
+          alert(`⏱️ Timeout Error\n\n${timeoutMessage}`)
+        } else if (errorMsg.includes("does not exist")) {
+          setError("Failed to create training: " + errorMsg)
           alert("Database table not found! Please run the migration script: scripts/060-create-in-service-training-tables.sql in your Supabase SQL editor.")
         } else {
+          setError("Failed to create training: " + errorMsg)
           alert("Failed to create training: " + errorMsg + (data.hint ? "\n\nHint: " + data.hint : ""))
         }
       }
@@ -2772,10 +2929,33 @@ export default function InServiceEducation() {
                                       <input
                                         id={`module-file-${module.id}`}
                                         type="file"
-                                        accept=".pdf,.doc,.docx,.ppt,.pptx,.txt"
+                                        accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.mp4,.webm,.ogg,.mov,.avi,.mkv"
                                         onChange={(e) => {
                                           const file = e.target.files?.[0]
                                           if (file) {
+                                            // Check if it's a large video file
+                                            const isVideo = file.type.startsWith('video/') || 
+                                                          ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'].includes('.' + file.name.split('.').pop()?.toLowerCase())
+                                            const fileSizeMB = file.size / (1024 * 1024)
+                                            
+                                            if (isVideo && fileSizeMB > 50) {
+                                              const proceed = confirm(
+                                                `⚠️ Large Video File Detected\n\n` +
+                                                `File: ${file.name}\n` +
+                                                `Size: ${fileSizeMB.toFixed(2)}MB\n\n` +
+                                                `Videos larger than 50MB may cause timeout errors when creating the training.\n\n` +
+                                                `Recommendations:\n` +
+                                                `• Compress the video to <50MB\n` +
+                                                `• Use a shorter video\n` +
+                                                `• Split into multiple smaller modules\n\n` +
+                                                `Do you want to continue?`
+                                              )
+                                              if (!proceed) {
+                                                e.target.value = '' // Clear the input
+                                                return
+                                              }
+                                            }
+                                            
                                             const updated = trainingModules.map((m) =>
                                               m.id === module.id
                                                 ? { ...m, file: file, fileName: file.name, fileUrl: undefined } // Clear fileUrl when new file is selected
@@ -2981,7 +3161,11 @@ export default function InServiceEducation() {
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Total CEU Hours Earned</span>
-                      <span className="text-2xl font-bold text-purple-600">{overallStats.totalHoursCompleted}</span>
+                      <span className="text-2xl font-bold text-purple-600">
+                        {overallStats.totalHoursCompleted != null 
+                          ? Math.round(overallStats.totalHoursCompleted * 10) / 10 
+                          : 0}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Average Score</span>
@@ -3276,9 +3460,21 @@ export default function InServiceEducation() {
             {/* Training Library */}
             <Card>
               <CardHeader>
-                <div>
-                  <CardTitle>In-Service Training Library</CardTitle>
-                  <CardDescription>Available training modules and courses</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>In-Service Training Library</CardTitle>
+                    <CardDescription>Available training modules and courses</CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={refreshTrainings}
+                    disabled={trainingsLoading}
+                    className="flex items-center gap-2"
+                  >
+                    <RefreshCw className={`h-4 w-4 ${trainingsLoading ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
                 </div>
                 <div className="mt-4 flex items-center gap-2">
                   <Input
@@ -3304,7 +3500,7 @@ export default function InServiceEducation() {
                 </div>
               </CardHeader>
               <CardContent>
-                {loading ? (
+                {trainingsLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <div className="text-center">
                       <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
@@ -3580,10 +3776,16 @@ export default function InServiceEducation() {
                           </div>
                           <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
                             <span>
-                              {employee.completedHours || 0} / {employee.annualRequirement || 0} hours completed
+                              {employee.completedHours != null 
+                                ? Math.round(employee.completedHours * 10) / 10 
+                                : 0} / {employee.annualRequirement || 0} hours completed
                             </span>
                             <span>•</span>
-                            <span>{employee.remainingHours || 0} hours remaining</span>
+                            <span>
+                              {employee.remainingHours != null 
+                                ? Math.round(employee.remainingHours * 10) / 10 
+                                : 0} hours remaining
+                            </span>
                             {employee.lastTrainingDate && (
                               <>
                                 <span>•</span>
@@ -3972,14 +4174,28 @@ export default function InServiceEducation() {
                     variant="outline"
                     size="sm"
                     onClick={async () => {
-                      const response = await fetch("/api/in-service/assignments")
-                      const data = await response.json()
-                      if (data.success) {
-                        setAssignments(data.assignments || [])
+                      setAssignmentsLastFetched(null) // Force refresh by clearing cache timestamp
+                      setAssignmentsLoading(true)
+                      try {
+                        const response = await fetch("/api/in-service/assignments", {
+                          cache: "no-store", // Force fresh fetch
+                        })
+                        const data = await response.json()
+                        if (data.success && Array.isArray(data.assignments)) {
+                          setAssignments(data.assignments || [])
+                          setAssignmentsLastFetched(Date.now())
+                          console.log(`✓ Assignments: Refreshed ${data.assignments.length} assignments`)
+                        }
+                      } catch (error: any) {
+                        console.error("Error refreshing assignments:", error)
+                      } finally {
+                        setAssignmentsLoading(false)
                       }
                     }}
+                    disabled={assignmentsLoading}
+                    className="flex items-center gap-2"
                   >
-                    <TrendingUp className="h-4 w-4 mr-2" />
+                    <RefreshCw className={`h-4 w-4 ${assignmentsLoading ? 'animate-spin' : ''}`} />
                     Refresh
                   </Button>
                 </div>
@@ -4241,7 +4457,11 @@ export default function InServiceEducation() {
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Total CEU Hours This Year</span>
-                      <span className="text-2xl font-bold text-green-600">{overallStats.totalHoursCompleted}</span>
+                      <span className="text-2xl font-bold text-green-600">
+                        {overallStats.totalHoursCompleted != null 
+                          ? Math.round(overallStats.totalHoursCompleted * 10) / 10 
+                          : 0}
+                      </span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-sm font-medium">Average Training Score</span>
@@ -4339,15 +4559,27 @@ export default function InServiceEducation() {
                     </div>
                     <div>
                       <Label className="text-sm font-medium">Completed Hours</Label>
-                      <p className="text-2xl font-bold text-green-600">{selectedEmployee.completedHours}</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {selectedEmployee.completedHours != null 
+                          ? Math.round(selectedEmployee.completedHours * 10) / 10 
+                          : 0}
+                      </p>
                     </div>
                     <div>
                       <Label className="text-sm font-medium">In Progress</Label>
-                      <p className="text-2xl font-bold text-blue-600">{selectedEmployee.inProgressHours}</p>
+                      <p className="text-2xl font-bold text-blue-600">
+                        {selectedEmployee.inProgressHours != null 
+                          ? Math.round(selectedEmployee.inProgressHours * 10) / 10 
+                          : 0}
+                      </p>
                     </div>
                     <div>
                       <Label className="text-sm font-medium">Remaining</Label>
-                      <p className="text-2xl font-bold text-orange-600">{selectedEmployee.remainingHours}</p>
+                      <p className="text-2xl font-bold text-orange-600">
+                        {selectedEmployee.remainingHours != null 
+                          ? Math.round(selectedEmployee.remainingHours * 10) / 10 
+                          : 0}
+                      </p>
                     </div>
                   </div>
                   <div className="mt-4">

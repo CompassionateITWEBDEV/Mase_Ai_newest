@@ -1183,6 +1183,22 @@ export default function StaffDashboard() {
       patient.insuranceProvider.toLowerCase().includes(searchTerm.toLowerCase()),
   )
 
+  // Sign out handler
+  const handleSignOut = () => {
+    // Clear localStorage
+    localStorage.removeItem('currentUser')
+    
+    // Clear any other auth-related data
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('user')
+    
+    // Clear session storage if used
+    sessionStorage.clear()
+    
+    // Redirect to login page
+    router.push('/login')
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -1210,7 +1226,7 @@ export default function StaffDashboard() {
                 <Settings className="h-4 w-4 mr-2" />
                 Settings
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" onClick={handleSignOut}>
                 <LogOut className="h-4 w-4 mr-2" />
                 Sign Out
               </Button>
@@ -1875,7 +1891,7 @@ export default function StaffDashboard() {
                 ) : (
                   <div className="space-y-6">
                     {/* Summary Stats - Enhanced */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
                       <div className="text-center p-5 bg-gradient-to-br from-yellow-50 to-amber-50 rounded-xl border-2 border-yellow-200 shadow-sm hover:shadow-md transition-shadow">
                         <div className="h-12 w-12 rounded-full bg-yellow-100 flex items-center justify-center mx-auto mb-3">
                           <Target className="h-6 w-6 text-yellow-600" />
@@ -1914,6 +1930,39 @@ export default function StaffDashboard() {
                           {displayStaff.trainingModules.length}
                         </p>
                         <p className="text-sm text-gray-600 font-medium">Total Assigned</p>
+                      </div>
+                      
+                      <div className="text-center p-5 bg-gradient-to-br from-orange-50 to-red-50 rounded-xl border-2 border-orange-200 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center mx-auto mb-3">
+                          <Award className="h-6 w-6 text-orange-600" />
+                        </div>
+                        <p className="text-3xl font-bold text-orange-600 mb-1">
+                          {Math.round(displayStaff.trainingModules
+                            .filter((m: any) => m.status === "completed" || m.completed)
+                            .reduce((total: number, m: any) => total + (m.ceuHours || 0), 0) * 10) / 10}
+                        </p>
+                        <p className="text-sm text-gray-600 font-medium">Total CEU Hours Earned</p>
+                      </div>
+                      
+                      <div className="text-center p-5 bg-gradient-to-br from-indigo-50 to-blue-50 rounded-xl border-2 border-indigo-200 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="h-12 w-12 rounded-full bg-indigo-100 flex items-center justify-center mx-auto mb-3">
+                          <Star className="h-6 w-6 text-indigo-600" />
+                        </div>
+                        <p className="text-3xl font-bold text-indigo-600 mb-1">
+                          {(() => {
+                            const completedTrainings = displayStaff.trainingModules.filter((m: any) => 
+                              (m.status === "completed" || m.completed) && m.score !== undefined && m.score !== null
+                            )
+                            if (completedTrainings.length === 0) return "0"
+                            const totalScore = completedTrainings.reduce((sum: number, m: any) => {
+                              const score = parseFloat(m.score?.toString() || "0")
+                              return sum + (isNaN(score) || score < 0 || score > 100 ? 0 : score)
+                            }, 0)
+                            const average = totalScore / completedTrainings.length
+                            return Math.round(average * 10) / 10
+                          })()}%
+                        </p>
+                        <p className="text-sm text-gray-600 font-medium">Average Training Score</p>
                       </div>
                     </div>
 

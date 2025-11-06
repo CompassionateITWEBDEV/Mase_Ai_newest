@@ -718,11 +718,13 @@ export default function StaffCompetencyPage() {
   })()
 
   const getOverviewStats = () => {
-    const totalStaff = staffCompetencyRecords.length
-    const competentStaff = staffCompetencyRecords.filter((r) => r.status === "competent").length
-    const needsImprovement = staffCompetencyRecords.filter((r) => r.status === "needs-improvement").length
+    // Use filteredRecords for accurate stats (excludes duplicates and empty assessments)
+    const recordsForStats = filteredRecords
+    const totalStaff = recordsForStats.length
+    const competentStaff = recordsForStats.filter((r) => r.status === "competent").length
+    const needsImprovement = recordsForStats.filter((r) => r.status === "needs-improvement" || r.status === "not-competent").length
     const averageScore = totalStaff > 0
-      ? staffCompetencyRecords.reduce((sum, record) => sum + record.overallCompetencyScore, 0) / totalStaff
+      ? recordsForStats.reduce((sum, record) => sum + record.overallCompetencyScore, 0) / totalStaff
       : 0
 
     return {
@@ -1074,17 +1076,31 @@ export default function StaffCompetencyPage() {
 
                 {/* Staff Competency Records */}
                 <div className="space-y-4">
-                  {filteredRecords.map((record) => {
-                    // Determine competency status for badge
+                  {isLoadingRecords ? (
+                    <div className="text-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-blue-600" />
+                      <p className="text-gray-600">Loading assessments...</p>
+                    </div>
+                  ) : filteredRecords.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-600 mb-2">No assessments found</p>
+                      <p className="text-sm text-gray-500">
+                        {searchTerm || filterStatus !== "all" 
+                          ? "Try adjusting your search or filter criteria"
+                          : "Create a new assessment to get started"}
+                      </p>
+                    </div>
+                  ) : (
+                    filteredRecords.map((record) => {
+                      // Determine competency status for badge - use actual record.status for accuracy
                     const getCompetencyBadge = () => {
                       const score = record.overallCompetencyScore
-                      if (score >= 90) {
+                        const status = record.status
+                        
+                        // Use actual status from record for accuracy
+                        if (status === "competent" || score >= 85) {
                         return <Badge className="bg-green-100 text-green-800 border-green-300">{score}% Competent</Badge>
-                      } else if (score >= 80) {
-                        return <Badge className="bg-green-100 text-green-800 border-green-300">{score}% Competent</Badge>
-                      } else if (score >= 70) {
-                        return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300">{score}% Developing</Badge>
-                      } else if (score >= 60) {
+                        } else if (status === "needs-improvement" || (score >= 70 && score < 85)) {
                         return <Badge className="bg-yellow-100 text-yellow-800 border-yellow-300">{score}% Needs Improvement</Badge>
                       } else {
                         return <Badge className="bg-red-100 text-red-800 border-red-300">{score}% Not Competent</Badge>
@@ -1096,12 +1112,13 @@ export default function StaffCompetencyPage() {
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between mb-4">
                             <div className="flex-1">
-                              <h3 className="font-semibold text-lg mb-1">{record.staffName}</h3>
+                                <h3 className="font-semibold text-lg mb-1">{record.staffName || "Unknown Staff"}</h3>
                               <p className="text-gray-600 mb-1">
-                                {record.staffRole} • {record.department}
+                                  {record.staffRole || "Staff"} • {record.department || "N/A"}
                               </p>
                               <p className="text-sm text-gray-500">
-                                Assessed by: {record.assessorName} • Next due: {record.nextAssessment}
+                                  Assessed by: {record.assessorName || "Unknown"} • Last: {record.lastAssessment ? new Date(record.lastAssessment).toLocaleDateString() : "N/A"}
+                                  {record.nextAssessment && ` • Next due: ${new Date(record.nextAssessment).toLocaleDateString()}`}
                               </p>
                             </div>
                             <div className="ml-4">
@@ -1111,13 +1128,25 @@ export default function StaffCompetencyPage() {
 
                           {/* Competency Areas Progress */}
                           <div className="space-y-3 mb-4">
-                            {record.competencyAreas.map((area) => {
-                              const competentSkills = area.skills.filter((skill) => skill.status === "competent").length
-                              const totalSkills = area.skills.length
-                              
-                              // Use area score if available, otherwise calculate from skill count
-                              const areaScore = area.areaScore !== undefined ? area.areaScore : 
-                                (totalSkills > 0 ? Math.round((competentSkills / totalSkills) * 100) : 0)
+                            {record.competencyAreas && record.competencyAreas.length > 0 ? (
+                              record.competencyAreas.map((area) => {
+                                const competentSkills = area.skills?.filter((skill) => skill.status === "competent").length || 0
+                                const totalSkills = area.skills?.length || 0
+                                
+                                // Use area score if available, otherwise calculate from skill scores
+                                let areaScore = area.areaScore !== undefined ? area.areaScore : 0
+                                
+                                // If no areaScore but we have skills, calculate from skill scores
+                                if (areaScore === 0 && totalSkills > 0 && area.skills) {
+                                  const totalSkillScore = area.skills.reduce((sum: number, skill: any) => {
+                                    const skillScore = skill.supervisorAssessment || skill.selfAssessment || 0
+                                    return sum + skillScore
+                                  }, 0)
+                                  areaScore = Math.round(totalSkillScore / totalSkills)
+                                } else if (areaScore === 0 && totalSkills > 0) {
+                                  // Fallback: calculate from competent count
+                                  areaScore = Math.round((competentSkills / totalSkills) * 100)
+                                }
                               
                               // Determine area status based on score
                               const areaStatus = areaScore >= 80 ? "competent" : 
@@ -1125,7 +1154,7 @@ export default function StaffCompetencyPage() {
 
                               return (
                                 <div key={area.id} className="border rounded-lg p-3">
-                                  <h4 className="font-medium mb-2">{area.name}</h4>
+                                    <h4 className="font-medium mb-2">{area.name || "Unnamed Area"}</h4>
                                   <div className="flex items-center justify-between mb-2">
                                     <span className="text-sm text-gray-600">
                                       {totalSkills > 0 
@@ -1133,7 +1162,9 @@ export default function StaffCompetencyPage() {
                                         : "No skills assessed"}
                                       {areaScore > 0 && ` • ${areaScore}%`}
                                     </span>
+                                      {area.weight > 0 && (
                                     <Badge variant="outline" className="text-xs">Weight: {area.weight}%</Badge>
+                                      )}
                                   </div>
                                   <div className="relative h-2 w-full overflow-hidden rounded-full bg-gray-200">
                                     <div 
@@ -1142,12 +1173,17 @@ export default function StaffCompetencyPage() {
                                         areaStatus === "needs-improvement" ? "bg-yellow-500" :
                                         "bg-red-500"
                                       }`}
-                                      style={{ width: `${areaScore}%` }}
+                                        style={{ width: `${Math.min(100, Math.max(0, areaScore))}%` }}
                                     />
                                   </div>
                                 </div>
                               )
-                            })}
+                              })
+                            ) : (
+                              <div className="text-center py-4 text-sm text-gray-500">
+                                No competency areas assessed yet
+                              </div>
+                            )}
                           </div>
 
                           <div className="flex justify-end space-x-2 pt-2 border-t">
@@ -1184,7 +1220,8 @@ export default function StaffCompetencyPage() {
                         </CardContent>
                       </Card>
                     )
-                  })}
+                    })
+                  )}
                 </div>
               </CardContent>
             </Card>

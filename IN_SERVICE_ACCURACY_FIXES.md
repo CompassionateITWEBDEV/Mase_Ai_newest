@@ -158,3 +158,4 @@ The compliance status calculation is **ACCURATE** and follows this logic:
 
 Ang mga stats sa in-service page karon **ACCURATE NA** based sa filtered data. Before, nag show siya og stats from ALL employees even if nag filter ka. Karon, ang stats mo-match na gyud sa imong gi-filter na employees! 🎯
 
+

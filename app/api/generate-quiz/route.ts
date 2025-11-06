@@ -4,21 +4,33 @@ export async function POST(request: NextRequest) {
   try {
     const { content, numberOfQuestions = 5 } = await request.json()
 
-    if (!content || content.trim().length < 50) {
+    // Validate content length - very lenient, AI can work with minimal content
+    const contentLength = content?.trim().length || 0
+    if (contentLength < 20) {
       return NextResponse.json(
-        { error: "Content is too short to generate meaningful questions" },
+        { 
+          error: `Content is too short (${contentLength} characters). Need at least 20 characters (module title and description) to generate questions.`,
+          questions: [],
+          isFallback: false,
+        },
         { status: 400 }
       )
     }
+    
+    console.log(`📊 Generating quiz from ${contentLength} characters of content`)
 
     // Check if OpenAI API key is configured
     const openaiApiKey = process.env.OPENAI_API_KEY
     if (!openaiApiKey) {
-      console.warn("OpenAI API key not configured, returning fallback questions")
-      return NextResponse.json({
-        questions: generateFallbackQuestions(numberOfQuestions),
-        isFallback: true,
-      })
+      console.error("❌ OpenAI API key not configured - quiz generation requires API key")
+      return NextResponse.json(
+        { 
+          error: "OpenAI API key not configured. Please configure OPENAI_API_KEY environment variable to generate quiz questions from module content.",
+          questions: [],
+          isFallback: false,
+        },
+        { status: 500 }
+      )
     }
 
     // Call OpenAI API to generate questions
@@ -33,48 +45,124 @@ export async function POST(request: NextRequest) {
         messages: [
           {
             role: "system",
-            content: `You are an expert medical training assessment creator. Generate ${numberOfQuestions} multiple-choice questions based on the provided training content. 
-            
-            Requirements:
-            - Each question should test understanding, not just memorization
-            - Provide 4 options per question
-            - Include the correct answer index (0-3)
-            - Provide a brief explanation for the correct answer
-            - Focus on practical application and key concepts
-            - Questions should be clear and unambiguous
-            
-            Return ONLY a valid JSON array of questions in this exact format:
-            [
-              {
-                "id": "q1",
-                "question": "Question text here?",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
-                "correctAnswer": 0,
-                "explanation": "Why this answer is correct"
-              }
-            ]`,
+            content: `You are an expert medical training assessment creator. Your task is to generate ${numberOfQuestions} multiple-choice questions based on the ACTUAL CONTENT provided.
+
+CRITICAL REQUIREMENTS - YOU MUST FOLLOW THESE EXACTLY:
+
+1. **MANDATORY: Use ACTUAL FILE CONTENT as PRIMARY source**
+   - If you see "ACTUAL FILE CONTENT" in the input, you MUST use that content to create questions
+   - IGNORE module title, description, and other metadata if ACTUAL FILE CONTENT is present
+   - Extract SPECIFIC facts, numbers, procedures, definitions, and details from the ACTUAL FILE CONTENT
+   - Questions MUST reference specific information from the ACTUAL FILE CONTENT
+
+2. **Question Requirements:**
+   - Questions MUST be based on SPECIFIC information from the ACTUAL FILE CONTENT
+   - DO NOT create generic questions about the topic
+   - DO NOT create questions based on module title or description if ACTUAL FILE CONTENT exists
+   - Extract exact facts, figures, procedures, and concepts from the ACTUAL FILE CONTENT
+   - Each question should test understanding of SPECIFIC content from the file
+
+3. **If ACTUAL FILE CONTENT is NOT provided:**
+   - Only then use module title/description to create questions
+   - Make reasonable inferences about the topic
+   - Focus on practical application
+
+4. **Format Requirements:**
+   - NEVER return error messages saying content is insufficient
+   - ALWAYS return a valid JSON array of questions
+   - Provide 4 options per question
+   - Include the correct answer index (0-3)
+   - Provide a brief explanation for the correct answer based on the ACTUAL FILE CONTENT
+   - Questions should be clear and unambiguous
+
+5. **Examples:**
+   - If ACTUAL FILE CONTENT says "Handwashing should last 20 seconds", create: "How long should handwashing last?" with "20 seconds" as correct answer
+   - If ACTUAL FILE CONTENT says "Use PPE when entering isolation rooms", create: "When should PPE be used?" with "When entering isolation rooms" as correct answer
+   - DO NOT create generic questions like "What is handwashing?" if the ACTUAL FILE CONTENT has specific details
+
+Return ONLY a valid JSON array of questions in this exact format (no other text, no error messages):
+[
+  {
+    "id": "q1",
+    "question": "Question text here based on ACTUAL FILE CONTENT?",
+    "options": ["Option A", "Option B", "Option C", "Option D"],
+    "correctAnswer": 0,
+    "explanation": "Why this answer is correct based on ACTUAL FILE CONTENT"
+  }
+]`,
           },
           {
             role: "user",
-            content: `Generate ${numberOfQuestions} quiz questions from this training content:\n\n${content.substring(0, 4000)}`,
+            content: `Generate ${numberOfQuestions} multiple-choice quiz questions from the following training module content.
+
+🚨 CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+1. **IF "ACTUAL FILE CONTENT" IS PRESENT:**
+   - IGNORE everything else (module title, description, etc.)
+   - Extract SPECIFIC facts, numbers, procedures, definitions from the ACTUAL FILE CONTENT
+   - Create questions based ONLY on the ACTUAL FILE CONTENT
+   - Each question must reference specific information from the ACTUAL FILE CONTENT
+   - DO NOT create generic questions - use exact details from the content
+
+2. **Question Creation Rules:**
+   - Extract exact facts: "20 seconds" → "How long should handwashing last? Answer: 20 seconds"
+   - Extract procedures: "Wear gloves before patient contact" → "When should gloves be worn? Answer: Before patient contact"
+   - Extract definitions: "PPE means Personal Protective Equipment" → "What does PPE stand for? Answer: Personal Protective Equipment"
+   - Use specific numbers, dates, names, and details from the ACTUAL FILE CONTENT
+
+3. **DO NOT:**
+   - Create generic questions if ACTUAL FILE CONTENT exists
+   - Use module title/description if ACTUAL FILE CONTENT is present
+   - Say content is insufficient - ALWAYS generate questions
+   - Create questions that could apply to any training
+
+4. **Training Content:**
+${content.substring(0, 12000)}
+
+Remember: If "ACTUAL FILE CONTENT" is present, use ONLY that content. Generate ALL ${numberOfQuestions} questions based on SPECIFIC information from the ACTUAL FILE CONTENT. Return ONLY the JSON array, no other text.`,
           },
         ],
-        temperature: 0.7,
-        max_tokens: 2000,
+        temperature: 0.3, // Lower temperature for more focused, content-based questions
+        max_tokens: 3000, // Increased for longer content analysis
       }),
     })
 
     if (!openaiResponse.ok) {
       const errorText = await openaiResponse.text()
-      console.error("OpenAI API error:", errorText)
-      return NextResponse.json({
-        questions: generateFallbackQuestions(numberOfQuestions),
-        isFallback: true,
-      })
+      console.error("❌ OpenAI API error:", errorText)
+      console.error("❌ Content length:", content.length)
+      console.error("❌ Content preview:", content.substring(0, 200))
+      
+      // Return error instead of fallback - force proper content-based generation
+      return NextResponse.json(
+        {
+          error: `Failed to generate quiz from content. OpenAI API error: ${errorText.substring(0, 200)}`,
+          questions: [],
+          isFallback: false,
+        },
+        { status: 500 }
+      )
     }
 
     const openaiData = await openaiResponse.json()
     const generatedText = openaiData.choices[0]?.message?.content || ""
+
+    // Check if OpenAI returned an error message instead of JSON
+    if (generatedText.toLowerCase().includes("sorry") || 
+        generatedText.toLowerCase().includes("not enough") ||
+        generatedText.toLowerCase().includes("insufficient") ||
+        generatedText.toLowerCase().includes("cannot generate") ||
+        (!generatedText.includes("[") && !generatedText.includes("{"))) {
+      console.error("❌ OpenAI returned error message instead of JSON:", generatedText.substring(0, 200))
+      return NextResponse.json(
+        {
+          error: `Insufficient content for quiz generation. OpenAI response: ${generatedText.substring(0, 300)}. Please ensure the module has detailed content, description, or file content for AI to analyze.`,
+          questions: [],
+          isFallback: false,
+        },
+        { status: 400 }
+      )
+    }
 
     // Parse the JSON response
     try {
@@ -84,6 +172,12 @@ export async function POST(request: NextRequest) {
         jsonText = jsonText.replace(/```json\n?/g, "").replace(/```\n?/g, "")
       } else if (jsonText.startsWith("```")) {
         jsonText = jsonText.replace(/```\n?/g, "")
+      }
+
+      // Try to find JSON array or object in the text
+      const jsonMatch = jsonText.match(/\[[\s\S]*\]/) || jsonText.match(/\{[\s\S]*\}/)
+      if (jsonMatch) {
+        jsonText = jsonMatch[0]
       }
 
       const questions = JSON.parse(jsonText)
@@ -111,17 +205,81 @@ export async function POST(request: NextRequest) {
         isFallback: false,
       })
     } catch (parseError) {
-      console.error("Error parsing OpenAI response:", parseError)
-      console.error("Generated text:", generatedText)
-      return NextResponse.json({
-        questions: generateFallbackQuestions(numberOfQuestions),
-        isFallback: true,
-      })
+      console.error("❌ Error parsing OpenAI response:", parseError)
+      console.error("❌ Generated text:", generatedText.substring(0, 500))
+      console.error("❌ Content that was analyzed:", content.substring(0, 500))
+      
+      // Check if OpenAI returned an error message
+      const lowerText = generatedText.toLowerCase()
+      if (lowerText.includes("sorry") || 
+          lowerText.includes("not enough") ||
+          lowerText.includes("insufficient") ||
+          lowerText.includes("cannot generate") ||
+          lowerText.includes("not coherent")) {
+        return NextResponse.json(
+          {
+            error: `Insufficient content for quiz generation. The AI could not generate questions from the provided content. Please ensure the module has detailed description, content, or file content (PDF/Video) for analysis. Content provided: ${contentLength} characters.`,
+            questions: [],
+            isFallback: false,
+          },
+          { status: 400 }
+        )
+      }
+      
+      // Try to extract JSON from text if it's embedded
+      try {
+        const jsonMatch = generatedText.match(/\[[\s\S]*\]/) || generatedText.match(/\{[\s\S]*\}/)
+        if (jsonMatch) {
+          const extractedJson = JSON.parse(jsonMatch[0])
+          if (Array.isArray(extractedJson) && extractedJson.length > 0) {
+            console.log("✅ Successfully extracted JSON from text response")
+            const validatedQuestions = extractedJson.map((q: any, index: number) => ({
+              id: q.id || `q${index + 1}`,
+              question: q.question || "Question not available",
+              options: Array.isArray(q.options) && q.options.length === 4
+                ? q.options
+                : ["Option A", "Option B", "Option C", "Option D"],
+              correctAnswer: typeof q.correctAnswer === "number" && q.correctAnswer >= 0 && q.correctAnswer < 4
+                ? q.correctAnswer
+                : 0,
+              explanation: q.explanation || "No explanation provided",
+            }))
+            return NextResponse.json({
+              questions: validatedQuestions,
+              isFallback: false,
+            })
+          }
+        }
+      } catch (extractError) {
+        console.error("❌ Failed to extract JSON from text:", extractError)
+      }
+      
+      // Return error instead of fallback - force proper content-based generation
+      return NextResponse.json(
+        {
+          error: `Failed to parse quiz questions from AI response. The AI may have returned an error message instead of JSON. Please ensure the module has sufficient content (title, description, or file content) for question generation.`,
+          questions: [],
+          isFallback: false,
+          debug: process.env.NODE_ENV === 'development' ? { 
+            parseError: String(parseError), 
+            generatedText: generatedText.substring(0, 500),
+            contentLength: contentLength 
+          } : undefined,
+        },
+        { status: 500 }
+      )
     }
   } catch (error: any) {
-    console.error("Error generating quiz:", error)
+    console.error("❌ Error generating quiz:", error)
+    console.error("❌ Content provided:", content?.substring(0, 200))
+    
+    // Return error instead of fallback - force proper content-based generation
     return NextResponse.json(
-      { error: error.message || "Failed to generate quiz", questions: generateFallbackQuestions(5), isFallback: true },
+      { 
+        error: `Failed to generate quiz from module content: ${error.message || "Unknown error"}. Please ensure the module has content and OpenAI API is properly configured.`,
+        questions: [],
+        isFallback: false,
+      },
       { status: 500 }
     )
   }

@@ -28,6 +28,8 @@ import { InteractiveQuiz } from "@/components/training/InteractiveQuiz"
 import { ModuleCard } from "@/components/training/ModuleCard"
 import { CertificateModal } from "@/components/training/CertificateModal"
 import { createCertificateData } from "@/lib/certificateGenerator"
+import { generateQuiz } from "@/lib/quizGenerator"
+import { calculateLearningStreak, extractCompletionDates } from "@/lib/learningStreak"
 
 export default function StaffTrainingDetailPage() {
   const params = useParams()
@@ -52,6 +54,8 @@ export default function StaffTrainingDetailPage() {
   const [isCompleting, setIsCompleting] = useState(false)
   const [showQuiz, setShowQuiz] = useState(false)
   const [currentQuizModuleId, setCurrentQuizModuleId] = useState<string | null>(null)
+  const [generatedQuizzes, setGeneratedQuizzes] = useState<Record<string, any[]>>({})
+  const [isGeneratingQuiz, setIsGeneratingQuiz] = useState(false)
   const [bookmarks, setBookmarks] = useState<Array<{ time: number; note: string }>>([])
   
   // Gamification state
@@ -192,8 +196,79 @@ export default function StaffTrainingDetailPage() {
               const calculatedPoints = parsedCompletedModules.length * 50
               setPoints(calculatedPoints)
               
-              // Set streak (you can fetch from backend in production)
-              setStreak(3)
+              // Calculate badges based on achievements
+              const calculatedBadges: string[] = []
+              const totalModules = trainingData.trainings[0]?.modules?.length || 0
+              
+              // First Steps - Complete first module
+              if (parsedCompletedModules.length >= 1) {
+                calculatedBadges.push("first_step")
+              }
+              
+              // Halfway Hero - Complete 50% of modules
+              if (totalModules > 0 && parsedCompletedModules.length >= Math.ceil(totalModules / 2)) {
+                calculatedBadges.push("halfway")
+              }
+              
+              // Speed Learner - Complete 3 modules in one day (check moduleTimeSpent for same-day completions)
+              const today = new Date().toDateString()
+              const todayCompletions = Object.keys(parsedTimeSpent).filter(moduleId => {
+                const completionTime = parsedTimeSpent[moduleId]
+                if (completionTime) {
+                  const completionDate = new Date(completionTime)
+                  return completionDate.toDateString() === today
+                }
+                return false
+              })
+              if (todayCompletions.length >= 3) {
+                calculatedBadges.push("speed_learner")
+              }
+              
+              // Perfectionist - Score 100% on all quizzes
+              const allScores = Object.values(parsedQuizScores)
+              if (allScores.length > 0 && allScores.every(score => score === 100)) {
+                calculatedBadges.push("perfectionist")
+              }
+              
+              // Champion - Complete all modules (handled by component based on modulesCompleted)
+              
+              setBadges(calculatedBadges)
+              console.log("🏆 Badges calculated:", calculatedBadges)
+              
+              // Calculate learning streak from completion dates
+              try {
+                // Extract completion dates from enrollment and employee data
+                const completionDates = extractCompletionDates(foundEnrollment, employee.completedTrainings || [])
+                
+                // Also fetch additional completion records if available
+                if (staffId) {
+                  try {
+                    const completionsResponse = await fetch(`/api/staff/${staffId}/completions`)
+                    if (completionsResponse.ok) {
+                      const completionsData = await completionsResponse.json()
+                      if (completionsData.completions) {
+                        completionsData.completions.forEach((c: any) => {
+                          if (c.completion_date || c.completionDate) {
+                            completionDates.push({
+                              date: c.completion_date || c.completionDate,
+                              trainingId: c.training_id || c.trainingId,
+                            })
+                          }
+                        })
+                      }
+                    }
+                  } catch (e) {
+                    console.log("Could not fetch additional completions:", e)
+                  }
+                }
+                
+                const calculatedStreak = calculateLearningStreak(completionDates)
+                setStreak(calculatedStreak)
+                console.log("📊 Learning streak calculated:", calculatedStreak, "days")
+              } catch (streakError) {
+                console.error("Error calculating streak:", streakError)
+                setStreak(1) // Default to 1 if calculation fails
+              }
               
               // Generate certificate data for already completed trainings
               // Check if completed by: status='completed' OR has completionDate OR came from completedTrainings array
@@ -386,7 +461,13 @@ export default function StaffTrainingDetailPage() {
             setCurrentViewerFileId(null)
             
             const moduleQuiz = module.quiz || module.quiz_config
-            if (moduleQuiz && moduleQuiz.questions && moduleQuiz.questions.length > 0) {
+            
+            // Check if module has quiz or if we've already generated one
+            const hasExistingQuiz = moduleQuiz && moduleQuiz.questions && moduleQuiz.questions.length > 0
+            const hasGeneratedQuiz = generatedQuizzes[moduleId] && generatedQuizzes[moduleId].length > 0
+            
+            if (hasExistingQuiz || hasGeneratedQuiz) {
+              // Use existing or generated quiz
               setCurrentQuizModuleId(moduleId)
               setShowQuiz(true)
               toast({
@@ -394,7 +475,158 @@ export default function StaffTrainingDetailPage() {
                 description: "Take the quiz to complete this module!",
               })
             } else {
-              await completeModule(moduleId, updatedTimeSpent, updatedViewedFiles)
+              // Auto-generate quiz from module content
+              console.log("📝 No quiz found, auto-generating from module content...")
+              setIsGeneratingQuiz(true)
+              
+              try {
+                // Get module content for quiz generation - with fallbacks to training info
+                const moduleTitle = module.title || training.title || `Module ${currentModuleIndex + 1}`
+                const moduleDescription = module.description || training.description || ""
+                const moduleContent = module.content || ""
+                
+                // Get file content if available - extract more information
+                let fileContent = ""
+                if (module.files && Array.isArray(module.files)) {
+                  // Extract text from file names, descriptions, and titles
+                  const fileInfo = module.files
+                    .map((f: any) => {
+                      const parts = []
+                      if (f.fileName) parts.push(`File: ${f.fileName}`)
+                      if (f.name) parts.push(`Name: ${f.name}`)
+                      if (f.title) parts.push(`Title: ${f.title}`)
+                      if (f.description) parts.push(`Description: ${f.description}`)
+                      if (f.type) parts.push(`Type: ${f.type}`)
+                      return parts.join(", ")
+                    })
+                    .filter(Boolean)
+                  
+                  fileContent = fileInfo.join(". ")
+                }
+                
+                // Always include training context for better quiz generation
+                let trainingContext = ""
+                if (training.title) {
+                  trainingContext += `Training: ${training.title}. `
+                }
+                if (training.description) {
+                  trainingContext += training.description
+                }
+                if (training.category) {
+                  trainingContext += ` Category: ${training.category}.`
+                }
+                
+                // Combine file content with training context
+                if (fileContent) {
+                  fileContent = `${trainingContext} ${fileContent}`.trim()
+                } else {
+                  fileContent = trainingContext
+                }
+                
+                // Get file information for content extraction
+                let fileUrl: string | undefined
+                let fileType: string | undefined
+                let fileName: string | undefined
+                
+                // Try to get file info from the first file in the module
+                if (module.files && module.files.length > 0) {
+                  const firstFile = module.files[0]
+                  fileUrl = firstFile.fileUrl || firstFile.url
+                  fileType = firstFile.type || firstFile.fileType
+                  fileName = firstFile.fileName || firstFile.name
+                  
+                  // Also check current viewer file if available
+                  if (currentViewerFile) {
+                    fileUrl = currentViewerFile.fileUrl || currentViewerFile.url || fileUrl
+                    fileType = currentViewerFile.type || currentViewerFile.fileType || fileType
+                    fileName = currentViewerFile.fileName || currentViewerFile.name || fileName
+                  }
+                }
+                
+                // Log content for debugging
+                console.log("📝 Content for quiz generation:", {
+                  moduleTitle,
+                  moduleDescription: moduleDescription?.substring(0, 50),
+                  moduleContent: moduleContent?.substring(0, 50),
+                  fileContent: fileContent?.substring(0, 50),
+                  fileUrl: fileUrl ? "Present" : "Missing",
+                  totalLength: `${moduleTitle} ${moduleDescription} ${moduleContent} ${fileContent}`.trim().length
+                })
+                
+                toast({
+                  title: "🤖 Analyzing Content...",
+                  description: fileUrl 
+                    ? `Extracting content from ${fileType || "file"} and generating quiz questions`
+                    : "Creating questions based on module content",
+                })
+                
+                // Generate quiz using AI with automatic content extraction
+                const generatedQuestions = await generateQuiz({
+                  moduleTitle,
+                  moduleDescription,
+                  moduleContent,
+                  fileContent,
+                  fileUrl, // Pass file URL for automatic extraction
+                  fileType, // Pass file type (pdf, video, powerpoint)
+                  fileName, // Pass file name
+                  numberOfQuestions: 5, // Default 5 questions
+                })
+                
+                console.log("✅ Quiz generated:", generatedQuestions.length, "questions")
+                
+                // Convert generated quiz format to match InteractiveQuiz expectations
+                // Generated quiz has: correctAnswer as number (0-3)
+                // InteractiveQuiz expects: correctAnswer as string (option text)
+                const convertedQuestions = generatedQuestions.map((q: any) => {
+                  // If correctAnswer is a number, convert to option text
+                  if (typeof q.correctAnswer === 'number' && q.options && q.options[q.correctAnswer]) {
+                    return {
+                      ...q,
+                      correctAnswer: q.options[q.correctAnswer], // Convert index to option text
+                    }
+                  }
+                  // If already a string, use as-is
+                  return q
+                })
+                
+                console.log("📝 Converted quiz questions:", convertedQuestions)
+                
+                // Store generated quiz
+                setGeneratedQuizzes(prev => ({
+                  ...prev,
+                  [moduleId]: convertedQuestions
+                }))
+                
+                // Show quiz immediately
+                setCurrentQuizModuleId(moduleId)
+                setShowQuiz(true)
+                
+                toast({
+                  title: "✅ Quiz Generated!",
+                  description: `${generatedQuestions.length} questions ready. Take the quiz to complete this module!`,
+                })
+              } catch (error: any) {
+                console.error("❌ Error generating quiz:", error)
+                const errorMessage = error.message || "Failed to generate quiz from module content"
+                
+                // Show detailed error message
+                toast({
+                  title: "❌ Quiz Generation Failed",
+                  description: errorMessage.includes("OpenAI") 
+                    ? "OpenAI API error. Please check API configuration and ensure module has content."
+                    : errorMessage.includes("content") || errorMessage.includes("too short")
+                    ? "Module content is insufficient. Please ensure the module has description, content, or files for AI to analyze."
+                    : errorMessage,
+                  variant: "destructive",
+                })
+                
+                // Still allow module completion without quiz if generation fails
+                console.warn("⚠️ Allowing module completion without quiz due to generation error")
+                // Complete module without quiz if generation fails
+                await completeModule(moduleId, updatedTimeSpent, updatedViewedFiles)
+              } finally {
+                setIsGeneratingQuiz(false)
+              }
             }
           } else {
             // Save progress
@@ -459,6 +691,27 @@ export default function StaffTrainingDetailPage() {
       setCompletedModules(newCompleted)
       
       const totalModules = training.modules?.length || 1
+      
+      // Update badges when module is completed
+      const updatedBadges = [...badges]
+      
+      // First Steps - Complete first module
+      if (newCompleted.length >= 1 && !updatedBadges.includes("first_step")) {
+        updatedBadges.push("first_step")
+      }
+      
+      // Halfway Hero - Complete 50% of modules
+      if (totalModules > 0 && newCompleted.length >= Math.ceil(totalModules / 2) && !updatedBadges.includes("halfway")) {
+        updatedBadges.push("halfway")
+      }
+      
+      // Champion - Complete all modules
+      if (totalModules > 0 && newCompleted.length >= totalModules && !updatedBadges.includes("champion")) {
+        updatedBadges.push("champion")
+      }
+      
+      setBadges(updatedBadges)
+      
       const newProgress = Math.round((newCompleted.length / totalModules) * 100)
       
       console.log(`[MODULE COMPLETION] Progress Update:`, {
@@ -470,8 +723,8 @@ export default function StaffTrainingDetailPage() {
         calculation: `${newCompleted.length} / ${totalModules} * 100 = ${newProgress}%`
       })
       
-      // Award points
-      const newPoints = points + 50
+      // Award points - 50 points per completed module
+      const newPoints = newCompleted.length * 50
       setPoints(newPoints)
       
       setEnrollment((prev: any) => ({
@@ -557,6 +810,17 @@ export default function StaffTrainingDetailPage() {
             title: "🌟 Perfect Score!",
             description: "+20 bonus points!",
           })
+          
+          // Check for Perfectionist badge - all quizzes must be 100%
+          const allScores = Object.values({ ...updatedQuizScores })
+          if (allScores.length > 0 && allScores.every(s => s === 100)) {
+            setBadges(prev => {
+              if (!prev.includes("perfectionist")) {
+                return [...prev, "perfectionist"]
+              }
+              return prev
+            })
+          }
         }
         
         await completeModule(moduleId, updatedTimeSpent, viewedFiles, updatedQuizScores)
@@ -821,11 +1085,31 @@ export default function StaffTrainingDetailPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
+            {/* Quiz Generation Loading */}
+            {isGeneratingQuiz && (
+              <Card>
+                <CardContent className="p-8 text-center">
+                  <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold mb-2">🤖 Generating Quiz...</h3>
+                  <p className="text-gray-600">
+                    Creating questions based on module content. This may take a few seconds...
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+            
             {/* Quiz Section */}
-            {!isCompleted && showQuiz && (
+            {!isCompleted && showQuiz && !isGeneratingQuiz && (
               <InteractiveQuiz
                 questions={(() => {
                   if (currentQuizModuleId) {
+                    // Check for generated quiz first
+                    if (generatedQuizzes[currentQuizModuleId] && generatedQuizzes[currentQuizModuleId].length > 0) {
+                      console.log("📝 Using auto-generated quiz for module:", currentQuizModuleId)
+                      return generatedQuizzes[currentQuizModuleId]
+                    }
+                    
+                    // Fall back to module's configured quiz
                     const module = training.modules?.find((m: any, idx: number) => 
                       (m.id || `module-${idx}`) === currentQuizModuleId
                     )
@@ -1081,14 +1365,14 @@ export default function StaffTrainingDetailPage() {
             </div>
           )}
           
-          {/* PDF Viewer */}
+          {/* PDF Viewer - Auto-detects page count */}
           {(currentViewerFile.type === "pdf" || currentViewerFile.fileType === "pdf" || 
             currentViewerFile.fileName?.toLowerCase().endsWith('.pdf') ||
             currentViewerFile.name?.toLowerCase().endsWith('.pdf')) && (
             <EnhancedPDFViewer
               fileUrl={currentViewerFile.fileUrl}
               fileName={currentViewerFile.fileName || currentViewerFile.name || "Training Document"}
-              totalPages={currentViewerFile.totalPages || 10}
+              totalPages={currentViewerFile.totalPages} // Optional - will auto-detect if not provided
               onComplete={handleContentComplete}
               onClose={handleCloseViewer}
             />

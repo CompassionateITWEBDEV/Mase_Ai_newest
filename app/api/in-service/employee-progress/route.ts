@@ -1,23 +1,50 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { createClient } from "@supabase/supabase-js"
+import { createClient, SupabaseClient } from "@supabase/supabase-js"
+
+// Configure runtime for Vercel
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 30
+
+// Singleton clients for better connection management
+let serviceClient: SupabaseClient | null = null
+let anonClient: SupabaseClient | null = null
 
 // Helper to get service role client (bypasses RLS)
 function getServiceClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  })
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    throw new Error("Missing Supabase service role credentials")
+  }
+
+  if (!serviceClient) {
+    serviceClient = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    })
+  }
+
+  return serviceClient
 }
 
 // Helper to get regular client (respects RLS)
 function getClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  return createClient(supabaseUrl, supabaseAnonKey)
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Missing Supabase anon credentials")
+  }
+
+  if (!anonClient) {
+    anonClient = createClient(supabaseUrl, supabaseAnonKey)
+  }
+
+  return anonClient
 }
 
 // Helper to get role-based annual requirement
@@ -45,6 +72,8 @@ function getRoleBasedRequirement(role: string): number {
 
 export async function GET(request: NextRequest) {
   try {
+    console.log("🔄 Starting employee progress fetch...")
+    
     // Use service role client to bypass RLS and ensure all data is accessible
     const supabase = getServiceClient()
 
@@ -54,47 +83,205 @@ export async function GET(request: NextRequest) {
     const status = searchParams.get("status")
 
     // Get all employees (from staff table and hired applicants)
-    const { data: staffList } = await supabase.from("staff").select("id, name, email, role_id, department, credentials").eq("is_active", true)
-    
-    // Get hired applicants
-    const { data: hiredApps } = await supabase
-      .from("job_applications")
-      .select("applicant_id")
-      .in("status", ["accepted", "hired"])
+    const { data: staffList, error: staffError } = await supabase
+      .from("staff")
+      .select("id, name, email, role_id, department, credentials")
+      .eq("is_active", true)
 
+    if (staffError) {
+      console.error("❌ Error fetching staff:", staffError)
+      return NextResponse.json({ 
+        error: "Failed to fetch staff", 
+        details: staffError.message 
+      }, { status: 500 })
+    }
+
+    if (!staffList || staffList.length === 0) {
+      console.log("⚠️ No active staff found")
+      return NextResponse.json({
+        success: true,
+        employees: [],
+        summary: { totalEmployees: 0, onTrack: 0, behind: 0, atRisk: 0, nonCompliant: 0, totalHoursCompleted: 0, averageCompletion: 0 },
+        total: 0,
+        timestamp: new Date().toISOString(),
+      })
+    }
+
+    console.log(`✅ Found ${staffList.length} active staff members`)
+
+    // Fetch all data in parallel with proper error handling
+    const currentYear = new Date().getFullYear()
+
+    // Build optimized queries - get specific employee data only, limit joins
+    let requirementsPromise: any
+    let enrollmentsPromise: any
+    let completionsPromise: any
+    let assignmentsPromise: any
+    
+    if (employeeId) {
+      // If specific employee requested, query only for that employee (MUCH FASTER)
+      console.log("🎯 Fetching data for specific employee:", employeeId)
+      requirementsPromise = supabase
+        .from("employee_training_requirements")
+        .select("*")
+        .eq("year", currentYear)
+        .eq("employee_id", employeeId)
+        .maybeSingle()
+        
+      enrollmentsPromise = supabase
+        .from("in_service_enrollments")
+        .select("id, training_id, employee_id, status, progress, enrollment_date, start_date, last_accessed, updated_at, completed_modules, viewed_files, module_quiz_scores, module_time_spent")
+        .eq("employee_id", employeeId)
+        
+      completionsPromise = supabase
+        .from("in_service_completions")
+        .select("id, training_id, employee_id, enrollment_id, completion_date, score, ceu_hours_earned, certificate_number")
+        .eq("employee_id", employeeId)
+        
+      assignmentsPromise = supabase
+        .from("in_service_assignments")
+        .select("id, training_id, assigned_to_type, assigned_to_value, assigned_employee_ids, due_date, priority, notes, assigned_date, status")
+        .eq("status", "active")
+    } else {
+      // All employees - use original queries but with limits
+      requirementsPromise = supabase
+        .from("employee_training_requirements")
+        .select("*")
+        .eq("year", currentYear)
+        .limit(1000)
+        
+      enrollmentsPromise = supabase
+        .from("in_service_enrollments")
+        .select("id, training_id, employee_id, status, progress, enrollment_date, start_date, last_accessed, updated_at, completed_modules, viewed_files, module_quiz_scores, module_time_spent")
+        .limit(5000)
+        
+      completionsPromise = supabase
+        .from("in_service_completions")
+        .select("id, training_id, employee_id, enrollment_id, completion_date, score, ceu_hours_earned, certificate_number")
+        .limit(5000)
+        
+      assignmentsPromise = supabase
+        .from("in_service_assignments")
+        .select("id, training_id, assigned_to_type, assigned_to_value, assigned_employee_ids, due_date, priority, notes, assigned_date, status")
+        .eq("status", "active")
+        .limit(1000)
+    }
+
+    const [
+      hiredAppsResult,
+      requirementsResult,
+      enrollmentsResult,
+      completionsResult,
+      assignmentsResult
+    ] = await Promise.allSettled([
+      supabase
+        .from("job_applications")
+        .select("applicant_id")
+        .in("status", ["accepted", "hired"])
+        .limit(1000),
+      requirementsPromise,
+      enrollmentsPromise,
+      completionsPromise,
+      assignmentsPromise
+    ])
+
+    // Extract data with proper error handling
+    const hiredApps = hiredAppsResult.status === "fulfilled" && !hiredAppsResult.value.error
+      ? hiredAppsResult.value.data
+      : []
+
+    // Handle requirements - may be single object (from maybeSingle) or array
+    let requirements: any[] = []
+    if (requirementsResult.status === "fulfilled" && !requirementsResult.value.error) {
+      const reqData = requirementsResult.value.data
+      if (reqData) {
+        // If it's a single object (from maybeSingle), wrap in array
+        requirements = Array.isArray(reqData) ? reqData : [reqData]
+      }
+    }
+
+    const enrollments = enrollmentsResult.status === "fulfilled" && !enrollmentsResult.value.error
+      ? enrollmentsResult.value.data
+      : []
+
+    const completions = completionsResult.status === "fulfilled" && !completionsResult.value.error
+      ? completionsResult.value.data
+      : []
+
+    const assignments = assignmentsResult.status === "fulfilled" && !assignmentsResult.value.error
+      ? assignmentsResult.value.data
+      : []
+
+    // Log any errors but continue processing
+    if (hiredAppsResult.status === "rejected" || (hiredAppsResult.status === "fulfilled" && hiredAppsResult.value.error)) {
+      console.error("⚠️ Error fetching hired applicants:", hiredAppsResult.status === "rejected" ? hiredAppsResult.reason : hiredAppsResult.value.error)
+    }
+    if (requirementsResult.status === "rejected" || (requirementsResult.status === "fulfilled" && requirementsResult.value.error)) {
+      console.error("⚠️ Error fetching requirements:", requirementsResult.status === "rejected" ? requirementsResult.reason : requirementsResult.value.error)
+    }
+    if (enrollmentsResult.status === "rejected" || (enrollmentsResult.status === "fulfilled" && enrollmentsResult.value.error)) {
+      console.error("⚠️ Error fetching enrollments:", enrollmentsResult.status === "rejected" ? enrollmentsResult.reason : enrollmentsResult.value.error)
+    }
+    if (completionsResult.status === "rejected" || (completionsResult.status === "fulfilled" && completionsResult.value.error)) {
+      console.error("⚠️ Error fetching completions:", completionsResult.status === "rejected" ? completionsResult.reason : completionsResult.value.error)
+    }
+    if (assignmentsResult.status === "rejected" || (assignmentsResult.status === "fulfilled" && assignmentsResult.value.error)) {
+      console.error("⚠️ Error fetching assignments:", assignmentsResult.status === "rejected" ? assignmentsResult.reason : assignmentsResult.value.error)
+    }
+
+    console.log(`📊 Data fetched - Enrollments: ${enrollments?.length || 0}, Completions: ${completions?.length || 0}, Assignments: ${assignments?.length || 0}`)
+
+    // Get unique training IDs to fetch training details
+    const trainingIds = new Set<string>()
+    enrollments?.forEach((e: any) => e.training_id && trainingIds.add(e.training_id))
+    completions?.forEach((c: any) => c.training_id && trainingIds.add(c.training_id))
+    assignments?.forEach((a: any) => a.training_id && trainingIds.add(a.training_id))
+
+    console.log(`📚 Fetching details for ${trainingIds.size} unique trainings...`)
+
+    // Fetch training details separately (MUCH FASTER than join)
+    let trainingsMap: Map<string, any> = new Map()
+    if (trainingIds.size > 0) {
+      const { data: trainingsData, error: trainingsError } = await supabase
+        .from("in_service_trainings")
+        .select("id, title, category, ceu_hours")
+        .in("id", Array.from(trainingIds))
+
+      if (trainingsError) {
+        console.error("⚠️ Error fetching trainings:", trainingsError)
+      } else {
+        trainingsData?.forEach((t: any) => trainingsMap.set(t.id, t))
+        console.log(`✅ Fetched ${trainingsData?.length || 0} training details`)
+      }
+    }
+
+    // Attach training details to enrollments, completions, and assignments
+    enrollments?.forEach((e: any) => {
+      e.in_service_trainings = trainingsMap.get(e.training_id) || null
+    })
+    completions?.forEach((c: any) => {
+      c.in_service_trainings = trainingsMap.get(c.training_id) || null
+    })
+    assignments?.forEach((a: any) => {
+      a.in_service_trainings = trainingsMap.get(a.training_id) || null
+    })
+
+    // Get applicants if there are any
     const applicantIds = Array.from(new Set((hiredApps || []).map((a: any) => a.applicant_id).filter(Boolean)))
     
     let applicantsList: any[] = []
     if (applicantIds.length > 0) {
-      const { data } = await supabase
+      const { data, error: applicantsError } = await supabase
         .from("applicants")
         .select("id, first_name, last_name, email, profession")
         .in("id", applicantIds as string[])
-      applicantsList = data || []
+      
+      if (applicantsError) {
+        console.error("⚠️ Error fetching applicants:", applicantsError)
+      } else {
+        applicantsList = data || []
+      }
     }
-
-    // Get training requirements for current year
-    const currentYear = new Date().getFullYear()
-    const { data: requirements } = await supabase
-      .from("employee_training_requirements")
-      .select("*")
-      .eq("year", currentYear)
-
-    // Get all enrollments
-    const { data: enrollments } = await supabase
-      .from("in_service_enrollments")
-      .select("*, in_service_trainings(*)")
-
-    // Get all completions
-    const { data: completions } = await supabase
-      .from("in_service_completions")
-      .select("*, in_service_trainings(*)")
-
-    // Get all assignments
-    const { data: assignments } = await supabase
-      .from("in_service_assignments")
-      .select("*, in_service_trainings(*)")
-      .eq("status", "active")
 
     // Combine staff and applicants into employee list
     const combinedEmployees = [
@@ -439,20 +626,20 @@ export async function GET(request: NextRequest) {
             assignedDate: a.assigned_date?.split("T")[0] || "",
           }
         })
-        .sort((a, b) => {
+        .sort((a: any, b: any) => {
           // Sort by days until due (soonest first)
           return a.daysUntilDue - b.daysUntilDue
         })
 
       // Calculate ACTUAL completed hours from BOTH sources (completions table + enrollment status)
-      const actualCompletedHours = completedTrainings.reduce((sum, training) => {
+      const actualCompletedHours = completedTrainings.reduce((sum: number, training: any) => {
         return sum + parseFloat(training?.ceuHours?.toString() || "0")
       }, 0)
       
       // Calculate ACTUAL in-progress hours from enrollments
       const actualInProgressHours = empEnrollments
         .filter((e: any) => e.status === "in_progress")
-        .reduce((sum, enrollment) => {
+        .reduce((sum: number, enrollment: any) => {
           return sum + parseFloat(enrollment.in_service_trainings?.ceu_hours?.toString() || "0")
         }, 0)
       
@@ -662,15 +849,31 @@ export async function GET(request: NextRequest) {
           : 0,
     }
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
       employees: filteredProgress,
       summary,
       total: filteredProgress.length,
+      timestamp: new Date().toISOString(),
     })
-  } catch (error) {
-    console.error("Error fetching employee progress:", error)
-    return NextResponse.json({ error: "Failed to fetch employee progress" }, { status: 500 })
+
+    // Disable caching for fresh data
+    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+    response.headers.set('CDN-Cache-Control', 'no-store')
+    response.headers.set('Vercel-CDN-Cache-Control', 'no-store')
+
+    console.log("✅ Successfully processed employee progress data")
+
+    return response
+  } catch (error: any) {
+    console.error("❌ Error fetching employee progress:", error)
+    const isDevelopment = process.env.NODE_ENV === 'development'
+    
+    return NextResponse.json({ 
+      error: "Failed to fetch employee progress",
+      details: isDevelopment ? error.message : undefined,
+      timestamp: new Date().toISOString()
+    }, { status: 500 })
   }
 }
 

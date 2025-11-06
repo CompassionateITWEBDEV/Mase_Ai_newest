@@ -13,27 +13,175 @@ interface GenerateQuizParams {
   moduleDescription: string
   moduleContent?: string
   fileContent?: string
+  fileUrl?: string
+  fileType?: string
+  fileName?: string
   numberOfQuestions?: number
 }
 
 /**
+ * Extract content from files (PDF, Video, PowerPoint) for quiz generation
+ */
+async function extractFileContent(
+  fileUrl?: string,
+  fileType?: string,
+  fileName?: string
+): Promise<string> {
+  if (!fileUrl) {
+    console.warn("⚠️ No fileUrl provided for extraction")
+    return ""
+  }
+
+  try {
+    console.log(`🔍 Extracting content from ${fileType}: ${fileName}`)
+    console.log(`🔍 File URL: ${fileUrl.substring(0, 100)}...`)
+    
+    const response = await fetch("/api/extract-content", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        fileUrl,
+        fileType,
+        fileName,
+      }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}))
+      console.error(`❌ Extraction failed: ${response.status}`, errorData)
+      return ""
+    }
+
+    const data = await response.json()
+    
+    console.log("📄 Extraction API response:", {
+      extracted: data.extracted,
+      contentLength: data.content?.length || 0,
+      hasContent: !!(data.content && data.content.trim().length > 0),
+      error: data.error,
+      message: data.message
+    })
+    
+    if (data.extracted && data.content && data.content.trim().length > 0) {
+      console.log(`✅ Content extracted successfully: ${data.content.length} characters`)
+      console.log(`✅ Content preview: ${data.content.substring(0, 300)}...`)
+      return data.content
+    } else {
+      console.warn(`⚠️ Extraction returned empty or invalid content:`, {
+        extracted: data.extracted,
+        contentLength: data.content?.length || 0,
+        error: data.error
+      })
+      return ""
+    }
+  } catch (error) {
+    console.error("❌ Error extracting file content:", error)
+    return ""
+  }
+}
+
+/**
  * Generate quiz questions automatically from module content using OpenAI
+ * Now automatically extracts content from PDFs, Videos, and PowerPoint files
  */
 export async function generateQuiz({
   moduleTitle,
   moduleDescription,
   moduleContent = "",
   fileContent = "",
+  fileUrl,
+  fileType,
+  fileName,
   numberOfQuestions = 5,
 }: GenerateQuizParams): Promise<QuizQuestion[]> {
   try {
-    // Combine all available content
-    const contentToAnalyze = `
-      Module Title: ${moduleTitle}
-      Description: ${moduleDescription}
-      Content: ${moduleContent}
-      ${fileContent ? `File Content: ${fileContent.substring(0, 2000)}` : ''}
-    `.trim()
+    // ALWAYS extract content from file if fileUrl is provided (regardless of fileContent)
+    let extractedFileContent = ""
+    
+    if (fileUrl) {
+      console.log("📄 ALWAYS extracting content from file for quiz generation...", { fileUrl, fileType, fileName })
+      try {
+        extractedFileContent = await extractFileContent(fileUrl, fileType, fileName)
+        console.log("📄 Extraction result:", {
+          success: extractedFileContent.length > 0,
+          length: extractedFileContent.length,
+          preview: extractedFileContent.substring(0, 200)
+        })
+      } catch (extractError) {
+        console.error("❌ Error extracting file content:", extractError)
+        // Continue with other content sources
+      }
+    }
+    
+    // If extraction failed or returned empty, use provided fileContent as fallback
+    if (!extractedFileContent || extractedFileContent.trim().length < 50) {
+      if (fileContent && fileContent.trim().length > 50) {
+        console.log("⚠️ Using provided fileContent as fallback (extraction may have failed)")
+        extractedFileContent = fileContent
+      }
+    }
+
+    // Combine all available content - PRIORITIZE extracted file content (actual content, not metadata)
+    let combinedContent = ""
+    
+    // CRITICAL: Prioritize extracted file content FIRST (this is the actual file content)
+    if (extractedFileContent && extractedFileContent.trim().length > 50) {
+      // This is the actual extracted content from the file (PDF text, video transcript, etc.)
+      combinedContent += `ACTUAL FILE CONTENT (Extracted from ${fileType || "file"}):\n${extractedFileContent.substring(0, 12000)}\n\n`
+      console.log("✅ Using extracted file content for quiz generation:", extractedFileContent.length, "characters")
+      console.log("✅ Extracted content preview:", extractedFileContent.substring(0, 500))
+    } else {
+      console.warn("⚠️ No extracted file content available - will use module metadata only")
+    }
+    
+    // Add module information as context ONLY (file content is primary)
+    // Only add minimal metadata if we have extracted content
+    if (extractedFileContent && extractedFileContent.trim().length > 50) {
+      // We have actual file content, so only add minimal context
+      combinedContent += `\n--- Module Context (for reference only, questions should be based on ACTUAL FILE CONTENT above) ---\n`
+      combinedContent += `Module Title: ${moduleTitle || "Untitled Module"}\n`
+      if (moduleDescription && moduleDescription.trim().length > 0) {
+        combinedContent += `Module Description: ${moduleDescription.substring(0, 200)}\n`
+      }
+    } else {
+      // No extracted content, use module info as primary source (fallback)
+      console.warn("⚠️ No file content extracted - quiz will be based on module title/description only")
+      combinedContent += `Module Title: ${moduleTitle || "Untitled Module"}\n`
+      if (moduleDescription && moduleDescription.trim().length > 0) {
+        combinedContent += `Module Description: ${moduleDescription}\n`
+      }
+      if (moduleContent && moduleContent.trim().length > 0) {
+        combinedContent += `Module Content: ${moduleContent.substring(0, 2000)}\n`
+      }
+    }
+    
+    const contentToAnalyze = combinedContent.trim()
+    
+    console.log(`📝 Content to analyze: ${contentToAnalyze.length} characters`)
+    console.log(`📝 Content preview: ${contentToAnalyze.substring(0, 300)}...`)
+    
+    // Ensure we have minimum content - very lenient to allow AI to work with minimal content
+    // AI can generate questions from just title and description
+    const minContentLength = 20 // Very low threshold - just need title
+    
+    if (contentToAnalyze.length < minContentLength) {
+      throw new Error(
+        `Insufficient content for quiz generation. Only ${contentToAnalyze.length} characters available. ` +
+        `Please add at least a module title and description. Current content: "${contentToAnalyze.substring(0, 100)}..."`
+      )
+    }
+    
+    // Log content for debugging
+    console.log(`📊 Content summary:`, {
+      title: moduleTitle,
+      descriptionLength: moduleDescription?.length || 0,
+      contentLength: moduleContent?.length || 0,
+      extractedFileLength: extractedFileContent?.length || 0,
+      fileContentLength: fileContent?.length || 0,
+      totalLength: contentToAnalyze.length
+    })
 
     const response = await fetch("/api/generate-quiz", {
       method: "POST",
@@ -47,15 +195,30 @@ export async function generateQuiz({
     })
 
     if (!response.ok) {
-      throw new Error("Failed to generate quiz")
+      const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
+      const errorMessage = errorData.error || `Failed to generate quiz (${response.status})`
+      console.error("❌ Quiz generation failed:", errorMessage)
+      throw new Error(errorMessage)
     }
 
     const data = await response.json()
-    return data.questions || []
+    
+    // Check if we got fallback questions (should not happen now)
+    if (data.isFallback) {
+      console.warn("⚠️ Received fallback questions - this should not happen")
+      throw new Error("Quiz generation returned fallback questions. Please ensure module has content and OpenAI API is configured.")
+    }
+    
+    if (!data.questions || data.questions.length === 0) {
+      throw new Error("No questions generated. Please ensure the module has sufficient content.")
+    }
+    
+    console.log(`✅ Generated ${data.questions.length} questions from module content`)
+    return data.questions
   } catch (error) {
-    console.error("Error generating quiz:", error)
-    // Fallback to sample questions if generation fails
-    return getFallbackQuestions(moduleTitle)
+    console.error("❌ Error generating quiz:", error)
+    // DO NOT use fallback - throw error to force proper content-based generation
+    throw error
   }
 }
 
