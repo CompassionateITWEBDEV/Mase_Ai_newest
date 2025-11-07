@@ -52,7 +52,7 @@ export function CertificateModal({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-[95vw] w-full max-h-[95vh] overflow-y-auto p-6">
           <DialogHeader>
             <DialogTitle className="text-center text-2xl font-bold flex items-center justify-center gap-2">
               <Trophy className="h-6 w-6 text-yellow-500" />
@@ -61,7 +61,7 @@ export function CertificateModal({
             </DialogTitle>
           </DialogHeader>
           
-          <div className="py-4">
+          <div className="py-4 flex justify-center">
             <Certificate
               staffName={staffName}
               trainingTitle={trainingTitle}

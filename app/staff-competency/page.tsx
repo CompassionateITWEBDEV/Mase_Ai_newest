@@ -88,6 +88,7 @@ export default function StaffCompetencyPage() {
   const [activeTab, setActiveTab] = useState("overview")
   const [selectedStaff, setSelectedStaff] = useState<string>(urlStaffId || "")
   const [selectedCompetencyArea, setSelectedCompetencyArea] = useState<string>("")
+  const [selectedRoleForMatrix, setSelectedRoleForMatrix] = useState<string>("RN")
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
   const [isAssessing, setIsAssessing] = useState(false)
@@ -130,7 +131,232 @@ export default function StaffCompetencyPage() {
 
   // Live camera features removed - video evaluation available in /evaluations page
 
-  // Role-specific competency areas
+  // Normalize role name for matching (handles variations like "RN", "Registered Nurse", etc.)
+  const normalizeRole = (role: string): string => {
+    if (!role) return ''
+    const upperRole = role.toUpperCase().trim()
+    
+    // Map common variations to standard role codes
+    const roleMap: Record<string, string> = {
+      'RN': 'RN',
+      'REGISTERED NURSE': 'RN',
+      'R.N.': 'RN',
+      'R.N': 'RN',
+      'LPN': 'LPN',
+      'LICENSED PRACTICAL NURSE': 'LPN',
+      'L.P.N.': 'LPN',
+      'L.P.N': 'LPN',
+      'HHA': 'HHA',
+      'HOME HEALTH AIDE': 'HHA',
+      'HOME HEALTH AID': 'HHA',
+      'PT': 'PT',
+      'PHYSICAL THERAPIST': 'PT',
+      'P.T.': 'PT',
+      'P.T': 'PT',
+      'OT': 'OT',
+      'OCCUPATIONAL THERAPIST': 'OT',
+      'O.T.': 'OT',
+      'O.T': 'OT',
+      'MSW': 'MSW',
+      'MASTER OF SOCIAL WORK': 'MSW',
+      'SOCIAL WORKER': 'MSW'
+    }
+    
+    // Check direct match first
+    if (roleMap[upperRole]) {
+      return roleMap[upperRole]
+    }
+    
+    // Check if role contains any of the key terms
+    for (const [key, value] of Object.entries(roleMap)) {
+      if (upperRole.includes(key) || key.includes(upperRole)) {
+        return value
+      }
+    }
+    
+    // Return normalized version
+    return upperRole
+  }
+
+  // Build skills matrix from actual assessment data
+  const buildSkillsMatrixFromRecords = (role: string): CompetencyArea[] => {
+    const normalizedRole = normalizeRole(role)
+    
+    // Filter records by role with flexible matching
+    const roleRecords = staffCompetencyRecords.filter(record => {
+      if (!record.staffRole) return false
+      const recordRole = normalizeRole(record.staffRole)
+      return recordRole === normalizedRole
+    })
+
+    // Debug logging
+    console.log('🔵 [Skill Matrix] Building matrix for role:', role, 'normalized:', normalizedRole)
+    console.log('🔵 [Skill Matrix] Total records:', staffCompetencyRecords.length)
+    console.log('🔵 [Skill Matrix] Filtered records for role:', roleRecords.length)
+    console.log('🔵 [Skill Matrix] Sample roles in records:', [...new Set(staffCompetencyRecords.map(r => r.staffRole))].slice(0, 5))
+
+    if (roleRecords.length === 0) {
+      console.log('⚠️ [Skill Matrix] No records found for role:', role)
+      return []
+    }
+
+    // Aggregate skills across all records for this role
+    const areaMap = new Map<string, {
+      area: CompetencyArea
+      skillMap: Map<string, {
+        skill: CompetencySkill
+        assessments: Array<{ self?: number; supervisor?: number; status: string; lastAssessed?: string }>
+      }>
+    }>()
+
+    // Process each record
+    roleRecords.forEach(record => {
+      record.competencyAreas?.forEach(area => {
+        const areaKey = area.id || area.name.toLowerCase().replace(/\s+/g, '-')
+        
+        if (!areaMap.has(areaKey)) {
+          areaMap.set(areaKey, {
+            area: {
+              id: areaKey,
+              name: area.name,
+              description: area.description || '',
+              weight: area.weight || 0,
+              areaScore: 0,
+              skills: []
+            },
+            skillMap: new Map()
+          })
+        }
+
+        const areaData = areaMap.get(areaKey)!
+        
+        // Process skills in this area
+        area.skills?.forEach(skill => {
+          // Use skill ID if available, otherwise create a key from name
+          const skillKey = skill.id || skill.name.toLowerCase().replace(/\s+/g, '-')
+          
+          if (!areaData.skillMap.has(skillKey)) {
+            areaData.skillMap.set(skillKey, {
+              skill: {
+                id: skillKey,
+                name: skill.name,
+                description: skill.description || '',
+                required: skill.required ?? true,
+                assessmentMethod: skill.assessmentMethod || 'observation',
+                passingScore: skill.passingScore || 80,
+                status: 'not-assessed',
+                selfAssessment: undefined,
+                supervisorAssessment: undefined,
+                lastAssessed: undefined,
+                nextDue: skill.nextDue || undefined,
+                evidence: Array.isArray(skill.evidence) ? skill.evidence : []
+              },
+              assessments: []
+            })
+          }
+
+          const skillData = areaData.skillMap.get(skillKey)!
+          
+          // Add assessment data - include all skills, even if not assessed
+          skillData.assessments.push({
+            self: skill.selfAssessment ?? undefined,
+            supervisor: skill.supervisorAssessment ?? undefined,
+            status: skill.status || 'not-assessed',
+            lastAssessed: skill.lastAssessed
+          })
+        })
+      })
+    })
+
+    // Convert to array and calculate averages
+    const matrixAreas: CompetencyArea[] = Array.from(areaMap.values()).map(({ area, skillMap }) => {
+      const skills: CompetencySkill[] = Array.from(skillMap.values()).map(({ skill, assessments }) => {
+        // Calculate average scores from all assessments
+        const selfScores = assessments.map(a => a.self).filter((s): s is number => s !== null && s !== undefined)
+        const supervisorScores = assessments.map(a => a.supervisor).filter((s): s is number => s !== null && s !== undefined)
+        
+        const avgSelf = selfScores.length > 0 
+          ? Math.round(selfScores.reduce((sum, s) => sum + s, 0) / selfScores.length)
+          : undefined
+        
+        const avgSupervisor = supervisorScores.length > 0
+          ? Math.round(supervisorScores.reduce((sum, s) => sum + s, 0) / supervisorScores.length)
+          : undefined
+
+        // Determine overall status (most common status, or use skill's default status)
+        const statusCounts = new Map<string, number>()
+        assessments.forEach(a => {
+          if (a.status) {
+            statusCounts.set(a.status, (statusCounts.get(a.status) || 0) + 1)
+          }
+        })
+        const mostCommonStatus = assessments.length > 0 && statusCounts.size > 0
+          ? Array.from(statusCounts.entries())
+              .sort((a, b) => b[1] - a[1])[0]?.[0] || 'not-assessed'
+          : skill.status || 'not-assessed'
+
+        // Get most recent assessment date
+        const lastAssessedDates = assessments
+          .map(a => a.lastAssessed)
+          .filter((d): d is string => !!d && d !== 'undefined')
+          .sort((a, b) => {
+            try {
+              return new Date(b).getTime() - new Date(a).getTime()
+            } catch {
+              return 0
+            }
+          })
+        const lastAssessed = lastAssessedDates[0] || skill.lastAssessed
+
+        // Determine status from average score if we have score data (more accurate)
+        let finalStatus = mostCommonStatus
+        const finalScore = avgSupervisor ?? avgSelf ?? undefined
+        
+        // If we have score data, use it to determine status (more accurate)
+        if (finalScore !== undefined && finalScore > 0) {
+          const passingScore = skill.passingScore || 80
+          if (finalScore >= passingScore) {
+            finalStatus = 'competent'
+          } else if (finalScore >= passingScore * 0.75) {
+            finalStatus = 'needs-improvement'
+          } else if (finalScore > 0) {
+            finalStatus = 'not-competent'
+          } else {
+            finalStatus = 'not-assessed'
+          }
+        }
+
+        return {
+          ...skill,
+          selfAssessment: avgSelf ?? undefined,
+          supervisorAssessment: avgSupervisor ?? undefined,
+          status: finalStatus as "not-assessed" | "competent" | "needs-improvement" | "not-competent",
+          lastAssessed: lastAssessed
+        }
+      })
+
+      // Calculate area score from skills - only count skills that have been assessed
+      const assessedSkills = skills.filter(s => s.supervisorAssessment !== undefined || s.selfAssessment !== undefined)
+      const areaScore = assessedSkills.length > 0
+        ? Math.round(
+            assessedSkills.reduce((sum, s) => {
+              const score = s.supervisorAssessment ?? s.selfAssessment ?? 0
+              return sum + score
+            }, 0) / assessedSkills.length
+          )
+        : 0
+
+      return {
+        ...area,
+        areaScore,
+        skills
+      }
+    })
+
+    return matrixAreas
+  }
+
+  // Role-specific competency areas (template/fallback)
   const getCompetencyAreasForRole = (role: string): CompetencyArea[] => {
     const baseAreas: CompetencyArea[] = [
       {
@@ -535,7 +761,14 @@ export default function StaffCompetencyPage() {
               email: s.email
             })))
           }
-          setStaffList(data.staff)
+          // Deduplicate staff list by ID to prevent duplicate key errors
+          const uniqueStaff = Array.from(
+            new Map(data.staff.map((staff: any) => [staff.id, staff])).values()
+          )
+          if (uniqueStaff.length !== data.staff.length) {
+            console.warn(`⚠️ [Staff List] Removed ${data.staff.length - uniqueStaff.length} duplicate staff entries`)
+          }
+          setStaffList(uniqueStaff)
         }
       } catch (error) {
         console.error('Error loading staff:', error)
@@ -668,16 +901,28 @@ export default function StaffCompetencyPage() {
           }
         }
 
+        // Map assessment method from API (if available) or default to observation
+        let assessmentMethod: "demonstration" | "written" | "observation" | "simulation" = "observation"
+        if (item.assessmentMethod) {
+          const method = String(item.assessmentMethod).toLowerCase()
+          if (method === 'demonstration' || method === 'written' || method === 'observation' || method === 'simulation') {
+            assessmentMethod = method as any
+          }
+        }
+
         return {
           id: item.id || '',
           name: item.description || '',
           description: item.description || '',
-          required: true,
-          assessmentMethod: "observation" as const,
-          passingScore: 80,
-          selfAssessment: item.selfAssessmentScore || null,
-          supervisorAssessment: item.supervisorAssessmentScore || null,
+          required: item.required !== undefined ? item.required : true,
+          assessmentMethod: assessmentMethod,
+          passingScore: item.passingScore || 80,
+          selfAssessment: item.selfAssessmentScore !== null && item.selfAssessmentScore !== undefined ? Number(item.selfAssessmentScore) : undefined,
+          supervisorAssessment: item.supervisorAssessmentScore !== null && item.supervisorAssessmentScore !== undefined ? Number(item.supervisorAssessmentScore) : undefined,
           status: skillStatus,
+          lastAssessed: item.lastAssessed || undefined,
+          nextDue: item.nextDue || undefined,
+          evidence: Array.isArray(item.evidence) && item.evidence.length > 0 ? item.evidence : (item.evidenceProvided ? ["Assessment completed"] : [])
         }
       })
 
@@ -686,9 +931,9 @@ export default function StaffCompetencyPage() {
       if (skills.length > 0) {
         // Calculate average of all skill scores (including 0 scores)
         const totalScore = skills.reduce((sum: number, skill: any) => {
-          const skillScore = skill.supervisorAssessment !== null && skill.supervisorAssessment !== undefined
+          const skillScore = skill.supervisorAssessment !== undefined
             ? skill.supervisorAssessment
-            : (skill.selfAssessment !== null && skill.selfAssessment !== undefined
+            : (skill.selfAssessment !== undefined
               ? skill.selfAssessment
               : 0)
           return sum + (skillScore || 0)
@@ -773,10 +1018,26 @@ export default function StaffCompetencyPage() {
 
   // Filter records and remove duplicates (keep only latest assessment per staff)
   const filteredRecords = (() => {
-    // First, group by staffId and keep only the latest assessment per staff
+    // First, deduplicate by record.id to ensure unique IDs
+    const uniqueById = new Map<string, StaffCompetencyRecord>()
+    staffCompetencyRecords.forEach((record) => {
+      if (record.id && !uniqueById.has(record.id)) {
+        uniqueById.set(record.id, record)
+      } else if (record.id) {
+        // If duplicate ID found, keep the one with later date or higher score
+        const existing = uniqueById.get(record.id)!
+        const existingDate = new Date(existing.lastAssessment || 0).getTime()
+        const recordDate = new Date(record.lastAssessment || 0).getTime()
+        if (recordDate > existingDate || (recordDate === existingDate && record.overallCompetencyScore > existing.overallCompetencyScore)) {
+          uniqueById.set(record.id, record)
+        }
+      }
+    })
+    
+    // Then, group by staffId and keep only the latest assessment per staff
     const latestAssessments = new Map<string, StaffCompetencyRecord>()
     
-    staffCompetencyRecords.forEach((record) => {
+    Array.from(uniqueById.values()).forEach((record) => {
       const existing = latestAssessments.get(record.staffId)
       if (!existing) {
         latestAssessments.set(record.staffId, record)
@@ -1108,8 +1369,8 @@ export default function StaffCompetencyPage() {
                         return dateB - dateA
                       })
                       .slice(0, 5)
-                      .map((record) => (
-                    <div key={record.id} className="flex items-center justify-between p-4 border rounded-lg">
+                      .map((record, idx) => (
+                    <div key={record.id || `recent-${idx}-${record.staffId}`} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center space-x-4">
                         <div className="p-2 bg-blue-100 rounded-lg">
                           <Shield className="h-5 w-5 text-blue-600" />
@@ -1175,7 +1436,26 @@ export default function StaffCompetencyPage() {
                           <p className="text-xs text-gray-500">Overall Score</p>
                         </div>
                         {getStatusBadge(record.status)}
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            // Filter to show this staff member's records first
+                            setSearchTerm(record.staffName || "")
+                            // Switch to assessments tab
+                            setActiveTab("assessments")
+                            // Scroll to top of page after tab switch
+                            setTimeout(() => {
+                              window.scrollTo({ top: 0, behavior: "smooth" })
+                              // Also try to scroll to the assessments section if it exists
+                              const assessmentsSection = document.getElementById("assessments-tab-content")
+                              if (assessmentsSection) {
+                                assessmentsSection.scrollIntoView({ behavior: "smooth", block: "start" })
+                              }
+                            }, 150)
+                          }}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
                           View Details
                         </Button>
                       </div>
@@ -1187,7 +1467,7 @@ export default function StaffCompetencyPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="assessments" className="space-y-6">
+          <TabsContent value="assessments" id="assessments-tab-content" className="space-y-6">
             {/* Search and Filter */}
             <Card>
               <CardHeader>
@@ -1313,7 +1593,7 @@ export default function StaffCompetencyPage() {
                       </p>
                     </div>
                   ) : (
-                    filteredRecords.map((record) => {
+                    filteredRecords.map((record, index) => {
                       // Determine competency status for badge - use actual record.status for accuracy
                     const getCompetencyBadge = () => {
                       const score = record.overallCompetencyScore
@@ -1330,7 +1610,7 @@ export default function StaffCompetencyPage() {
                     }
 
                     return (
-                      <Card key={record.id}>
+                      <Card key={record.id || `record-${index}-${record.staffId}`}>
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between mb-4">
                             <div className="flex-1">
@@ -1462,7 +1742,7 @@ export default function StaffCompetencyPage() {
                 {/* Role Selection */}
                 <div className="mb-6">
                   <Label htmlFor="role-select">Select Role to View Skills Matrix</Label>
-                  <Select defaultValue="RN">
+                  <Select value={selectedRoleForMatrix} onValueChange={setSelectedRoleForMatrix}>
                     <SelectTrigger className="w-full md:w-64">
                       <SelectValue placeholder="Choose role" />
                     </SelectTrigger>
@@ -1476,13 +1756,105 @@ export default function StaffCompetencyPage() {
                   </Select>
                 </div>
 
-                {/* Skills Matrix for RN */}
+                {/* Statistics Summary */}
+                {(() => {
+                  const normalizedRole = normalizeRole(selectedRoleForMatrix)
+                  const roleRecords = staffCompetencyRecords.filter(record => {
+                    if (!record.staffRole) return false
+                    return normalizeRole(record.staffRole) === normalizedRole
+                  })
+                  const matrixData = buildSkillsMatrixFromRecords(selectedRoleForMatrix)
+                  const totalStaff = roleRecords.length
+                  const totalSkills = matrixData.reduce((sum, area) => sum + (area.skills?.length || 0), 0)
+                  const avgOverallScore = roleRecords.length > 0
+                    ? Math.round(roleRecords.reduce((sum, r) => sum + r.overallCompetencyScore, 0) / roleRecords.length)
+                    : 0
+                  
+                  return totalStaff > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600">Staff Assessed</p>
+                              <p className="text-2xl font-bold">{totalStaff}</p>
+                            </div>
+                            <Users className="h-8 w-8 text-blue-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600">Total Skills</p>
+                              <p className="text-2xl font-bold">{totalSkills}</p>
+                            </div>
+                            <Target className="h-8 w-8 text-green-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card>
+                        <CardContent className="p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm text-gray-600">Average Score</p>
+                              <p className="text-2xl font-bold">{avgOverallScore}%</p>
+                            </div>
+                            <Star className="h-8 w-8 text-yellow-500" />
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ) : null
+                })()}
+
+                {/* Skills Matrix for Selected Role */}
                 <div className="space-y-6">
-                  {getCompetencyAreasForRole("RN").map((area) => (
+                  {isLoadingRecords ? (
+                    <div className="text-center py-8">
+                      <Loader2 className="h-8 w-8 animate-spin mx-auto mb-2 text-blue-600" />
+                      <p className="text-gray-600">Loading skills matrix...</p>
+                    </div>
+                  ) : (() => {
+                    // Try to get real data first, fallback to template if no data
+                    const matrixData = buildSkillsMatrixFromRecords(selectedRoleForMatrix)
+                    const templateData = getCompetencyAreasForRole(selectedRoleForMatrix)
+                    const displayData = matrixData.length > 0 ? matrixData : templateData
+                    
+                    console.log('🔵 [Skill Matrix Display] Matrix data areas:', matrixData.length)
+                    console.log('🔵 [Skill Matrix Display] Template data areas:', templateData.length)
+                    console.log('🔵 [Skill Matrix Display] Display data areas:', displayData.length)
+                    
+                    if (displayData.length === 0) {
+                      return (
+                        <div className="text-center py-8">
+                          <BookOpen className="h-12 w-12 mx-auto text-gray-300 mb-2" />
+                          <p className="text-sm text-gray-500 mb-2">No competency data available for {selectedRoleForMatrix} role</p>
+                          <p className="text-xs text-gray-400">Create assessments to see skills matrix data</p>
+                        </div>
+                      )
+                    }
+                    
+                    return (
+                      displayData.map((area) => (
                     <Card key={area.id}>
                       <CardHeader className="pb-3">
-                        <CardTitle className="text-base">{area.name}</CardTitle>
-                        <CardDescription>{area.description}</CardDescription>
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <CardTitle className="text-base">{area.name}</CardTitle>
+                            <CardDescription>{area.description}</CardDescription>
+                          </div>
+                          {area.areaScore !== undefined && area.areaScore > 0 && (
+                            <div className="ml-4 text-right">
+                              <p className="text-xs text-gray-600 mb-1">Area Score</p>
+                              <div className="flex items-center space-x-2">
+                                <Progress value={area.areaScore} className="w-24" />
+                                <span className="text-sm font-bold">{area.areaScore}%</span>
+                              </div>
+                            </div>
+                          )}
+                        </div>
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
@@ -1510,13 +1882,21 @@ export default function StaffCompetencyPage() {
                                 </div>
                                 <div>
                                   <Label className="text-xs">Last Assessed</Label>
-                                  <p className="text-sm">{skill.lastAssessed || "Not assessed"}</p>
+                                  <p className="text-sm">
+                                    {skill.lastAssessed 
+                                      ? new Date(skill.lastAssessed).toLocaleDateString('en-US', { 
+                                          year: 'numeric', 
+                                          month: 'short', 
+                                          day: 'numeric' 
+                                        })
+                                      : "Not assessed"}
+                                  </p>
                                 </div>
                               </div>
 
-                              {(skill.selfAssessment !== null || skill.supervisorAssessment !== null) && (
+                              {(skill.selfAssessment !== undefined || skill.supervisorAssessment !== undefined) && (
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                                  {skill.selfAssessment !== null && (
+                                  {skill.selfAssessment !== undefined && (
                                   <div>
                                     <Label className="text-xs">Self Assessment</Label>
                                     <div className="flex items-center space-x-2">
@@ -1525,7 +1905,7 @@ export default function StaffCompetencyPage() {
                                     </div>
                                   </div>
                                   )}
-                                  {skill.supervisorAssessment !== null && (
+                                  {skill.supervisorAssessment !== undefined && (
                                   <div>
                                     <Label className="text-xs">Supervisor Assessment</Label>
                                     <div className="flex items-center space-x-2">
@@ -1537,7 +1917,7 @@ export default function StaffCompetencyPage() {
                                   {(() => {
                                     const selfAssess = skill.selfAssessment
                                     const supervisorAssess = skill.supervisorAssessment
-                                    if (selfAssess != null && supervisorAssess != null) {
+                                    if (selfAssess !== undefined && supervisorAssess !== undefined) {
                                       return (
                                         <div className="col-span-2 mt-2 p-2 bg-blue-50 rounded">
                                           <Label className="text-xs text-blue-800">Gap Analysis</Label>
@@ -1574,7 +1954,9 @@ export default function StaffCompetencyPage() {
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
+                      ))
+                    )
+                  })()}
                 </div>
               </CardContent>
             </Card>
@@ -2415,8 +2797,8 @@ export default function StaffCompetencyPage() {
                   <SelectValue placeholder="Select staff member" />
                 </SelectTrigger>
                 <SelectContent>
-                  {staffList.map((staff) => (
-                    <SelectItem key={staff.id} value={staff.id}>
+                  {staffList.map((staff, index) => (
+                    <SelectItem key={staff.id || `staff-${index}`} value={staff.id}>
                       {staff.name} {staff.department ? `- ${staff.department}` : ''}
                     </SelectItem>
                   ))}
@@ -3141,8 +3523,8 @@ export default function StaffCompetencyPage() {
                         {/* List other staff members as potential supervisors */}
                         {staffList
                           .filter((staff) => staff.id !== selectedRecordForAssessment.staffId && staff.name !== currentUser?.name)
-                          .map((staff) => (
-                            <SelectItem key={staff.id} value={staff.name}>
+                          .map((staff, index) => (
+                            <SelectItem key={staff.id || `supervisor-${index}`} value={staff.name}>
                               {staff.name} {staff.department ? `- ${staff.department}` : ''}
                             </SelectItem>
                           ))}

@@ -211,7 +211,13 @@ export async function GET(request: NextRequest) {
             supervisorAssessmentScore: skill.supervisor_assessment_score || null,
             maxScore: 5, // Default max score
             evidenceProvided: Array.isArray(skill.evidence) && skill.evidence.length > 0,
-            notes: skill.notes || null
+            evidence: Array.isArray(skill.evidence) ? skill.evidence : [],
+            notes: skill.notes || null,
+            assessmentMethod: skill.assessment_method || 'observation',
+            passingScore: skill.passing_score || 80,
+            lastAssessed: skill.last_assessed || null,
+            nextDue: skill.next_due || null,
+            required: skill.required !== undefined ? skill.required : true
           }
         })
       }))
