@@ -2096,7 +2096,7 @@ export default function StaffDashboard() {
                         const handleViewCertificate = () => {
                           if (module.trainingId && selectedStaff?.id) {
                             // Navigate to training page which will show the certificate
-                            window.location.href = `/staff-training/${module.trainingId}?staffId=${encodeURIComponent(selectedStaff.id)}&showCertificate=true`
+                            window.location.href = `/staff-training/${module.trainingId}?staffId=${encodeURIComponent(selectedStaff.id)}&showCertificate=true&source=staff-dashboard`
                           }
                         }
 

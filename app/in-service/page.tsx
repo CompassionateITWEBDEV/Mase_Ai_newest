@@ -4843,11 +4843,11 @@ export default function InServiceEducation() {
                                 variant="outline" 
                                 size="sm"
                                 onClick={() => {
-                                  // Navigate to certificate view
+                                  // Navigate to certificate view with source parameter
                                   const trainingId = training.trainingId || training.id
                                   const staffId = selectedEmployee.id
                                   if (trainingId && staffId) {
-                                    window.location.href = `/staff-training/${trainingId}?staffId=${encodeURIComponent(staffId)}&showCertificate=true`
+                                    window.location.href = `/staff-training/${trainingId}?staffId=${encodeURIComponent(staffId)}&showCertificate=true&source=in-service`
                                   }
                                 }}
                               >

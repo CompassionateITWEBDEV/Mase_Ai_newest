@@ -16,6 +16,7 @@ interface CertificateModalProps {
   score?: number
   certificateId: string
   staffId?: string
+  sourcePage?: "staff-dashboard" | "in-service" | "other" // Track where the certificate is being viewed from
 }
 
 export function CertificateModal({
@@ -28,6 +29,7 @@ export function CertificateModal({
   score,
   certificateId,
   staffId,
+  sourcePage,
 }: CertificateModalProps) {
   const [showConfetti, setShowConfetti] = useState(false)
   const router = useRouter()
@@ -42,16 +44,46 @@ export function CertificateModal({
 
   const handleBackToDashboard = () => {
     onOpenChange(false)
-    if (staffId) {
-      router.push(`/staff-dashboard?staff_id=${encodeURIComponent(staffId)}#training`)
+    // Navigate back to the source page
+    if (sourcePage === "staff-dashboard") {
+      if (staffId) {
+        router.push(`/staff-dashboard?staff_id=${encodeURIComponent(staffId)}#training`)
+      } else {
+        router.push('/staff-dashboard')
+      }
+    } else if (sourcePage === "in-service") {
+      // Navigate back to in-service page
+      router.push('/in-service')
+    }
+    // If source is other, just close the modal without navigation
+  }
+
+  // Handle modal close - navigate back to source page
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      // Closing modal - navigate back to source page
+      if (sourcePage === "staff-dashboard") {
+        if (staffId) {
+          router.push(`/staff-dashboard?staff_id=${encodeURIComponent(staffId)}#training`)
+        } else {
+          router.push('/staff-dashboard')
+        }
+      } else if (sourcePage === "in-service") {
+        // Navigate back to in-service page
+        router.push('/in-service')
+      } else {
+        // Just close if source is unknown
+        onOpenChange(newOpen)
+      }
     } else {
-      router.push('/staff-dashboard')
+      // Opening modal
+      onOpenChange(newOpen)
     }
   }
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent className="max-w-[95vw] w-full max-h-[95vh] overflow-y-auto p-6">
           <DialogHeader>
             <DialogTitle className="text-center text-2xl font-bold flex items-center justify-center gap-2">

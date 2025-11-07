@@ -724,7 +724,7 @@ export function Certificate({
             {onBackToDashboard && (
               <Button onClick={onBackToDashboard} size="lg" variant="default" className="bg-green-600 hover:bg-green-700">
                 <CheckCircle className="h-5 w-5 mr-2" />
-                Back to Training Dashboard
+                Back
               </Button>
             )}
           </div>

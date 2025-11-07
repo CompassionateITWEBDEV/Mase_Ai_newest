@@ -39,6 +39,11 @@ export default function StaffTrainingDetailPage() {
   const trainingId = params.trainingId as string
   const staffId = searchParams?.get("staffId") || undefined
   const showCertificateParam = searchParams?.get("showCertificate") === "true"
+  // Determine source page from URL parameter or referrer
+  const sourceParam = searchParams?.get("source") as "staff-dashboard" | "in-service" | "other" | null
+  const sourcePage = sourceParam || 
+                     (typeof window !== "undefined" && document.referrer.includes("staff-dashboard") ? "staff-dashboard" : 
+                      typeof window !== "undefined" && document.referrer.includes("in-service") ? "in-service" : "other")
   
   const { toast } = useToast()
   
@@ -1060,6 +1065,7 @@ export default function StaffTrainingDetailPage() {
             score={certificateData.score}
             certificateId={certificateData.certificateId}
             staffId={staffId}
+            sourcePage={sourcePage}
           />
         )}
       </div>
@@ -1107,13 +1113,7 @@ export default function StaffTrainingDetailPage() {
         {/* Certificate Modal */}
         <CertificateModal
           open={showCertificate}
-          onOpenChange={(open) => {
-            setShowCertificate(open)
-            // If they close the modal, redirect to dashboard
-            if (!open && staffId) {
-              router.push(`/staff-dashboard?staff_id=${encodeURIComponent(staffId)}#training`)
-            }
-          }}
+          onOpenChange={(open) => setShowCertificate(open)}
           staffName={certificateData.staffName}
           trainingTitle={certificateData.trainingTitle}
           completionDate={certificateData.completionDate}
@@ -1121,6 +1121,7 @@ export default function StaffTrainingDetailPage() {
           score={certificateData.score}
           certificateId={certificateData.certificateId}
           staffId={staffId}
+          sourcePage={sourcePage}
         />
       </div>
     )
@@ -1449,6 +1450,7 @@ export default function StaffTrainingDetailPage() {
           score={certificateData.score}
           certificateId={certificateData.certificateId}
           staffId={staffId}
+          sourcePage={sourcePage}
         />
       )}
       

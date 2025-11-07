@@ -1370,7 +1370,7 @@ export default function StaffCompetencyPage() {
                       })
                       .slice(0, 5)
                       .map((record, idx) => (
-                    <div key={record.id || `recent-${idx}-${record.staffId}`} className="flex items-center justify-between p-4 border rounded-lg">
+                    <div key={`recent-${record.id || record.staffId}-${idx}`} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center space-x-4">
                         <div className="p-2 bg-blue-100 rounded-lg">
                           <Shield className="h-5 w-5 text-blue-600" />
@@ -1610,7 +1610,7 @@ export default function StaffCompetencyPage() {
                     }
 
                     return (
-                      <Card key={record.id || `record-${index}-${record.staffId}`}>
+                      <Card key={`record-${record.id || record.staffId}-${index}`}>
                         <CardContent className="p-6">
                           <div className="flex items-start justify-between mb-4">
                             <div className="flex-1">
@@ -1631,7 +1631,7 @@ export default function StaffCompetencyPage() {
                           {/* Competency Areas Progress */}
                           <div className="space-y-3 mb-4">
                             {record.competencyAreas && record.competencyAreas.length > 0 ? (
-                              record.competencyAreas.map((area) => {
+                              record.competencyAreas.map((area, areaIndex) => {
                                 const competentSkills = area.skills?.filter((skill) => skill.status === "competent").length || 0
                                 const totalSkills = area.skills?.length || 0
                                 
@@ -1655,7 +1655,7 @@ export default function StaffCompetencyPage() {
                                                areaScore >= 60 ? "needs-improvement" : "not-competent"
 
                               return (
-                                <div key={area.id} className="border rounded-lg p-3">
+                                <div key={`${record.id}-area-${area.id || area.name || index}`} className="border rounded-lg p-3">
                                     <h4 className="font-medium mb-2">{area.name || "Unnamed Area"}</h4>
                                   <div className="flex items-center justify-between mb-2">
                                     <span className="text-sm text-gray-600">
@@ -1837,8 +1837,8 @@ export default function StaffCompetencyPage() {
                     }
                     
                     return (
-                      displayData.map((area) => (
-                    <Card key={area.id}>
+                      displayData.map((area, areaIndex) => (
+                    <Card key={`matrix-area-${area.id || area.name || areaIndex}-${selectedRoleForMatrix}`}>
                       <CardHeader className="pb-3">
                         <div className="flex items-center justify-between">
                           <div className="flex-1">
@@ -1858,8 +1858,8 @@ export default function StaffCompetencyPage() {
                       </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
-                          {area.skills.map((skill) => (
-                            <div key={skill.id} className="border rounded-lg p-4">
+                          {area.skills.map((skill, skillIndex) => (
+                            <div key={`skill-${skill.id || skill.name || skillIndex}-${area.id || areaIndex}`} className="border rounded-lg p-4">
                               <div className="flex items-center justify-between mb-3">
                                 <div className="flex-1">
                                   <h4 className="font-medium">{skill.name}</h4>
@@ -3537,14 +3537,14 @@ export default function StaffCompetencyPage() {
                 </CardContent>
               </Card>
               
-              {selectedRecordForAssessment.competencyAreas.map((area) => (
-                <Card key={area.id}>
+              {selectedRecordForAssessment.competencyAreas.map((area, areaIdx) => (
+                <Card key={`assessment-area-${area.id || area.name || areaIdx}-${selectedRecordForAssessment.id}`}>
                   <CardHeader>
                     <CardTitle className="text-lg">{area.name}</CardTitle>
                     <CardDescription>Weight: {area.weight}%</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {area.skills.map((skill) => {
+                    {area.skills.map((skill, skillIdx) => {
                       const assessment = skillAssessments[skill.id] || {
                         supervisorScore: skill.supervisorAssessment || skill.selfAssessment || 0,
                         status: skill.status === "competent" ? "competent" : skill.status === "needs-improvement" ? "needs-improvement" : skill.status === "not-competent" ? "not-competent" : "competent",
@@ -3552,7 +3552,7 @@ export default function StaffCompetencyPage() {
                       }
                       
                       return (
-                        <div key={skill.id} className="border rounded-lg p-4 space-y-3">
+                        <div key={`assessment-skill-${skill.id || skill.name || skillIdx}-${area.id || areaIdx}`} className="border rounded-lg p-4 space-y-3">
                           <div className="flex items-start justify-between">
                             <div className="flex-1">
                               <h4 className="font-medium">{skill.name}</h4>
