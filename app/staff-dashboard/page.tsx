@@ -899,11 +899,7 @@ export default function StaffDashboard() {
       { name: "BLS Certification", status: "Active", expires: "2024-12-01" },
       { name: "ACLS Certification", status: "Expiring Soon", expires: "2024-08-15" },
     ],
-    upcomingShifts: [
-      { date: "2024-07-05", time: "7:00 AM - 7:00 PM", location: "Sunrise Senior Living", unit: "ICU" },
-      { date: "2024-07-06", time: "7:00 AM - 7:00 PM", location: "Memorial Hospital", unit: "Emergency" },
-      { date: "2024-07-08", time: "11:00 PM - 7:00 AM", location: "City Medical Center", unit: "Med-Surg" },
-    ],
+    upcomingShifts: [], // No mock data - only use real data from API
     recentPayStubs: [
       { period: "June 16-30, 2024", amount: 2850, hours: 72, status: "Paid" },
       { period: "June 1-15, 2024", amount: 2640, hours: 66, status: "Paid" },
@@ -1069,7 +1065,7 @@ export default function StaffDashboard() {
     hoursWorked: staffData.hoursWorked,
     earnings: staffData.earnings,
     certifications: staffData.certifications,
-    upcomingShifts: upcomingShifts.length > 0 ? upcomingShifts : staffData.upcomingShifts,
+    upcomingShifts: upcomingShifts, // Only use real data from API, no mock data fallback
     recentPayStubs: staffData.recentPayStubs,
     trainingModules: realTrainingModules, // Only show real data from API, no mock data fallback
     patientReviews: staffData.patientReviews,
@@ -1316,30 +1312,51 @@ export default function StaffDashboard() {
                 <CardDescription>Your scheduled shifts for the next week</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {isLoadingShifts && <div className="p-4 text-sm text-gray-500">Loading shifts...</div>}
-                  {displayStaff.upcomingShifts.map((shift, index) => (
-                    <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                          <Calendar className="h-4 w-4 text-blue-600" />
+                {isLoadingShifts ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-600 mr-2" />
+                    <span className="text-gray-600">Loading shifts...</span>
+                  </div>
+                ) : displayStaff.upcomingShifts.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No upcoming shifts</h3>
+                    <p className="text-gray-600">You don't have any shifts scheduled for the next week.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {displayStaff.upcomingShifts.map((shift: any, index: number) => (
+                      <div key={shift.id || index} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          <div className="p-2 bg-blue-100 rounded-lg">
+                            <Calendar className="h-4 w-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium">
+                              {shift.date ? new Date(shift.date).toLocaleDateString('en-US', {
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              }) : 'Date TBD'}
+                            </p>
+                            <p className="text-sm text-gray-600">{shift.time || `${shift.start_time || ''} - ${shift.end_time || ''}`}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{shift.date}</p>
-                          <p className="text-sm text-gray-600">{shift.time}</p>
+                        <div className="text-right">
+                          <p className="font-medium">{shift.location || 'Location TBD'}</p>
+                          <p className="text-sm text-gray-600">{shift.unit || shift.shift_type || ''}</p>
                         </div>
+                        {shift.id && (
+                          <Button variant="outline" size="sm" onClick={() => openDetails(shift)}>
+                            View Details
+                            <ChevronRight className="h-4 w-4 ml-1" />
+                          </Button>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <p className="font-medium">{shift.location}</p>
-                        <p className="text-sm text-gray-600">{shift.unit}</p>
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => openDetails(shift)}>
-                        View Details
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -1760,42 +1777,60 @@ export default function StaffDashboard() {
                 <CardDescription>View and manage your work schedule</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {(upcomingShifts.length > 0 ? upcomingShifts : staffData.upcomingShifts).map((shift: any, index: number) => (
-                    <div key={index} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <div className="p-2 bg-blue-100 rounded-lg">
-                          <Calendar className="h-4 w-4 text-blue-600" />
+                {isLoadingShifts ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-600 mr-2" />
+                    <span className="text-gray-600">Loading schedule...</span>
+                  </div>
+                ) : upcomingShifts.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No shifts scheduled</h3>
+                    <p className="text-gray-600">You don't have any upcoming shifts scheduled at this time.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {upcomingShifts.map((shift: any, index: number) => (
+                      <div key={shift.id || index} className="flex items-center justify-between p-4 border rounded-lg">
+                        <div className="flex items-center space-x-4">
+                          <div className="p-2 bg-blue-100 rounded-lg">
+                            <Calendar className="h-4 w-4 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium">
+                              {shift.date ? new Date(shift.date).toLocaleDateString('en-US', {
+                                weekday: 'long',
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric'
+                              }) : 'Date TBD'}
+                            </p>
+                            <p className="text-sm text-gray-600">{shift.time || `${shift.start_time || ''} - ${shift.end_time || ''}`}</p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">{shift.date}</p>
-                          <p className="text-sm text-gray-600">{shift.time}</p>
+                        <div className="text-right">
+                          <p className="font-medium">{shift.location || 'Location TBD'}</p>
+                          <p className="text-sm text-gray-600">{shift.unit || shift.shift_type || ''}</p>
+                        </div>
+                        <div className="flex space-x-2">
+                          {shift.id ? (
+                            <>
+                              <Button variant="outline" size="sm" onClick={() => openEditShift(shift)}>Edit</Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={pendingCancelShiftIds.includes(shift.id)}
+                                onClick={() => openCancelDialog(shift)}
+                              >
+                                {pendingCancelShiftIds.includes(shift.id) ? 'Requested' : 'Request Cancel'}
+                              </Button>
+                            </>
+                          ) : null}
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="font-medium">{shift.location}</p>
-                        <p className="text-sm text-gray-600">{shift.unit}</p>
-                      </div>
-                      <div className="flex space-x-2">
-                        {shift.id ? (
-                          <>
-                            <Button variant="outline" size="sm" onClick={() => openEditShift(shift)}>Edit</Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={pendingCancelShiftIds.includes(shift.id)}
-                              onClick={() => openCancelDialog(shift)}
-                            >
-                              {pendingCancelShiftIds.includes(shift.id) ? 'Requested' : 'Request Cancel'}
-                            </Button>
-                          </>
-                        ) : (
-                          <Button variant="outline" size="sm" disabled>Sample</Button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -1949,20 +1984,54 @@ export default function StaffDashboard() {
                           <Star className="h-6 w-6 text-indigo-600" />
                         </div>
                         <p className="text-3xl font-bold text-indigo-600 mb-1">
-                          {(() => {
-                            const completedTrainings = displayStaff.trainingModules.filter((m: any) => 
-                              (m.status === "completed" || m.completed) && m.score !== undefined && m.score !== null
-                            )
-                            if (completedTrainings.length === 0) return "0"
-                            const totalScore = completedTrainings.reduce((sum: number, m: any) => {
-                              const score = parseFloat(m.score?.toString() || "0")
-                              return sum + (isNaN(score) || score < 0 || score > 100 ? 0 : score)
-                            }, 0)
-                            const average = totalScore / completedTrainings.length
-                            return Math.round(average * 10) / 10
-                          })()}%
+                          {isLoadingTrainings ? (
+                            "..."
+                          ) : (() => {
+                            // Filter completed trainings with valid scores
+                            const completedTrainings = (displayStaff.trainingModules || []).filter((m: any) => {
+                              const isCompleted = m.status === "completed" || m.completed === true
+                              const hasScore = m.score !== undefined && m.score !== null
+                              return isCompleted && hasScore
+                            })
+                            
+                            if (completedTrainings.length === 0) {
+                              return "N/A"
+                            }
+                            
+                            // Calculate average from valid scores only
+                            const validScores = completedTrainings
+                              .map((m: any) => {
+                                const score = typeof m.score === 'number' 
+                                  ? m.score 
+                                  : parseFloat(m.score?.toString() || "0")
+                                return score
+                              })
+                              .filter((score: number) => 
+                                !isNaN(score) && score >= 0 && score <= 100
+                              )
+                            
+                            if (validScores.length === 0) {
+                              return "N/A"
+                            }
+                            
+                            const totalScore = validScores.reduce((sum: number, score: number) => sum + score, 0)
+                            const average = totalScore / validScores.length
+                            return `${Math.round(average * 10) / 10}%`
+                          })()}
                         </p>
                         <p className="text-sm text-gray-600 font-medium">Average Training Score</p>
+                        {!isLoadingTrainings && (() => {
+                          const completedWithScores = (displayStaff.trainingModules || []).filter((m: any) => 
+                            (m.status === "completed" || m.completed === true) && 
+                            m.score !== undefined && 
+                            m.score !== null
+                          ).length
+                          return completedWithScores > 0 ? (
+                            <p className="text-xs text-gray-500 mt-1">
+                              Based on {completedWithScores} training{completedWithScores !== 1 ? 's' : ''}
+                            </p>
+                          ) : null
+                        })()}
                       </div>
                     </div>
 

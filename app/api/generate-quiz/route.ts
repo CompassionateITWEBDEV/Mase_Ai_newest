@@ -45,40 +45,45 @@ export async function POST(request: NextRequest) {
         messages: [
           {
             role: "system",
-            content: `You are an expert medical training assessment creator. Your task is to generate ${numberOfQuestions} multiple-choice questions based on the ACTUAL CONTENT provided.
+            content: `You are an expert MEDICAL training assessment creator specializing in healthcare education. Your task is to generate ${numberOfQuestions} MEDICAL multiple-choice questions based on the ACTUAL MEDICAL CONTENT provided.
 
 CRITICAL REQUIREMENTS - YOU MUST FOLLOW THESE EXACTLY:
 
 1. **MANDATORY: Use ACTUAL FILE CONTENT as PRIMARY source**
-   - If you see "ACTUAL FILE CONTENT" in the input, you MUST use that content to create questions
+   - If you see "ACTUAL FILE CONTENT" in the input, you MUST use that content to create MEDICAL questions
    - IGNORE module title, description, and other metadata if ACTUAL FILE CONTENT is present
-   - Extract SPECIFIC facts, numbers, procedures, definitions, and details from the ACTUAL FILE CONTENT
-   - Questions MUST reference specific information from the ACTUAL FILE CONTENT
+   - Extract SPECIFIC medical facts, numbers, procedures, protocols, definitions, medications, dosages, and clinical details from the ACTUAL FILE CONTENT
+   - Questions MUST reference specific MEDICAL information from the ACTUAL FILE CONTENT
+   - ALL questions must be about MEDICAL/HEALTHCARE topics, procedures, protocols, medications, patient care, safety, or clinical information
 
-2. **Question Requirements:**
-   - Questions MUST be based on SPECIFIC information from the ACTUAL FILE CONTENT
+2. **MEDICAL Question Requirements:**
+   - Questions MUST be based on SPECIFIC MEDICAL information from the ACTUAL FILE CONTENT
+   - Focus on: medical procedures, protocols, medications, dosages, patient care, safety guidelines, clinical protocols, diagnostic information, treatment guidelines, medical terminology
    - DO NOT create generic questions about the topic
+   - DO NOT create questions about video frames, image quality, or technical aspects
    - DO NOT create questions based on module title or description if ACTUAL FILE CONTENT exists
-   - Extract exact facts, figures, procedures, and concepts from the ACTUAL FILE CONTENT
-   - Each question should test understanding of SPECIFIC content from the file
+   - Extract exact medical facts, figures, procedures, protocols, and clinical concepts from the ACTUAL FILE CONTENT
+   - Each question should test understanding of SPECIFIC MEDICAL content from the file
 
 3. **If ACTUAL FILE CONTENT is NOT provided:**
-   - Only then use module title/description to create questions
-   - Make reasonable inferences about the topic
-   - Focus on practical application
+   - Only then use module title/description to create MEDICAL questions
+   - Make reasonable inferences about the medical topic
+   - Focus on practical medical application
 
 4. **Format Requirements:**
    - NEVER return error messages saying content is insufficient
-   - ALWAYS return a valid JSON array of questions
+   - ALWAYS return a valid JSON array of MEDICAL questions
    - Provide 4 options per question
    - Include the correct answer index (0-3)
-   - Provide a brief explanation for the correct answer based on the ACTUAL FILE CONTENT
-   - Questions should be clear and unambiguous
+   - Provide a brief MEDICAL explanation for the correct answer based on the ACTUAL FILE CONTENT
+   - Questions should be clear, unambiguous, and MEDICAL in nature
 
-5. **Examples:**
-   - If ACTUAL FILE CONTENT says "Handwashing should last 20 seconds", create: "How long should handwashing last?" with "20 seconds" as correct answer
-   - If ACTUAL FILE CONTENT says "Use PPE when entering isolation rooms", create: "When should PPE be used?" with "When entering isolation rooms" as correct answer
-   - DO NOT create generic questions like "What is handwashing?" if the ACTUAL FILE CONTENT has specific details
+5. **MEDICAL Examples:**
+   - If ACTUAL FILE CONTENT says "Handwashing should last 20 seconds", create: "How long should handwashing last according to infection control protocols?" with "20 seconds" as correct answer
+   - If ACTUAL FILE CONTENT says "Use PPE when entering isolation rooms", create: "When should healthcare workers use PPE?" with "When entering isolation rooms" as correct answer
+   - If ACTUAL FILE CONTENT mentions "Aspirin 325mg daily", create: "What is the recommended daily dosage of Aspirin mentioned in the training?" with "325mg" as correct answer
+   - DO NOT create generic questions like "What is handwashing?" if the ACTUAL FILE CONTENT has specific medical details
+   - DO NOT create questions about video quality, frame analysis, or technical aspects
 
 Return ONLY a valid JSON array of questions in this exact format (no other text, no error messages):
 [
@@ -93,33 +98,47 @@ Return ONLY a valid JSON array of questions in this exact format (no other text,
           },
           {
             role: "user",
-            content: `Generate ${numberOfQuestions} multiple-choice quiz questions from the following training module content.
+            content: `Generate ${numberOfQuestions} MEDICAL multiple-choice quiz questions from the EXTRACTED VIDEO CONTENT below.
 
 🚨 CRITICAL INSTRUCTIONS - READ CAREFULLY:
 
-1. **IF "ACTUAL FILE CONTENT" IS PRESENT:**
-   - IGNORE everything else (module title, description, etc.)
-   - Extract SPECIFIC facts, numbers, procedures, definitions from the ACTUAL FILE CONTENT
-   - Create questions based ONLY on the ACTUAL FILE CONTENT
-   - Each question must reference specific information from the ACTUAL FILE CONTENT
-   - DO NOT create generic questions - use exact details from the content
+**THIS IS EXTRACTED VIDEO CONTENT - INCLUDES AUDIO TRANSCRIPT (SPOKEN WORDS) AND VISUAL TEXT (FROM FRAMES)**
 
-2. **Question Creation Rules:**
-   - Extract exact facts: "20 seconds" → "How long should handwashing last? Answer: 20 seconds"
-   - Extract procedures: "Wear gloves before patient contact" → "When should gloves be worn? Answer: Before patient contact"
-   - Extract definitions: "PPE means Personal Protective Equipment" → "What does PPE stand for? Answer: Personal Protective Equipment"
-   - Use specific numbers, dates, names, and details from the ACTUAL FILE CONTENT
+The content below was extracted from a MEDICAL training video:
+- **AUDIO TRANSCRIPT**: What was actually SPOKEN/SAID in the video (speech-to-text)
+- **VISUAL CONTENT**: Text from slides, visual aids, diagrams shown in the video frames
+
+1. **MANDATORY: Use ONLY the extracted VIDEO CONTENT below (audio + visual text)**
+   - The content below contains what was SPOKEN in the video (audio transcript) and what TEXT was SHOWN (visual content from frames)
+   - IGNORE any module title, description, or training metadata
+   - Extract SPECIFIC MEDICAL facts, numbers, procedures, protocols, medications, dosages, definitions from what was SPOKEN or SHOWN in the video
+   - Create MEDICAL questions based ONLY on what was actually SAID or SHOWN in the video
+   - Each question must reference specific MEDICAL information from the AUDIO TRANSCRIPT or VISUAL CONTENT
+   - ALL questions must be about MEDICAL/HEALTHCARE topics that were discussed or shown in the video
+   - DO NOT create generic questions - use exact MEDICAL details from what was spoken or shown
+
+2. **MEDICAL Question Creation Rules - Based on VIDEO CONTENT:**
+   - Use what was SPOKEN: If audio transcript says "Handwashing should last 20 seconds" → "How long should handwashing last according to infection control protocols? Answer: 20 seconds"
+   - Use what was SHOWN: If visual content shows "Wear gloves before patient contact" → "When should healthcare workers wear gloves? Answer: Before patient contact"
+   - Use spoken definitions: If audio says "PPE means Personal Protective Equipment" → "What does PPE stand for in healthcare? Answer: Personal Protective Equipment"
+   - Use shown medications: If visual content shows "Aspirin 325mg daily" → "What is the recommended daily dosage of Aspirin? Answer: 325mg"
+   - Use spoken protocols: If audio mentions "Check patient ID before medication administration" → "When should healthcare workers check patient ID? Answer: Before medication administration"
+   - Use specific medical numbers, dates, medication names, dosages, and clinical details from what was SPOKEN or SHOWN in the video
 
 3. **DO NOT:**
-   - Create generic questions if ACTUAL FILE CONTENT exists
-   - Use module title/description if ACTUAL FILE CONTENT is present
-   - Say content is insufficient - ALWAYS generate questions
+   - Create generic questions about the topic
+   - Create questions about video frames, image quality, video format, or technical aspects
+   - Create questions about the extraction process or how content was analyzed
+   - Use module title/description (not provided - use only extracted video content)
+   - Say content is insufficient - ALWAYS generate MEDICAL questions from what was spoken or shown
    - Create questions that could apply to any training
+   - Make assumptions based on topic - use ONLY what was actually SPOKEN or SHOWN in the video
+   - Create non-medical questions
 
-4. **Training Content:**
+4. **EXTRACTED VIDEO CONTENT (Use ONLY this - what was SPOKEN and SHOWN):**
 ${content.substring(0, 12000)}
 
-Remember: If "ACTUAL FILE CONTENT" is present, use ONLY that content. Generate ALL ${numberOfQuestions} questions based on SPECIFIC information from the ACTUAL FILE CONTENT. Return ONLY the JSON array, no other text.`,
+Remember: Generate ALL ${numberOfQuestions} questions based on SPECIFIC information from what was SPOKEN (audio transcript) or SHOWN (visual text) in the video above. Questions must be about the MEDICAL CONTENT that was actually discussed or displayed, not about the video itself. Return ONLY the JSON array, no other text.`,
           },
         ],
         temperature: 0.3, // Lower temperature for more focused, content-based questions
@@ -285,106 +304,17 @@ Remember: If "ACTUAL FILE CONTENT" is present, use ONLY that content. Generate A
   }
 }
 
-function generateFallbackQuestions(count: number) {
-  const questions = [
-    {
-      id: "q1",
-      question: "What is the primary goal of this training module?",
-      options: [
-        "To fulfill compliance requirements only",
-        "To enhance professional knowledge and skills",
-        "To complete mandatory hours",
-        "To pass a test",
-      ],
-      correctAnswer: 1,
-      explanation: "Training modules are designed to enhance professional development and improve care quality.",
-    },
-    {
-      id: "q2",
-      question: "How should the concepts from this module be applied in practice?",
-      options: [
-        "Only in specific situations",
-        "Integrated into daily work routines",
-        "When directed by supervisors",
-        "During annual reviews",
-      ],
-      correctAnswer: 1,
-      explanation: "Best practice is to integrate learning into daily routines for consistent application.",
-    },
-    {
-      id: "q3",
-      question: "What is the best way to retain information from this training?",
-      options: [
-        "Watch it once quickly",
-        "Memorize all details",
-        "Take notes and review key points regularly",
-        "Skip to the quiz",
-      ],
-      correctAnswer: 2,
-      explanation: "Active note-taking and regular review enhance retention and understanding.",
-    },
-    {
-      id: "q4",
-      question: "When should you seek clarification about training content?",
-      options: [
-        "After completing all modules",
-        "Never, rely on assumptions",
-        "Immediately when confused",
-        "During the next training cycle",
-      ],
-      correctAnswer: 2,
-      explanation: "Seeking clarification immediately prevents misunderstandings and ensures proper learning.",
-    },
-    {
-      id: "q5",
-      question: "Why is continuous professional education important in healthcare?",
-      options: [
-        "It's required by regulations only",
-        "To maintain competency and provide quality care",
-        "To earn certificates",
-        "To meet minimum requirements",
-      ],
-      correctAnswer: 1,
-      explanation: "Continuous education ensures healthcare professionals maintain competency and deliver high-quality patient care.",
-    },
-    {
-      id: "q6",
-      question: "What should you do if you encounter a challenging concept in the training?",
-      options: [
-        "Skip it and move on",
-        "Guess and hope it's not important",
-        "Review it multiple times and seek additional resources",
-        "Wait for someone to explain it",
-      ],
-      correctAnswer: 2,
-      explanation: "Challenging concepts require additional review and research to ensure full understanding.",
-    },
-    {
-      id: "q7",
-      question: "How does this training contribute to patient safety?",
-      options: [
-        "It doesn't affect patient safety",
-        "It provides knowledge to prevent errors and improve care",
-        "It's only about documentation",
-        "It's a formality",
-      ],
-      correctAnswer: 1,
-      explanation: "Proper training directly impacts patient safety by ensuring staff have current knowledge and skills.",
-    },
-    {
-      id: "q8",
-      question: "What is the recommended approach to applying new knowledge?",
-      options: [
-        "Apply it immediately without review",
-        "Wait until you feel 100% confident",
-        "Apply gradually while continuing to learn",
-        "Never apply until re-trained",
-      ],
-      correctAnswer: 2,
-      explanation: "Gradual application with ongoing learning allows for safe integration of new knowledge.",
-    },
-  ]
-
-  return questions.slice(0, count)
-}
+/**
+ * REMOVED: generateFallbackQuestions function
+ * 
+ * NO HARDCODED QUESTIONS - All questions must be generated from extracted data
+ * If content extraction or quiz generation fails, the system will return an error
+ * This ensures questions are ALWAYS based on actual file content, never hardcoded
+ * 
+ * The system will:
+ * 1. Extract content from files (PDF, video, PowerPoint) using PDF.co
+ * 2. Send extracted content to OpenAI for analysis
+ * 3. Generate questions based ONLY on extracted content
+ * 4. If extraction fails, return error (no fallback questions)
+ */
 

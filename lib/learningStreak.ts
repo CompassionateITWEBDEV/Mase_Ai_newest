@@ -152,3 +152,4 @@ export function extractCompletionDates(enrollment: any, completions: any[] = [])
   return dates
 }
 
+

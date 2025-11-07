@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -21,6 +22,7 @@ import {
 import { ArrowLeft, PenTool, Save, Send, Clock, User, Target, Star, BookOpen, Award, TrendingUp } from "lucide-react"
 import Link from "next/link"
 import { getCurrentUser } from "@/lib/auth"
+import { useToast } from "@/hooks/use-toast"
 
 interface PerformanceQuestion {
   id: string
@@ -47,14 +49,24 @@ interface SelfEvaluationData {
 }
 
 export default function SelfEvaluationPage() {
+  const searchParams = useSearchParams()
+  const { toast } = useToast()
   const [currentUser] = useState(getCurrentUser())
+  
+  // Read URL parameters
+  const urlStaffId = searchParams?.get("staffId") || null
+  const urlType = searchParams?.get("type") || null
+  const urlEvaluationType = searchParams?.get("evaluationType") || null
+  
   const [activeTab, setActiveTab] = useState("performance")
   const [currentEvaluation, setCurrentEvaluation] = useState<SelfEvaluationData | null>(null)
   const [questions, setQuestions] = useState<PerformanceQuestion[]>([])
   const [responses, setResponses] = useState<Record<string, any>>({})
   const [completionPercentage, setCompletionPercentage] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [evaluationType, setEvaluationType] = useState<"performance" | "competency">("performance")
+  const [evaluationType, setEvaluationType] = useState<"performance" | "competency">(
+    (urlEvaluationType as "performance" | "competency") || "performance"
+  )
   const [historyRecords, setHistoryRecords] = useState<any[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState<string | null>(null)
@@ -315,8 +327,13 @@ export default function SelfEvaluationPage() {
     // Load current evaluation from API or create one if none exists
     const loadEvaluation = async () => {
       try {
+        // Use URL staffId if provided, otherwise use currentUser.id
+        const staffIdToUse = urlStaffId || currentUser.id
+        // Use URL type if provided, otherwise use default based on evaluationType
+        const assessmentTypeToUse = urlType || (evaluationType === "performance" ? "annual" : "skills-validation")
+        
         const params = new URLSearchParams({
-          staffId: currentUser.id,
+          staffId: staffIdToUse,
           evaluationType,
           status: "draft",
         })
@@ -325,7 +342,11 @@ export default function SelfEvaluationPage() {
         if (res.ok) {
           const json = await res.json()
           if (json?.evaluations?.length) {
-            record = json.evaluations[0]
+            // Filter by assessment type if URL type is provided
+            const filtered = urlType 
+              ? json.evaluations.filter((e: any) => e.assessment_type === urlType)
+              : json.evaluations
+            record = filtered[0] || json.evaluations[0]
           }
         }
         // DO NOT auto-create draft - only create when user clicks "Save Draft" button
@@ -367,9 +388,9 @@ export default function SelfEvaluationPage() {
           
           const fallback: SelfEvaluationData = {
             id: `local-${evaluationType}-${Date.now()}`, // Local-only ID (not a database ID)
-            staffId: currentUser.id,
+            staffId: staffIdToUse,
             evaluationType,
-            assessmentType: evaluationType === "performance" ? "annual" : "skills-validation",
+            assessmentType: assessmentTypeToUse as any,
             status: "draft",
             completionPercentage: 0,
             responses: {},
@@ -389,7 +410,7 @@ export default function SelfEvaluationPage() {
     }
 
     loadEvaluation()
-  }, [currentUser, evaluationType])
+  }, [currentUser, evaluationType, urlStaffId, urlType])
 
   // Load submitted history for the current user (both types)
   useEffect(() => {
@@ -529,10 +550,26 @@ export default function SelfEvaluationPage() {
         if (pipGoalsRes.ok) {
           const pipGoalsJson = await pipGoalsRes.json()
           if (pipGoalsJson.success) {
-            performanceGoals = Array.isArray(pipGoalsJson.performanceGoals) ? pipGoalsJson.performanceGoals : []
-            compGoals = Array.isArray(pipGoalsJson.competencyGoals) ? pipGoalsJson.competencyGoals : []
-            console.log('✅ [PIP Goals API] Loaded', pipGoalsJson.totalPips || 0, 'PIPs')
+            // Ensure arrays and parse actions if they're strings
+            performanceGoals = (Array.isArray(pipGoalsJson.performanceGoals) ? pipGoalsJson.performanceGoals : []).map((goal: any) => ({
+              ...goal,
+              actions: typeof goal.actions === 'string' ? JSON.parse(goal.actions || '[]') : (Array.isArray(goal.actions) ? goal.actions : []),
+              targetDate: goal.targetDate || goal.target_date || null,
+              progress: typeof goal.progress === 'number' ? goal.progress : (parseFloat(goal.progress) || 0)
+            }))
+            compGoals = (Array.isArray(pipGoalsJson.competencyGoals) ? pipGoalsJson.competencyGoals : []).map((goal: any) => ({
+              ...goal,
+              actions: typeof goal.actions === 'string' ? JSON.parse(goal.actions || '[]') : (Array.isArray(goal.actions) ? goal.actions : []),
+              targetDate: goal.targetDate || goal.target_date || null,
+              progress: typeof goal.progress === 'number' ? goal.progress : (parseFloat(goal.progress) || 0)
+            }))
+            console.log('✅ [PIP Goals API] Loaded', pipGoalsJson.totalPips || 0, 'PIPs with', performanceGoals.length, 'performance goals and', compGoals.length, 'competency goals')
+          } else {
+            console.warn('⚠️ [PIP Goals API] Response not successful:', pipGoalsJson)
           }
+        } else {
+          const errorText = await pipGoalsRes.text()
+          console.error('❌ [PIP Goals API] Failed to load:', pipGoalsRes.status, errorText)
         }
         
         // Also get additional goals from performance evaluations with low scores (as supplementary)
@@ -1028,6 +1065,21 @@ export default function SelfEvaluationPage() {
       <TrendingUp className="h-4 w-4 text-green-600" />
     )
   }
+
+  // Handle URL parameters on page load
+  useEffect(() => {
+    if (urlEvaluationType) {
+      setEvaluationType(urlEvaluationType as "performance" | "competency")
+      setActiveTab(urlEvaluationType === "competency" ? "competency" : "performance")
+    }
+    
+    if (urlStaffId && urlType) {
+      toast({
+        title: "Starting New Evaluation",
+        description: `Creating ${urlType} evaluation for selected staff member`,
+      })
+    }
+  }, [urlStaffId, urlType, urlEvaluationType, toast])
 
   // Sync active tab with evaluation type so competency is immediately functional
   useEffect(() => {
@@ -1722,15 +1774,25 @@ export default function SelfEvaluationPage() {
                             }`}>
                               <h4 className="font-medium text-sm">{goal.description || 'Performance Goal'}</h4>
                               <p className="text-xs text-gray-600 mt-1">
-                                {goal.targetDate ? (
-                                  <>
-                                    Target completion: {new Date(goal.targetDate).toLocaleDateString('en-US', { 
-                                  year: 'numeric', 
-                                  month: 'short', 
-                                  day: 'numeric' 
-                                    })}
-                                  </>
-                                ) : goal.target ? (
+                                {goal.targetDate ? (() => {
+                                  try {
+                                    const date = new Date(goal.targetDate)
+                                    if (!isNaN(date.getTime())) {
+                                      return (
+                                        <>
+                                          Target completion: {date.toLocaleDateString('en-US', { 
+                                            year: 'numeric', 
+                                            month: 'short', 
+                                            day: 'numeric' 
+                                          })}
+                                        </>
+                                      )
+                                    }
+                                  } catch (e) {
+                                    // Invalid date
+                                  }
+                                  return <>Target completion: {String(goal.targetDate)}</>
+                                })() : goal.target ? (
                                   <>Target: {goal.target}</>
                                 ) : (
                                   <>Target: Set completion date</>
@@ -1796,15 +1858,25 @@ export default function SelfEvaluationPage() {
                             }`}>
                             <h4 className="font-medium text-sm">{goal.description || 'Competency Goal'}</h4>
                             <p className="text-xs text-gray-600 mt-1">
-                              {goal.targetDate ? (
-                                <>
-                                  Target completion: {new Date(goal.targetDate).toLocaleDateString('en-US', { 
-                                        year: 'numeric', 
-                                        month: 'short', 
-                                        day: 'numeric' 
-                                  })}
-                                </>
-                              ) : goal.target ? (
+                              {goal.targetDate ? (() => {
+                                try {
+                                  const date = new Date(goal.targetDate)
+                                  if (!isNaN(date.getTime())) {
+                                    return (
+                                      <>
+                                        Target completion: {date.toLocaleDateString('en-US', { 
+                                          year: 'numeric', 
+                                          month: 'short', 
+                                          day: 'numeric' 
+                                        })}
+                                      </>
+                                    )
+                                  }
+                                } catch (e) {
+                                  // Invalid date
+                                }
+                                return <>Target completion: {String(goal.targetDate)}</>
+                              })() : goal.target ? (
                                 <>Target: {goal.target}</>
                               ) : (
                                 <>Target completion: Not set</>
@@ -1837,13 +1909,13 @@ export default function SelfEvaluationPage() {
                           </div>
                         ))}
                         {!pipLoading && competencyGoals.length === 0 && (
-                          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                            <p className="text-xs text-gray-600">
-                              No active competency improvement goals at this time.
-                              <br />
-                              <span className="text-gray-500 mt-1 block">
-                                Competency goals will appear here based on your assessment results and improvement plans.
-                              </span>
+                          <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg text-center">
+                            <Target className="h-8 w-8 mx-auto text-gray-300 mb-2" />
+                            <p className="text-sm text-gray-600 font-medium mb-1">
+                              No active competency goals
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              Competency improvement goals will appear here based on your assessment results and improvement plans.
                             </p>
                           </div>
                         )}

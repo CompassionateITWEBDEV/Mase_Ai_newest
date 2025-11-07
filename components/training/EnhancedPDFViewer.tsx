@@ -25,6 +25,7 @@ interface EnhancedPDFViewerProps {
   onComplete: () => void
   onClose: () => void
   onPageChange?: (page: number) => void
+  isPanelMode?: boolean // When true, viewer is in panel mode (not fullscreen)
 }
 
 export function EnhancedPDFViewer({
@@ -34,6 +35,7 @@ export function EnhancedPDFViewer({
   onComplete,
   onClose,
   onPageChange,
+  isPanelMode = false,
 }: EnhancedPDFViewerProps) {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(propTotalPages || 0)
@@ -482,8 +484,8 @@ export function EnhancedPDFViewer({
   const pageProgressPercent = totalPages > 0 ? (currentPage / totalPages) * 100 : 0
 
   return (
-    <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center">
-      <Card className="w-full h-full flex flex-col rounded-none">
+    <div className={`${isPanelMode ? 'fixed top-0 left-0 right-0 h-1/2 z-40 bg-black/90' : 'fixed inset-0 bg-black/80 z-50 flex items-center justify-center'}`}>
+      <Card className={`w-full h-full flex flex-col ${isPanelMode ? 'rounded-lg' : 'rounded-none'}`}>
         <CardHeader className="border-b">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center text-lg">
@@ -563,7 +565,7 @@ export function EnhancedPDFViewer({
             <Alert className="mt-2 border-green-200 bg-green-50">
               <CheckCircle className="h-4 w-4 text-green-600" />
               <AlertDescription className="text-xs text-green-800">
-                ✅ You've reached the last page! Click "Continue" below to proceed.
+                ✅ You've reached the last page! Quiz will be generated automatically.
               </AlertDescription>
             </Alert>
           )}
@@ -676,10 +678,13 @@ export function EnhancedPDFViewer({
           )}
           
           {isCompleted && (
-            <Button onClick={onClose} className="bg-green-600 hover:bg-green-700">
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Continue
-            </Button>
+            <div className="flex items-center gap-2">
+              <Badge className="bg-green-600">
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Content Completed - Quiz will be generated automatically
+              </Badge>
+              {/* REMOVED Continue button - Quiz generation happens automatically, viewer stays open */}
+            </div>
           )}
         </div>
       </Card>

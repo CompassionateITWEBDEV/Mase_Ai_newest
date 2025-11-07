@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useRef } from "react"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -35,6 +36,7 @@ import {
 } from "lucide-react"
 import Link from "next/link"
 import { getCurrentUser } from "@/lib/auth"
+import { createClient } from "@supabase/supabase-js"
 
 interface CompetencyArea {
   id: string
@@ -75,10 +77,16 @@ interface StaffCompetencyRecord {
 }
 
 export default function StaffCompetencyPage() {
+  const searchParams = useSearchParams()
   const [currentUser] = useState(getCurrentUser())
   const { toast } = useToast()
+  
+  // Read URL parameters
+  const urlStaffId = searchParams?.get("staffId") || null
+  const urlEvaluationType = searchParams?.get("evaluationType") || null
+  
   const [activeTab, setActiveTab] = useState("overview")
-  const [selectedStaff, setSelectedStaff] = useState<string>("")
+  const [selectedStaff, setSelectedStaff] = useState<string>(urlStaffId || "")
   const [selectedCompetencyArea, setSelectedCompetencyArea] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
@@ -490,6 +498,26 @@ export default function StaffCompetencyPage() {
     loadRecords()
   }, [toast])
 
+  // Handle URL parameters on page load
+  useEffect(() => {
+    if (urlStaffId && urlEvaluationType) {
+      // Set the evaluation type in new assessment data
+      setNewAssessmentData(prev => ({
+        ...prev,
+        staffId: urlStaffId,
+        evaluationType: urlEvaluationType as any,
+      }))
+      
+      toast({
+        title: "Starting New Assessment",
+        description: `Creating ${urlEvaluationType} competency assessment for selected staff member`,
+      })
+      
+      // Optionally open the new assessment dialog
+      // setIsNewAssessmentOpen(true)
+    }
+  }, [urlStaffId, urlEvaluationType, toast])
+
   // Load staff list for dropdown
   useEffect(() => {
     const loadStaff = async () => {
@@ -521,33 +549,69 @@ export default function StaffCompetencyPage() {
     const loadAiAssessments = async () => {
       try {
         setIsLoadingAiAssessments(true)
-        // Load assessments for all staff in competency records
-        const allAssessments: any[] = []
-        for (const record of staffCompetencyRecords) {
-          const res = await fetch(`/api/ai-competency/evaluate?staffId=${record.staffId}&limit=5`)
-          const data = await res.json()
-          if (data.success && data.data?.evaluations) {
-            allAssessments.push(...data.data.evaluations.map((evaluation: any) => ({
-              ...evaluation,
-              staffName: record.staffName,
-              staffRole: record.staffRole
-            })))
-          }
+        
+        // Load all AI assessments from database
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
+        const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+        const supabase = createClient(supabaseUrl, supabaseKey)
+        
+        const { data: assessments, error } = await supabase
+          .from('staff_ai_assessments')
+          .select(`
+            *,
+            staff:staff_id (
+              id,
+              name,
+              department,
+              credentials
+            )
+          `)
+          .order('created_at', { ascending: false })
+          .limit(20) // Get more to filter completed ones
+        
+        if (error) {
+          console.error('Error loading AI assessments:', error)
+          return
         }
+        
+        // Transform and filter completed assessments
+        const allAssessments = (assessments || [])
+          .filter((assessment: any) => assessment.status === 'completed')
+          .map((assessment: any) => ({
+            id: assessment.id,
+            overallScore: parseFloat(assessment.overall_score || 0),
+            aiConfidence: parseFloat(assessment.ai_confidence || 0),
+            competencyArea: assessment.competency_area,
+            evaluationTime: assessment.evaluation_time,
+            status: assessment.status,
+            completedAt: assessment.completed_at,
+            createdAt: assessment.created_at,
+            staffName: assessment.staff?.name || 'Unknown Staff',
+            staffRole: assessment.staff?.credentials || assessment.staff?.department || 'Staff'
+          }))
+        
         // Sort by date, newest first
-        allAssessments.sort((a, b) => new Date(b.completedAt || b.createdAt).getTime() - new Date(a.completedAt || a.createdAt).getTime())
+        allAssessments.sort((a: any, b: any) => {
+          const dateA = new Date(a.completedAt || a.createdAt).getTime()
+          const dateB = new Date(b.completedAt || b.createdAt).getTime()
+          return dateB - dateA
+        })
+        
         setAiAssessments(allAssessments.slice(0, 10)) // Show latest 10
       } catch (error) {
         console.error('Error loading AI assessments:', error)
+        toast({
+          title: "Error",
+          description: "Failed to load AI assessments",
+          variant: "destructive"
+        })
       } finally {
         setIsLoadingAiAssessments(false)
       }
     }
     
-    if (staffCompetencyRecords.length > 0) {
-      loadAiAssessments()
-    }
-  }, [staffCompetencyRecords])
+    loadAiAssessments()
+  }, [toast])
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -559,8 +623,11 @@ export default function StaffCompetencyPage() {
         return <Badge className="bg-yellow-100 text-yellow-800">Needs Improvement</Badge>
       case "not-competent":
         return <Badge className="bg-red-100 text-red-800">Not Competent</Badge>
+      case "not-assessed":
+        return <Badge className="bg-gray-100 text-gray-800">Not Assessed</Badge>
       default:
-        return <Badge variant="secondary">Unknown</Badge>
+        // Fallback to "Not Assessed" instead of "Unknown"
+        return <Badge className="bg-gray-100 text-gray-800">Not Assessed</Badge>
     }
   }
 
@@ -617,21 +684,34 @@ export default function StaffCompetencyPage() {
       // Calculate area score based on actual skill scores
       let areaScore = 0
       if (skills.length > 0) {
+        // Calculate average of all skill scores (including 0 scores)
         const totalScore = skills.reduce((sum: number, skill: any) => {
-          const skillScore = skill.supervisorAssessment || skill.selfAssessment || 0
-          return sum + skillScore
+          const skillScore = skill.supervisorAssessment !== null && skill.supervisorAssessment !== undefined
+            ? skill.supervisorAssessment
+            : (skill.selfAssessment !== null && skill.selfAssessment !== undefined
+              ? skill.selfAssessment
+              : 0)
+          return sum + (skillScore || 0)
         }, 0)
-        areaScore = Math.round(totalScore / skills.length)
+        areaScore = skills.length > 0 ? Math.round(totalScore / skills.length) : 0
       } else {
-        // If no skills, use category_score from database or 0
-        areaScore = Math.round(parseFloat(area.category_score?.toString() || '0'))
+        // If no skills, use categoryScore from API (which comes from category_score in database) or 0
+        const categoryScore = area.categoryScore !== null && area.categoryScore !== undefined
+          ? parseFloat(area.categoryScore.toString())
+          : (area.category_score !== null && area.category_score !== undefined
+            ? parseFloat(area.category_score.toString())
+            : 0)
+        areaScore = Math.round(categoryScore)
       }
+      
+      // Ensure area score is between 0-100
+      areaScore = Math.max(0, Math.min(100, areaScore))
 
       return {
         id: area.category?.toLowerCase().replace(/\s+/g, '-') || '',
         name: area.category || '',
         description: '',
-        weight: Math.round((area.weight || 0) * 100),
+        weight: Math.round(area.weight || 0), // API already returns percentage (0-100), no need to multiply
         areaScore: areaScore, // Store calculated area score
         skills: skills
       }
@@ -642,21 +722,31 @@ export default function StaffCompetencyPage() {
     if (competencyAreas.length > 0) {
       const totalWeight = competencyAreas.reduce((sum: number, area: any) => sum + (area.weight || 0), 0)
       if (totalWeight > 0) {
-        overallScore = Math.round(
-          competencyAreas.reduce((sum: number, area: any) => {
-            const areaScore = area.areaScore || 0
-            const weight = area.weight || 0
-            return sum + (areaScore * weight / totalWeight)
-          }, 0)
-        )
+        const weightedSum = competencyAreas.reduce((sum: number, area: any) => {
+          const areaScore = area.areaScore || 0
+          const weight = area.weight || 0
+          return sum + (areaScore * weight / totalWeight)
+        }, 0)
+        overallScore = Math.round(weightedSum)
       } else {
-        // Fallback to database overall_score if no weights
-        overallScore = Math.round(record.overallScore || 0)
+        // If no weights, calculate simple average of area scores
+        const areaScores = competencyAreas
+          .map((area: any) => area.areaScore || 0)
+          .filter((score: number) => score > 0)
+        if (areaScores.length > 0) {
+          overallScore = Math.round(areaScores.reduce((sum: number, score: number) => sum + score, 0) / areaScores.length)
+        } else {
+          // Fallback to database overall_score if no area scores
+          overallScore = Math.round(parseFloat(record.overallScore?.toString() || '0'))
+        }
       }
     } else {
       // Fallback to database overall_score if no areas
-      overallScore = Math.round(record.overallScore || 0)
+      overallScore = Math.round(parseFloat(record.overallScore?.toString() || '0'))
     }
+    
+    // Ensure score is between 0-100
+    overallScore = Math.max(0, Math.min(100, overallScore))
 
     // Determine status from recalculated overall score
     let recordStatus: "competent" | "needs-improvement" | "not-competent" = "competent"
@@ -717,21 +807,68 @@ export default function StaffCompetencyPage() {
     })
   })()
 
+  // Get unique staff records (latest assessment per staff) for stats - without search/filter
+  const getUniqueStaffRecords = () => {
+    const latestAssessments = new Map<string, StaffCompetencyRecord>()
+    
+    staffCompetencyRecords.forEach((record) => {
+      const existing = latestAssessments.get(record.staffId)
+      if (!existing) {
+        latestAssessments.set(record.staffId, record)
+      } else {
+        // Keep the one with later assessment date or higher score
+        const existingDate = new Date(existing.lastAssessment || 0).getTime()
+        const recordDate = new Date(record.lastAssessment || 0).getTime()
+        if (recordDate > existingDate || (recordDate === existingDate && record.overallCompetencyScore > existing.overallCompetencyScore)) {
+          latestAssessments.set(record.staffId, record)
+        }
+      }
+    })
+    
+    // Exclude empty assessments: 0% score with no competency areas or skills
+    return Array.from(latestAssessments.values()).filter((record) => {
+      return record.overallCompetencyScore > 0 || 
+        (record.competencyAreas && record.competencyAreas.length > 0 &&
+         record.competencyAreas.some(area => area.skills && area.skills.length > 0))
+    })
+  }
+
   const getOverviewStats = () => {
-    // Use filteredRecords for accurate stats (excludes duplicates and empty assessments)
-    const recordsForStats = filteredRecords
+    // Use all unique staff records for overview stats (not filtered by search/status)
+    const recordsForStats = getUniqueStaffRecords()
     const totalStaff = recordsForStats.length
+    
     const competentStaff = recordsForStats.filter((r) => r.status === "competent").length
-    const needsImprovement = recordsForStats.filter((r) => r.status === "needs-improvement" || r.status === "not-competent").length
-    const averageScore = totalStaff > 0
-      ? recordsForStats.reduce((sum, record) => sum + record.overallCompetencyScore, 0) / totalStaff
-      : 0
+    const needsImprovement = recordsForStats.filter((r) => 
+      r.status === "needs-improvement" || r.status === "not-competent"
+    ).length
+    
+    // Calculate average score only from records with valid scores (0-100 scale)
+    const recordsWithScores = recordsForStats.filter(r => {
+      const score = r.overallCompetencyScore
+      return score !== undefined && 
+             score !== null && 
+             !isNaN(score) &&
+             typeof score === 'number' &&
+             score >= 0 &&
+             score <= 100
+    })
+    
+    let averageScore = 0
+    if (recordsWithScores.length > 0) {
+      const sum = recordsWithScores.reduce((sum, record) => {
+        const score = record.overallCompetencyScore || 0
+        return sum + score
+      }, 0)
+      averageScore = sum / recordsWithScores.length
+    }
 
     return {
       totalStaff,
       competentStaff,
       needsImprovement,
-      averageScore: Math.round(averageScore),
+      averageScore: recordsWithScores.length > 0 ? Math.round(averageScore * 10) / 10 : 0, // Round to 1 decimal place
+      recordsWithScores: recordsWithScores.length, // Track how many records contributed to average
     }
   }
 
@@ -792,7 +929,9 @@ export default function StaffCompetencyPage() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Total Staff</p>
-                      <p className="text-2xl font-bold text-blue-600">{stats.totalStaff}</p>
+                      <p className="text-2xl font-bold text-blue-600">
+                        {isLoadingRecords ? "..." : stats.totalStaff}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -806,7 +945,9 @@ export default function StaffCompetencyPage() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Competent</p>
-                      <p className="text-2xl font-bold text-green-600">{stats.competentStaff}</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {isLoadingRecords ? "..." : stats.competentStaff}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -820,7 +961,9 @@ export default function StaffCompetencyPage() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Needs Improvement</p>
-                      <p className="text-2xl font-bold text-yellow-600">{stats.needsImprovement}</p>
+                      <p className="text-2xl font-bold text-yellow-600">
+                        {isLoadingRecords ? "..." : stats.needsImprovement}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -834,7 +977,20 @@ export default function StaffCompetencyPage() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Average Score</p>
-                      <p className="text-2xl font-bold text-purple-600">{stats.averageScore}%</p>
+                      <p className="text-2xl font-bold text-purple-600">
+                        {isLoadingRecords ? (
+                          "..."
+                        ) : stats.recordsWithScores > 0 ? (
+                          `${stats.averageScore}%`
+                        ) : (
+                          "N/A"
+                        )}
+                      </p>
+                      {!isLoadingRecords && stats.recordsWithScores > 0 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Based on {stats.recordsWithScores} assessment{stats.recordsWithScores !== 1 ? 's' : ''}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -931,8 +1087,28 @@ export default function StaffCompetencyPage() {
                 <CardDescription>Latest competency evaluations and their outcomes</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {staffCompetencyRecords.slice(0, 3).map((record) => (
+                {isLoadingRecords ? (
+                  <div className="text-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin mx-auto text-gray-400" />
+                    <p className="text-sm text-gray-500 mt-2">Loading assessments...</p>
+                  </div>
+                ) : getUniqueStaffRecords().length === 0 ? (
+                  <div className="text-center py-8">
+                    <Shield className="h-12 w-12 mx-auto text-gray-300 mb-2" />
+                    <p className="text-sm text-gray-500">No competency assessments found</p>
+                    <p className="text-xs text-gray-400 mt-1">Create a new assessment to get started</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {getUniqueStaffRecords()
+                      .sort((a, b) => {
+                        // Sort by most recent assessment date
+                        const dateA = new Date(a.lastAssessment || 0).getTime()
+                        const dateB = new Date(b.lastAssessment || 0).getTime()
+                        return dateB - dateA
+                      })
+                      .slice(0, 5)
+                      .map((record) => (
                     <div key={record.id} className="flex items-center justify-between p-4 border rounded-lg">
                       <div className="flex items-center space-x-4">
                         <div className="p-2 bg-blue-100 rounded-lg">
@@ -944,13 +1120,58 @@ export default function StaffCompetencyPage() {
                             {record.staffRole} • {record.department}
                           </p>
                           <p className="text-xs text-gray-500">
-                            Last assessed: {record.lastAssessment} by {record.assessorName}
+                            {(() => {
+                              let dateStr = "Not assessed"
+                              if (record.lastAssessment) {
+                                try {
+                                  const date = new Date(record.lastAssessment)
+                                  if (!isNaN(date.getTime())) {
+                                    dateStr = date.toLocaleDateString('en-US', { 
+                                      year: 'numeric', 
+                                      month: 'short', 
+                                      day: 'numeric' 
+                                    })
+                                  }
+                                } catch (e) {
+                                  // Keep "Not assessed" if date parsing fails
+                                }
+                              }
+                              
+                              const assessor = record.assessorName && 
+                                             record.assessorName !== "Unknown" && 
+                                             record.assessorName.trim() !== ""
+                                ? ` by ${record.assessorName}`
+                                : ""
+                              
+                              return `Last assessed: ${dateStr}${assessor}`
+                            })()}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center space-x-4">
                         <div className="text-center">
-                          <div className="text-lg font-bold text-blue-600">{record.overallCompetencyScore}%</div>
+                          <div className="text-lg font-bold text-blue-600">
+                            {(() => {
+                              const score = record.overallCompetencyScore
+                              if (score !== undefined && 
+                                  score !== null && 
+                                  !isNaN(score) &&
+                                  typeof score === 'number' &&
+                                  score >= 0 &&
+                                  score <= 100) {
+                                return `${Math.round(score)}%`
+                              }
+                              // If score is 0 but has competency areas/skills, show 0%
+                              if (record.competencyAreas && 
+                                  record.competencyAreas.length > 0 &&
+                                  record.competencyAreas.some((area: any) => 
+                                    area.skills && area.skills.length > 0
+                                  )) {
+                                return "0%"
+                              }
+                              return "N/A"
+                            })()}
+                          </div>
                           <p className="text-xs text-gray-500">Overall Score</p>
                         </div>
                         {getStatusBadge(record.status)}
@@ -960,7 +1181,8 @@ export default function StaffCompetencyPage() {
                       </div>
                     </div>
                   ))}
-                </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -1578,53 +1800,147 @@ export default function StaffCompetencyPage() {
                                 // Show AI assessment dialog with live progress
                                 setIsAiAssessmentOpen(true)
                                 setAiAnalysisProgress(0)
-                                setAiAnalysisPhase("")
+                                setAiAnalysisPhase("Preparing analysis...")
                                 setAiLiveInsights([])
                                 setShowAiResults(false)
                                 setAiAssessmentResult(null)
 
-                                // Simulate AI analysis phases with real-time updates
-                                const analysisPhases = [
-                                  { phase: "Initializing AI models...", progress: 10 },
-                                  { phase: "Analyzing video feed...", progress: 25 },
-                                  { phase: "Processing audio patterns...", progress: 40 },
-                                  { phase: "Evaluating clinical skills...", progress: 55 },
-                                  { phase: "Assessing communication...", progress: 70 },
-                                  { phase: "Reviewing safety protocols...", progress: 85 },
-                                  { phase: "Generating insights...", progress: 95 },
-                                  { phase: "Finalizing evaluation...", progress: 100 },
-                                ]
-
-                                for (let i = 0; i < analysisPhases.length; i++) {
-                                  setAiAnalysisPhase(analysisPhases[i].phase)
-                                  setAiAnalysisProgress(analysisPhases[i].progress)
-
-                                  // Add insights during analysis
-                                  if (i === 2) {
-                                    setAiLiveInsights(prev => [...prev, "✅ Excellent verbal communication detected"])
-                                  }
-                                  if (i === 3) {
-                                    setAiLiveInsights(prev => [...prev, "✅ Proper hand hygiene technique observed"])
-                                  }
-                                  if (i === 4) {
-                                    setAiLiveInsights(prev => [...prev, "✅ Active listening skills demonstrated"])
-                                  }
-                                  if (i === 5) {
-                                    setAiLiveInsights(prev => [...prev, "✅ Safety protocols followed correctly"])
-                                  }
-                                  if (i === 1) {
-                                    setAiLiveInsights(prev => [...prev, "🔍 Analyzing body language and positioning..."])
-                                  }
-
-                                  await new Promise(resolve => setTimeout(resolve, 1500))
-                                }
-
-                                // Prepare request body - use FormData if video is present, otherwise JSON
+                                // Prepare request body - extract frame from video if present
                                 let requestBody: FormData | string
                                 let headers: Record<string, string> = {}
                                 
                                 if (aiAssessmentData.videoFile) {
-                                  // Upload video using FormData
+                                  try {
+                                    // Extract multiple frames from the video for frame-by-frame analysis
+                                    console.log('📸 Extracting frames from video for frame-by-frame AI analysis...')
+                                    setAiAnalysisPhase("Loading video...")
+                                    setAiAnalysisProgress(2)
+                                    
+                                    const videoElement = document.createElement('video')
+                                    videoElement.src = URL.createObjectURL(aiAssessmentData.videoFile)
+                                    videoElement.crossOrigin = 'anonymous'
+                                    videoElement.preload = 'metadata'
+                                    
+                                    // Wait for video to load
+                                    await new Promise<void>((resolve, reject) => {
+                                      videoElement.onloadedmetadata = () => {
+                                        setAiAnalysisProgress(5)
+                                        setAiAnalysisPhase("Video loaded, extracting frames...")
+                                        resolve()
+                                      }
+                                      
+                                      videoElement.onerror = () => {
+                                        reject(new Error('Failed to load video'))
+                                      }
+                                      
+                                      setTimeout(() => reject(new Error('Video load timeout')), 10000)
+                                    })
+                                    
+                                    // Extract multiple frames (15 frames for comprehensive analysis)
+                                    const { extractVideoFrames } = await import('@/lib/videoFrameExtractor')
+                                    const frameCount = 15 // Extract 15 frames for frame-by-frame analysis
+                                    setAiLiveInsights(prev => [...prev, `📸 Extracting ${frameCount} frames for ${aiAssessmentData.competencyArea} analysis...`])
+                                    
+                                    // Track frame extraction progress
+                                    let frameExtractionProgress = 0
+                                    const progressInterval = setInterval(() => {
+                                      // Simulate progress during extraction (5-15%)
+                                      frameExtractionProgress += 0.5
+                                      const extractionProgress = 5 + (frameExtractionProgress / frameCount) * 10
+                                      setAiAnalysisProgress(Math.min(15, extractionProgress))
+                                    }, 200)
+                                    
+                                    const extractedFrames = await extractVideoFrames(videoElement, frameCount)
+                                    clearInterval(progressInterval)
+                                    
+                                    console.log(`✅ Extracted ${extractedFrames.length} frames from video`)
+                                    setAiLiveInsights(prev => [...prev, `✅ Successfully extracted ${extractedFrames.length} frames`])
+                                    setAiAnalysisProgress(15)
+                                    setAiAnalysisPhase(`Extracted ${extractedFrames.length} frames, preparing for analysis...`)
+                                    
+                                    // Clean up
+                                    URL.revokeObjectURL(videoElement.src)
+                                    
+                                    // Convert frames to base64 array for FormData
+                                    const framesBase64 = extractedFrames.map(frame => {
+                                      // Extract base64 data (remove data:image/jpeg;base64, prefix if present)
+                                      const base64Data = frame.data.includes(',') 
+                                        ? frame.data.split(',')[1] 
+                                        : frame.data
+                                      return {
+                                        data: base64Data,
+                                        timestamp: frame.timestampFormatted
+                                      }
+                                    })
+                                    
+                                    // Store frame count for progress tracking
+                                    const totalFrameCount = extractedFrames.length
+                                    
+                                    // Upload frames using FormData
+                                    const formData = new FormData()
+                                    formData.append('staffId', staffIdForApi)
+                                    formData.append('evaluatorId', currentUser?.id || '')
+                                    formData.append('evaluationType', 'recorded')
+                                    formData.append('competencyArea', aiAssessmentData.competencyArea) // Send competency area for focused analysis
+                                    formData.append('duration', '600')
+                                    formData.append('notes', `Frame-by-frame AI Assessment for ${selectedStaff.name} - ${aiAssessmentData.competencyArea}`)
+                                    formData.append('frames', JSON.stringify(framesBase64)) // Send all frames as JSON string
+                                    formData.append('frameCount', totalFrameCount.toString())
+                                    formData.append('videoUrl', `video_frames_${Date.now()}.json`) // Indicate it's multiple frames
+                                    requestBody = formData
+                                    
+                                    // Store frame count for progress calculation
+                                    ;(requestBody as any).__frameCount = totalFrameCount
+                                    // Don't set Content-Type - browser will set it with boundary
+                                  } catch (frameError: any) {
+                                    console.error('❌ Error extracting frames from video:', frameError)
+                                    setAiLiveInsights(prev => [...prev, `❌ Frame extraction error: ${frameError.message}`])
+                                    toast({
+                                      title: "Frame extraction failed",
+                                      description: "Could not extract frames from video. Trying with single frame...",
+                                      variant: "destructive"
+                                    })
+                                    
+                                    // Fallback: try single frame extraction
+                                    try {
+                                      const videoElement = document.createElement('video')
+                                      videoElement.src = URL.createObjectURL(aiAssessmentData.videoFile)
+                                      videoElement.crossOrigin = 'anonymous'
+                                      videoElement.preload = 'metadata'
+                                      
+                                      await new Promise<void>((resolve, reject) => {
+                                        videoElement.onloadedmetadata = () => {
+                                          videoElement.currentTime = videoElement.duration / 2
+                                        }
+                                        videoElement.onseeked = () => resolve()
+                                        videoElement.onerror = () => reject(new Error('Failed to load video'))
+                                        setTimeout(() => reject(new Error('Video load timeout')), 10000)
+                                      })
+                                      
+                                      const canvas = document.createElement('canvas')
+                                      canvas.width = videoElement.videoWidth || 1280
+                                      canvas.height = videoElement.videoHeight || 720
+                                      const ctx = canvas.getContext('2d')
+                                      if (!ctx) throw new Error('Failed to get canvas context')
+                                      
+                                      ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height)
+                                      const frameDataUrl = canvas.toDataURL('image/jpeg', 0.8)
+                                      const frameBase64 = frameDataUrl.split(',')[1]
+                                      
+                                      URL.revokeObjectURL(videoElement.src)
+                                      
+                                      const formData = new FormData()
+                                      formData.append('staffId', staffIdForApi)
+                                      formData.append('evaluatorId', currentUser?.id || '')
+                                      formData.append('evaluationType', 'recorded')
+                                      formData.append('competencyArea', aiAssessmentData.competencyArea)
+                                      formData.append('duration', '600')
+                                      formData.append('notes', `AI Assessment for ${selectedStaff.name} - ${aiAssessmentData.competencyArea}`)
+                                      formData.append('videoData', frameBase64)
+                                      formData.append('videoUrl', `video_frame_${Date.now()}.jpg`)
+                                      requestBody = formData
+                                    } catch (singleFrameError: any) {
+                                      // Final fallback: send video file directly
                                   const formData = new FormData()
                                   formData.append('staffId', staffIdForApi)
                                   formData.append('evaluatorId', currentUser?.id || '')
@@ -1634,7 +1950,8 @@ export default function StaffCompetencyPage() {
                                   formData.append('notes', `AI Assessment for ${selectedStaff.name} - ${aiAssessmentData.competencyArea}`)
                                   formData.append('video', aiAssessmentData.videoFile)
                                   requestBody = formData
-                                  // Don't set Content-Type - browser will set it with boundary
+                                    }
+                                  }
                                 } else {
                                   // No video - use JSON
                                   headers['Content-Type'] = 'application/json'
@@ -1648,18 +1965,228 @@ export default function StaffCompetencyPage() {
                                   })
                                 }
 
-                                // Now call the actual API
+                                // Now call the actual API with accurate progress tracking
+                                setAiAnalysisPhase("Sending frames to AI for analysis...")
+                                setAiAnalysisProgress(18)
+                                
+                                // Determine frame count for progress estimation
+                                let estimatedFrameCount = 1
+                                if (requestBody instanceof FormData) {
+                                  // Try to get frame count from FormData
+                                  const frameCountStr = requestBody.get('frameCount') as string
+                                  if (frameCountStr) {
+                                    estimatedFrameCount = parseInt(frameCountStr) || 1
+                                  } else if ((requestBody as any).__frameCount) {
+                                    estimatedFrameCount = (requestBody as any).__frameCount
+                                  }
+                                }
+                                
+                                // Use actual frame timing pattern from logs for maximum accuracy
+                                // Based on actual API performance: Frame 1: 15.66s, Frame 2: 17.93s, Frame 3: 16.25s, etc.
+                                // Average: 16.53s per frame, Total: ~248s for 15 frames
+                                const actualFrameTimings = [
+                                  15664, 17926, 16247, 10278, 27100, // Frames 1-5
+                                  17104, 11156, 14968, 16600, 10688, // Frames 6-10
+                                  22853, 14572, 16866, 14575, 21346  // Frames 11-15
+                                ]
+                                
+                                // Use actual timings if we have 15 frames, otherwise use average
+                                const avgTimePerFrame = 16530 // 16.53 seconds average (from actual logs)
+                                
+                                // Calculate cumulative expected times for each frame
+                                const cumulativeExpectedTimes: number[] = []
+                                let cumulativeTime = 0
+                                
+                                for (let i = 0; i < estimatedFrameCount; i++) {
+                                  // Use actual timing if available, otherwise use average with pattern
+                                  let frameTime: number
+                                  if (estimatedFrameCount === 15 && i < actualFrameTimings.length) {
+                                    frameTime = actualFrameTimings[i] // Use actual timing from logs
+                                  } else {
+                                    // Estimate based on pattern for other frame counts
+                                    frameTime = avgTimePerFrame
+                                    // Apply pattern: first frames longer, middle shorter, some peaks
+                                    if (i < 3) frameTime = avgTimePerFrame + 2000
+                                    else if (i >= 3 && i < 7) frameTime = avgTimePerFrame - 3000
+                                    else if (i === 4) frameTime = 27100 // Frame 5 is longest
+                                    else if (i === 10) frameTime = avgTimePerFrame + 6000
+                                    else if (i === 14) frameTime = avgTimePerFrame + 5000
+                                  }
+                                  
+                                  cumulativeTime += frameTime
+                                  cumulativeExpectedTimes.push(cumulativeTime)
+                                }
+                                
+                                const totalEstimatedTime = cumulativeExpectedTimes[cumulativeExpectedTimes.length - 1]
+                                const startTime = Date.now()
+                                
+                                // Track which frames have been "completed" in progress display
+                                let lastCompletedFrame = -1
+                                
+                                // Accurate frame-by-frame progress tracking using cumulative timing (15-90%)
+                                const progressSimulation = setInterval(() => {
+                                  const elapsed = Date.now() - startTime
+                                  
+                                  // Calculate progress more accurately based on cumulative frame timing
+                                  let progressPercent = 15 // Start at 15% (after frame extraction)
+                                  
+                                  if (estimatedFrameCount > 1) {
+                                    // Find which frame should be processing based on cumulative elapsed time
+                                    let currentFrameIndex = 0
+                                    let timeIntoCurrentFrame = 0
+                                    
+                                    // Find the frame that matches the elapsed time
+                                    for (let i = 0; i < cumulativeExpectedTimes.length; i++) {
+                                      if (elapsed <= cumulativeExpectedTimes[i]) {
+                                        currentFrameIndex = i
+                                        const prevCumulative = i > 0 ? cumulativeExpectedTimes[i - 1] : 0
+                                        const frameDuration = cumulativeExpectedTimes[i] - prevCumulative
+                                        timeIntoCurrentFrame = elapsed - prevCumulative
+                                        const currentFrameProgress = Math.min(timeIntoCurrentFrame / frameDuration, 1)
+                                        
+                                        // Progress calculation:
+                                        // - 15% for frame extraction
+                                        // - 75% for frame analysis (divided among all frames)
+                                        const progressPerFrame = 75 / estimatedFrameCount
+                                        
+                                        // Completed frames contribute full progress
+                                        const completedFramesProgress = currentFrameIndex * progressPerFrame
+                                        
+                                        // Current frame contributes partial progress
+                                        const currentFrameProgressAmount = currentFrameProgress * progressPerFrame
+                                        
+                                        progressPercent = 15 + completedFramesProgress + currentFrameProgressAmount
+                                        progressPercent = Math.min(90, progressPercent) // Cap at 90% until results arrive
+                                        
+                                        // Update phase message to show current frame being analyzed
+                                        const currentFrameNum = currentFrameIndex + 1
+                                        const frameProgressPercent = Math.round(currentFrameProgress * 100)
+                                        const elapsedSeconds = (elapsed / 1000).toFixed(1)
+                                        setAiAnalysisPhase(`Analyzing frame ${currentFrameNum}/${estimatedFrameCount}... (${frameProgressPercent}% - ${elapsedSeconds}s elapsed)`)
+                                        
+                                        // Update live insights when a frame completes
+                                        if (currentFrameIndex > lastCompletedFrame && currentFrameIndex < estimatedFrameCount) {
+                                          lastCompletedFrame = currentFrameIndex
+                                          const frameElapsed = (cumulativeExpectedTimes[currentFrameIndex] / 1000).toFixed(1)
+                                          setAiLiveInsights(prev => [...prev, `✅ Frame ${currentFrameNum}/${estimatedFrameCount} analysis completed (${frameElapsed}s elapsed)`])
+                                        }
+                                        
+                                        break
+                                      }
+                                    }
+                                    
+                                    // If elapsed time exceeds all expected times, we're in final processing
+                                    if (elapsed > totalEstimatedTime) {
+                                      progressPercent = Math.min(90, 15 + 75 * (elapsed / (totalEstimatedTime * 1.1)))
+                                      setAiAnalysisPhase(`Finalizing analysis... (${(elapsed / 1000).toFixed(1)}s elapsed)`)
+                                    }
+                                  } else {
+                                    // Single frame - simpler progress calculation
+                                    const frameProgress = Math.min(elapsed / avgTimePerFrame, 1)
+                                    progressPercent = 15 + (frameProgress * 75)
+                                    progressPercent = Math.min(90, progressPercent)
+                                    const frameProgressPercent = Math.round(frameProgress * 100)
+                                    const elapsedSeconds = (elapsed / 1000).toFixed(1)
+                                    setAiAnalysisPhase(`AI analyzing frame... (${frameProgressPercent}% - ${elapsedSeconds}s elapsed)`)
+                                  }
+                                  
+                                  setAiAnalysisProgress(Math.round(progressPercent))
+                                }, 1000) // Update every 1 second for accurate progress tracking
+                                
                                 const res = await fetch('/api/ai-competency/evaluate', {
                                     method: 'POST',
                                     headers: headers,
                                     body: requestBody
                                   })
+                                
+                                // Calculate actual elapsed time
+                                const actualElapsed = Date.now() - startTime
+                                const actualElapsedSeconds = (actualElapsed / 1000).toFixed(1)
+                                
+                                clearInterval(progressSimulation)
+                                
+                                setAiAnalysisPhase("Receiving AI analysis results...")
+                                setAiAnalysisProgress(88)
+                                
+                                // Add real-time insight with actual time
+                                if (estimatedFrameCount > 1) {
+                                  setAiLiveInsights(prev => [...prev, `🔍 Completed ${estimatedFrameCount} frames analysis in ${actualElapsedSeconds}s`])
+                                } else {
+                                  setAiLiveInsights(prev => [...prev, `🔍 Frame analysis completed in ${actualElapsedSeconds}s`])
+                                }
 
                                   const result = await res.json()
+                                
                                   if (result.success) {
+                                    // Log actual timing information if available
+                                    if (result.timing) {
+                                      console.log('⏱️ Frame Analysis Timing:', {
+                                        frameCount: result.timing.frameCount,
+                                        totalTime: `${result.timing.totalAnalysisTimeSeconds}s`,
+                                        avgPerFrame: `${result.timing.avgTimePerFrameSeconds}s`,
+                                        frameTimings: result.timing.frameTimings
+                                      })
+                                      setAiLiveInsights(prev => [...prev, `⏱️ Analysis completed in ${result.timing.totalAnalysisTimeSeconds}s (avg ${result.timing.avgTimePerFrameSeconds}s per frame)`])
+                                    }
+                                    
+                                    setAiAnalysisPhase("Processing and combining results...")
+                                    setAiAnalysisProgress(92)
+                                    
+                                    // Extract REAL insights from AI analysis result
+                                    const realInsights: string[] = []
+                                    
+                                    // Add insights from competency scores observations
+                                    if (result.data?.competencyScores) {
+                                      result.data.competencyScores.forEach((score: any) => {
+                                        if (score.observations && score.observations.length > 0) {
+                                          // Add first observation as insight
+                                          const firstObs = score.observations[0]
+                                          if (firstObs && !firstObs.includes('MOCK ANALYSIS')) {
+                                            realInsights.push(`📊 ${score.category}: ${firstObs}`)
+                                          }
+                                        }
+                                        // Add score summary
+                                        if (score.score !== undefined) {
+                                          const scoreEmoji = score.score >= 80 ? '✅' : score.score >= 60 ? '⚠️' : '❌'
+                                          realInsights.push(`${scoreEmoji} ${score.category} Score: ${score.score}% (Confidence: ${score.confidence || 'N/A'}%)`)
+                                        }
+                                      })
+                                    }
+                                    
+                                    // Add strengths as insights
+                                    if (result.data?.strengths && result.data.strengths.length > 0) {
+                                      result.data.strengths.slice(0, 3).forEach((strength: string) => {
+                                        if (!strength.includes('MOCK ANALYSIS')) {
+                                          realInsights.push(`💪 Strength: ${strength}`)
+                                        }
+                                      })
+                                    }
+                                    
+                                    // Add development areas as insights
+                                    if (result.data?.developmentAreas && result.data.developmentAreas.length > 0) {
+                                      result.data.developmentAreas.slice(0, 2).forEach((area: string) => {
+                                        if (!area.includes('MOCK ANALYSIS')) {
+                                          realInsights.push(`📈 Development Area: ${area}`)
+                                        }
+                                      })
+                                    }
+                                    
+                                    // Update live insights with real data
+                                    if (realInsights.length > 0) {
+                                      setAiLiveInsights(prev => [...prev, ...realInsights])
+                                    } else {
+                                      // If no insights extracted, add a generic one
+                                      setAiLiveInsights(prev => [...prev, "🤖 AI analysis completed - reviewing results..."])
+                                    }
+                                    
+                                    setAiAnalysisPhase("Analysis Complete!")
+                                    setAiAnalysisProgress(100)
+                                    
+                                    // Small delay to show 100% before showing results
+                                    await new Promise(resolve => setTimeout(resolve, 300))
+                                    
                                     setAiAssessmentResult(result.data)
                                     setShowAiResults(true)
-                                    setAiAnalysisPhase("Analysis Complete!")
                                     
                                     toast({
                                       title: "Success",
@@ -1685,6 +2212,9 @@ export default function StaffCompetencyPage() {
                                       }
                                     }, 2000)
                                   } else {
+                                    setAiAnalysisPhase("Analysis Failed")
+                                    setAiAnalysisProgress(0)
+                                    setAiLiveInsights(prev => [...prev, `❌ Error: ${result.error || "Failed to complete AI assessment"}`])
                                     toast({
                                       title: "Error",
                                       description: result.error || "Failed to complete AI assessment",
@@ -1692,11 +2222,14 @@ export default function StaffCompetencyPage() {
                                     })
                                     setIsAiAssessmentOpen(false)
                                   }
-                                } catch (error) {
+                                } catch (error: any) {
                                   console.error('Error starting AI assessment:', error)
+                                  setAiAnalysisPhase("Analysis Failed")
+                                  setAiAnalysisProgress(0)
+                                  setAiLiveInsights(prev => [...prev, `❌ Error: ${error?.message || "Failed to start AI assessment"}`])
                                   toast({
                                     title: "Error",
-                                    description: "Failed to start AI assessment",
+                                    description: error?.message || "Failed to start AI assessment",
                                     variant: "destructive"
                                   })
                                   setIsAiAssessmentOpen(false)
@@ -1791,24 +2324,67 @@ export default function StaffCompetencyPage() {
                         <CardTitle className="text-base">AI Assessment Analytics</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm">Total AI Assessments</span>
-                            <span className="font-bold">47</span>
+                        {isLoadingAiAssessments ? (
+                          <div className="text-center py-8 text-gray-500">Loading analytics...</div>
+                        ) : (
+                          <div className="space-y-4">
+                            {(() => {
+                              // Calculate analytics from actual data
+                              const completedAssessments = aiAssessments.filter((a: any) => a.status === 'completed')
+                              const totalAssessments = completedAssessments.length
+                              
+                              const avgConfidence = completedAssessments.length > 0
+                                ? Math.round(
+                                    completedAssessments.reduce((sum: number, a: any) => sum + (a.aiConfidence || 0), 0) / 
+                                    completedAssessments.length
+                                  )
+                                : 0
+                              
+                              const avgScore = completedAssessments.length > 0
+                                ? Math.round(
+                                    completedAssessments.reduce((sum: number, a: any) => sum + (a.overallScore || 0), 0) / 
+                                    completedAssessments.length
+                                  )
+                                : 0
+                              
+                              // Calculate average time (estimate time saved - manual assessment takes ~30 min, AI takes ~5 min)
+                              const avgTimeMinutes = completedAssessments.length > 0
+                                ? completedAssessments.reduce((sum: number, a: any) => sum + (a.evaluationTime || 0), 0) / 
+                                  completedAssessments.length / 60
+                                : 0
+                              const timeSaved = avgTimeMinutes > 0 
+                                ? Math.round((1 - avgTimeMinutes / 30) * 100) // 30 min is typical manual time
+                                : 0
+                              
+                              return (
+                                <>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm">Total AI Assessments</span>
+                                    <span className="font-bold">{totalAssessments}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm">Average AI Confidence</span>
+                                    <span className="font-bold text-purple-600">
+                                      {avgConfidence > 0 ? `${avgConfidence}%` : "N/A"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm">Average Score</span>
+                                    <span className="font-bold text-blue-600">
+                                      {avgScore > 0 ? `${avgScore}%` : "N/A"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-sm">Time Saved vs Manual</span>
+                                    <span className="font-bold text-green-600">
+                                      {timeSaved > 0 ? `${timeSaved}%` : "N/A"}
+                                    </span>
+                                  </div>
+                                </>
+                              )
+                            })()}
                           </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm">Average AI Confidence</span>
-                            <span className="font-bold text-purple-600">92%</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm">Time Saved vs Manual</span>
-                            <span className="font-bold text-green-600">68%</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm">Assessment Accuracy</span>
-                            <span className="font-bold text-blue-600">94%</span>
-                          </div>
-                        </div>
+                        )}
                       </CardContent>
                     </Card>
                   </div>

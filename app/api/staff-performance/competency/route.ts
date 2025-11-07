@@ -162,14 +162,22 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Fetch staff names for the evaluations
-    const staffIds = [...new Set((evaluations || []).map((e: any) => e.staff_id))]
-    const { data: staffMembers } = await supabase
-      .from('staff')
-      .select('id, name, department')
-      .in('id', staffIds)
+    // Fetch staff names and roles for the evaluations
+    const staffIds = [...new Set((evaluations || []).map((e: any) => e.staff_id).filter(Boolean))]
+    const evaluatorIds = [...new Set((evaluations || []).map((e: any) => e.evaluator_id).filter(Boolean))]
+    const allStaffIds = [...new Set([...staffIds, ...evaluatorIds])]
+    
+    let staffMap = new Map()
+    if (allStaffIds.length > 0) {
+      const { data: staffMembers } = await supabase
+        .from('staff')
+        .select('id, name, department, role_id, credentials')
+        .in('id', allStaffIds)
 
-    const staffMap = new Map((staffMembers || []).map((s: any) => [s.id, s]))
+      if (staffMembers) {
+        staffMap = new Map((staffMembers || []).map((s: any) => [s.id, s]))
+      }
+    }
 
     // Transform database records to CompetencyRecord format
     const competencyRecords: CompetencyRecord[] = (evaluations || []).map((evaluation: any) => {
@@ -177,7 +185,7 @@ export async function GET(request: NextRequest) {
       const areas = (evaluation.areas || []).map((area: any) => ({
         category: area.category_name,
         categoryScore: parseFloat(area.category_score?.toString() || '0'),
-        weight: area.weight / 100, // Convert to decimal
+        weight: area.weight || 0, // Keep as percentage (0-100) to match frontend
         items: (area.skills || []).map((skill: any) => {
           // Calculate status from score if not set, or use existing status
           const finalScore = skill.final_score || skill.supervisor_assessment_score || skill.self_assessment_score || 0
@@ -208,26 +216,69 @@ export async function GET(request: NextRequest) {
         })
       }))
 
+      // Recalculate overall score from area scores and weights (same logic as frontend)
+      let calculatedOverallScore = 0
+      if (areas.length > 0) {
+        const totalWeight = areas.reduce((sum: number, area: any) => sum + (area.weight || 0), 0)
+        if (totalWeight > 0) {
+          const weightedSum = areas.reduce((sum: number, area: any) => {
+            const areaScore = parseFloat(area.categoryScore?.toString() || '0')
+            const weight = area.weight || 0
+            return sum + (areaScore * weight / totalWeight)
+          }, 0)
+          calculatedOverallScore = Math.round(weightedSum)
+        } else {
+          // If no weights, calculate simple average of area scores
+          const areaScores = areas
+            .map((area: any) => parseFloat(area.categoryScore?.toString() || '0'))
+            .filter((score: number) => score > 0)
+          if (areaScores.length > 0) {
+            calculatedOverallScore = Math.round(areaScores.reduce((sum: number, score: number) => sum + score, 0) / areaScores.length)
+          } else {
+            // Fallback to database overall_score if no area scores
+            calculatedOverallScore = Math.round(parseFloat(evaluation.overall_score?.toString() || '0'))
+          }
+        }
+      } else {
+        // Fallback to database overall_score if no areas
+        calculatedOverallScore = Math.round(parseFloat(evaluation.overall_score?.toString() || '0'))
+      }
+      
+      // Ensure score is between 0-100
+      calculatedOverallScore = Math.max(0, Math.min(100, calculatedOverallScore))
+      
+      // Use recalculated score, but fallback to database if recalculation is 0 and database has a value
+      const overallScore = calculatedOverallScore > 0 
+        ? calculatedOverallScore 
+        : Math.round(parseFloat(evaluation.overall_score?.toString() || '0'))
+
       // Determine status from overall score
       let recordStatus: "competent" | "needs-improvement" | "not-competent" = "competent"
-      const overallScore = parseFloat(evaluation.overall_score?.toString() || '0')
       if (overallScore < 70) {
         recordStatus = "not-competent"
       } else if (overallScore < 85) {
         recordStatus = "needs-improvement"
       }
 
+      // Get staff info (staff already defined above)
+      const staffName = staff.name || null
+      const staffRole = staff.credentials || staff.role_id || staff.department || 'Staff'
+      
+      // Get evaluator info
+      const evaluator = evaluation.evaluator_id ? (staffMap.get(evaluation.evaluator_id) || {}) : {}
+      const evaluatorName = evaluation.evaluator_name || evaluator.name || null
+
       return {
         id: evaluation.id,
         staffId: evaluation.staff_id,
-        staffName: staff.name || 'Unknown',
-        staffRole: (staff.department || 'Staff').toUpperCase().substring(0, 3) as any,
+        staffName: staffName,
+        staffRole: staffRole,
         evaluationDate: evaluation.evaluation_date,
         evaluationType: evaluation.evaluation_type as any,
         overallScore: overallScore,
         competencyAreas: areas,
         evaluatorId: evaluation.evaluator_id || '',
-        evaluatorName: evaluation.evaluator_name || 'Unknown',
+        evaluatorName: evaluatorName,
         status: recordStatus,
         nextEvaluationDue: evaluation.next_evaluation_due || null,
         selfEvaluationStatus: evaluation.self_evaluation_status || null,

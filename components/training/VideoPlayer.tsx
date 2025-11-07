@@ -12,6 +12,7 @@ import {
   Volume2,
   VolumeX,
   Maximize,
+  Minimize,
   Settings,
   Bookmark,
   MessageSquare,
@@ -27,6 +28,8 @@ interface VideoPlayerProps {
   onProgress?: (progress: number) => void
   bookmarks?: Array<{ time: number; note: string }>
   onAddBookmark?: (time: number, note: string) => void
+  onFramesExtracted?: (frames: Array<{ data: string; timestamp: string }>) => void // Callback for extracted frames
+  extractFramesOnComplete?: boolean // Whether to extract frames when video completes
 }
 
 export function VideoPlayer({
@@ -36,6 +39,8 @@ export function VideoPlayer({
   onProgress,
   bookmarks = [],
   onAddBookmark,
+  onFramesExtracted,
+  extractFramesOnComplete = false,
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -49,6 +54,7 @@ export function VideoPlayer({
   const [showBookmarks, setShowBookmarks] = useState(false)
   const [hasCompletedOnce, setHasCompletedOnce] = useState(false)
   const [watchedPercent, setWatchedPercent] = useState(0)
+  const [isFullscreen, setIsFullscreen] = useState(false)
   const REQUIRED_WATCH_PERCENT = 90 // Must watch 90% of video
 
   useEffect(() => {
@@ -73,10 +79,25 @@ export function VideoPlayer({
     
     const updateDuration = () => setDuration(video.duration)
     
-    const handleEnded = () => {
+    const handleEnded = async () => {
       setIsPlaying(false)
       if (!hasCompletedOnce) {
         setHasCompletedOnce(true)
+        
+        // Extract frames if requested (for large videos)
+        if (extractFramesOnComplete && video && onFramesExtracted) {
+          try {
+            console.log("📸 Extracting frames from video for OCR...")
+            const { extractVideoFrames } = await import("@/lib/videoFrameExtractor")
+            const frames = await extractVideoFrames(video, 10) // Extract 10 frames
+            console.log(`✅ Extracted ${frames.length} frames`)
+            onFramesExtracted(frames.map(f => ({ data: f.data, timestamp: f.timestampFormatted })))
+          } catch (error: any) {
+            console.error("❌ Error extracting frames:", error)
+            // Continue with completion even if frame extraction fails
+          }
+        }
+        
         onComplete?.()
       }
     }
@@ -147,11 +168,23 @@ export function VideoPlayer({
     if (videoRef.current) {
       if (document.fullscreenElement) {
         document.exitFullscreen()
+        setIsFullscreen(false)
       } else {
         videoRef.current.requestFullscreen()
+        setIsFullscreen(true)
       }
     }
   }
+
+  // Listen for fullscreen changes
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
 
   const formatTime = (time: number) => {
     const hours = Math.floor(time / 3600)
@@ -179,10 +212,10 @@ export function VideoPlayer({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 bg-black">
       {/* Watch Progress Alert */}
       {!hasCompletedOnce && watchedPercent > 0 && (
-        <Alert className={watchedPercent >= REQUIRED_WATCH_PERCENT ? "bg-green-50 border-green-200" : "bg-blue-50 border-blue-200"}>
+        <Alert className={`mx-4 mt-4 ${watchedPercent >= REQUIRED_WATCH_PERCENT ? "bg-green-50 border-green-200" : "bg-blue-50 border-blue-200"}`}>
           <AlertDescription className="flex items-center justify-between">
             <span className="text-sm">
               {watchedPercent >= REQUIRED_WATCH_PERCENT ? (
@@ -201,8 +234,8 @@ export function VideoPlayer({
         </Alert>
       )}
       
-      <Card className="overflow-hidden bg-black">
-        <div className="relative aspect-video bg-black">
+      <div className="overflow-hidden bg-black">
+        <div className="relative aspect-video bg-black w-full">
           <video
             ref={videoRef}
             src={videoUrl}
@@ -292,18 +325,19 @@ export function VideoPlayer({
                   variant="ghost"
                   onClick={toggleFullscreen}
                   className="text-white hover:bg-white/20"
+                  title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                 >
-                  <Maximize className="h-5 w-5" />
+                  {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
                 </Button>
               </div>
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* Notes Section */}
       {showNotes && (
-        <Card className="p-4 bg-blue-50 border-blue-200">
+        <Card className="mx-4 mb-4 p-4 bg-blue-50 border-blue-200">
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-sm flex items-center">
@@ -331,7 +365,7 @@ export function VideoPlayer({
 
       {/* Bookmarks List */}
       {bookmarks.length > 0 && (
-        <Card className="p-4">
+        <Card className="mx-4 mb-4 p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-semibold text-sm flex items-center">
               <Bookmark className="h-4 w-4 mr-2" />

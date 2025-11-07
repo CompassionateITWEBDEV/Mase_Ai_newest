@@ -17,6 +17,7 @@ import {
   Trophy,
   Star,
   Target,
+  X,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { VideoPlayer } from "@/components/training/VideoPlayer"
@@ -73,6 +74,8 @@ export default function StaffTrainingDetailPage() {
   const [currentViewerFile, setCurrentViewerFile] = useState<any>(null)
   const [currentViewerModuleId, setCurrentViewerModuleId] = useState<string | null>(null)
   const [currentViewerFileId, setCurrentViewerFileId] = useState<string | null>(null)
+  const [isViewerMinimized, setIsViewerMinimized] = useState(false) // For when quiz is shown
+  const [extractedVideoFrames, setExtractedVideoFrames] = useState<Array<{ data: string; timestamp: string }> | null>(null) // Store extracted video frames
 
   useEffect(() => {
     if (trainingId && staffId) {
@@ -442,7 +445,8 @@ export default function StaffTrainingDetailPage() {
         
         const module = training.modules?.find((m: any, idx: number) => (m.id || `module-${idx}`) === moduleId)
         if (module) {
-          const moduleFiles = module.files || [module]
+          // Get all files from module - check multiple possible structures
+          const moduleFiles = module.files || (module.fileUrl ? [module] : []) || module.content_files || []
           const allFileIds = moduleFiles.map((f: any, idx: number) => f.id || `file-${idx}`)
           const allFilesViewed = allFileIds.every((fId: string) => newViewed.includes(fId))
           
@@ -454,12 +458,8 @@ export default function StaffTrainingDetailPage() {
             }
             setModuleTimeSpent(updatedTimeSpent)
             
-            // Close viewer
-            setShowContentViewer(false)
-            setCurrentViewerFile(null)
-            setCurrentViewerModuleId(null)
-            setCurrentViewerFileId(null)
-            
+            // DON'T close viewer - keep it visible so user can review quiz
+            // Only close viewer if there's no quiz to show
             const moduleQuiz = module.quiz || module.quiz_config
             
             // Check if module has quiz or if we've already generated one
@@ -468,8 +468,10 @@ export default function StaffTrainingDetailPage() {
             
             if (hasExistingQuiz || hasGeneratedQuiz) {
               // Use existing or generated quiz
+              // Keep viewer open so user can review the quiz
               setCurrentQuizModuleId(moduleId)
               setShowQuiz(true)
+              setIsViewerMinimized(false) // Show viewer in panel mode (not fullscreen) when quiz is shown
               toast({
                 title: "🎉 Module Content Completed",
                 description: "Take the quiz to complete this module!",
@@ -480,99 +482,191 @@ export default function StaffTrainingDetailPage() {
               setIsGeneratingQuiz(true)
               
               try {
-                // Get module content for quiz generation - with fallbacks to training info
-                const moduleTitle = module.title || training.title || `Module ${currentModuleIndex + 1}`
-                const moduleDescription = module.description || training.description || ""
-                const moduleContent = module.content || ""
-                
-                // Get file content if available - extract more information
-                let fileContent = ""
-                if (module.files && Array.isArray(module.files)) {
-                  // Extract text from file names, descriptions, and titles
-                  const fileInfo = module.files
-                    .map((f: any) => {
-                      const parts = []
-                      if (f.fileName) parts.push(`File: ${f.fileName}`)
-                      if (f.name) parts.push(`Name: ${f.name}`)
-                      if (f.title) parts.push(`Title: ${f.title}`)
-                      if (f.description) parts.push(`Description: ${f.description}`)
-                      if (f.type) parts.push(`Type: ${f.type}`)
-                      return parts.join(", ")
-                    })
-                    .filter(Boolean)
-                  
-                  fileContent = fileInfo.join(". ")
-                }
-                
-                // Always include training context for better quiz generation
-                let trainingContext = ""
-                if (training.title) {
-                  trainingContext += `Training: ${training.title}. `
-                }
-                if (training.description) {
-                  trainingContext += training.description
-                }
-                if (training.category) {
-                  trainingContext += ` Category: ${training.category}.`
-                }
-                
-                // Combine file content with training context
-                if (fileContent) {
-                  fileContent = `${trainingContext} ${fileContent}`.trim()
-                } else {
-                  fileContent = trainingContext
-                }
+                // CRITICAL: Questions must be generated ONLY from extracted file content
+                // DO NOT use module title, description, or training metadata
+                // Only extract content from the actual files (PDF, PowerPoint, video)
                 
                 // Get file information for content extraction
+                // Check multiple possible locations for files
                 let fileUrl: string | undefined
                 let fileType: string | undefined
                 let fileName: string | undefined
                 
-                // Try to get file info from the first file in the module
-                if (module.files && module.files.length > 0) {
-                  const firstFile = module.files[0]
-                  fileUrl = firstFile.fileUrl || firstFile.url
-                  fileType = firstFile.type || firstFile.fileType
-                  fileName = firstFile.fileName || firstFile.name
+                console.log("🔍 Searching for files in module:", {
+                  hasModuleFiles: !!(module.files && module.files.length > 0),
+                  moduleFilesLength: module.files?.length || 0,
+                  hasCurrentViewerFile: !!currentViewerFile,
+                  hasModuleFileUrl: !!module.fileUrl,
+                  moduleKeys: Object.keys(module || {}),
+                })
+                
+                // Priority 1: Check current viewer file (the file being viewed)
+                if (currentViewerFile) {
+                  console.log("🔍 Checking currentViewerFile:", {
+                    hasFileUrl: !!currentViewerFile.fileUrl,
+                    hasUrl: !!currentViewerFile.url,
+                    keys: Object.keys(currentViewerFile || {}),
+                  })
+                  fileUrl = currentViewerFile.fileUrl || currentViewerFile.url
+                  fileType = currentViewerFile.type || currentViewerFile.fileType
+                  fileName = currentViewerFile.fileName || currentViewerFile.name
                   
-                  // Also check current viewer file if available
-                  if (currentViewerFile) {
-                    fileUrl = currentViewerFile.fileUrl || currentViewerFile.url || fileUrl
-                    fileType = currentViewerFile.type || currentViewerFile.fileType || fileType
-                    fileName = currentViewerFile.fileName || currentViewerFile.name || fileName
+                  if (fileUrl) {
+                    console.log("✅ Found file in currentViewerFile:", { fileUrl, fileType, fileName })
                   }
                 }
                 
+                // Priority 2: Check module.files array (use the same logic as above)
+                if (!fileUrl) {
+                  // Get moduleFiles the same way as above
+                  const moduleFiles = module.files || (module.fileUrl ? [module] : []) || module.content_files || []
+                  
+                  if (moduleFiles && Array.isArray(moduleFiles) && moduleFiles.length > 0) {
+                    console.log("🔍 Checking moduleFiles array:", {
+                      filesCount: moduleFiles.length,
+                      firstFileKeys: Object.keys(moduleFiles[0] || {}),
+                    })
+                    
+                    // Try all files in the array
+                    for (let i = 0; i < moduleFiles.length; i++) {
+                      const file = moduleFiles[i]
+                      const testUrl = file.fileUrl || file.url
+                      if (testUrl) {
+                        fileUrl = testUrl
+                        fileType = file.type || file.fileType
+                        fileName = file.fileName || file.name
+                        console.log(`✅ Found file in moduleFiles[${i}]:`, { fileUrl, fileType, fileName })
+                        break
+                      }
+                    }
+                  }
+                }
+                
+                // Priority 3: Check if module itself has fileUrl (some modules might be files)
+                if (!fileUrl && module.fileUrl) {
+                  console.log("🔍 Checking module.fileUrl directly")
+                  fileUrl = module.fileUrl
+                  fileType = module.type || module.fileType
+                  fileName = module.fileName || module.name
+                  console.log("✅ Found file in module.fileUrl:", { fileUrl, fileType, fileName })
+                }
+                
+                // Priority 4: Check module.content_files or other possible file locations
+                if (!fileUrl && module.content_files && Array.isArray(module.content_files) && module.content_files.length > 0) {
+                  console.log("🔍 Checking module.content_files")
+                  const firstContentFile = module.content_files[0]
+                  fileUrl = firstContentFile.fileUrl || firstContentFile.url
+                  fileType = firstContentFile.type || firstContentFile.fileType
+                  fileName = firstContentFile.fileName || firstContentFile.name
+                  if (fileUrl) {
+                    console.log("✅ Found file in module.content_files:", { fileUrl, fileType, fileName })
+                  }
+                }
+                
+                // Final check - if still no file found
+                if (!fileUrl) {
+                  console.error("❌ No file found in module. Debug info:", {
+                    moduleId: module.id,
+                    moduleTitle: module.title,
+                    hasFiles: !!(module.files && module.files.length > 0),
+                    filesCount: module.files?.length || 0,
+                    hasCurrentViewerFile: !!currentViewerFile,
+                    hasModuleFileUrl: !!module.fileUrl,
+                    moduleStructure: JSON.stringify(module).substring(0, 500),
+                  })
+                  throw new Error("No file found in module. Quiz questions can only be generated from extracted file content (PDF, PowerPoint, or video). Please ensure the module has at least one file attached.")
+                }
+                
                 // Log content for debugging
-                console.log("📝 Content for quiz generation:", {
-                  moduleTitle,
-                  moduleDescription: moduleDescription?.substring(0, 50),
-                  moduleContent: moduleContent?.substring(0, 50),
-                  fileContent: fileContent?.substring(0, 50),
+                console.log("📝 Quiz generation - extracting from file ONLY (NO database metadata):", {
                   fileUrl: fileUrl ? "Present" : "Missing",
-                  totalLength: `${moduleTitle} ${moduleDescription} ${moduleContent} ${fileContent}`.trim().length
+                  fileType: fileType || "unknown",
+                  fileName: fileName || "unknown",
+                  note: "NOT using module title, description, or training metadata"
                 })
                 
+                // For videos, extract frames client-side before generating quiz
+                let framesToUse: Array<{ data: string; timestamp: string }> | undefined = undefined
+                
+                if (fileType === "video" && fileUrl) {
+                  try {
+                    console.log("📸 Extracting frames from video for OCR...")
                 toast({
-                  title: "🤖 Analyzing Content...",
-                  description: fileUrl 
-                    ? `Extracting content from ${fileType || "file"} and generating quiz questions`
-                    : "Creating questions based on module content",
+                      title: "📸 Extracting Video Frames...",
+                      description: "Extracting frames from video for content analysis",
+                    })
+                    
+                    // Create a temporary video element to extract frames
+                    const videoElement = document.createElement("video")
+                    videoElement.src = fileUrl
+                    videoElement.crossOrigin = "anonymous"
+                    videoElement.preload = "metadata"
+                    
+                    // Wait for video to load
+                    await new Promise<void>((resolve, reject) => {
+                      videoElement.onloadedmetadata = () => {
+                        resolve()
+                      }
+                      videoElement.onerror = () => {
+                        reject(new Error("Failed to load video"))
+                      }
+                      setTimeout(() => reject(new Error("Video load timeout")), 30000)
+                    })
+                    
+                    // Extract frames
+                    const { extractVideoFrames } = await import("@/lib/videoFrameExtractor")
+                    const extractedFrames = await extractVideoFrames(videoElement, 10)
+                    framesToUse = extractedFrames.map(f => ({ data: f.data, timestamp: f.timestampFormatted }))
+                    
+                    console.log(`✅ Extracted ${framesToUse.length} frames from video`)
+                    
+                    // Clean up
+                    videoElement.src = ""
+                    videoElement.load()
+                  } catch (frameError: any) {
+                    console.warn("⚠️ Frame extraction failed, will try server-side extraction:", frameError.message)
+                    // Continue without frames - server will try to extract
+                  }
+                } else {
+                  // Use frames from state if available (for non-video or if already extracted)
+                  framesToUse = extractedVideoFrames || undefined
+                }
+                
+                toast({
+                  title: "🤖 Extracting File Content...",
+                  description: `Extracting content from ${fileType || "file"} and generating quiz questions from extracted data`,
                 })
                 
                 // Generate quiz using AI with automatic content extraction
+                // Pass empty strings for module metadata - only fileUrl is used for extraction
+                // For large videos, use extracted frames if available
                 const generatedQuestions = await generateQuiz({
-                  moduleTitle,
-                  moduleDescription,
-                  moduleContent,
-                  fileContent,
-                  fileUrl, // Pass file URL for automatic extraction
+                  moduleTitle: "", // Not used - questions from extracted file content only
+                  moduleDescription: "", // Not used - questions from extracted file content only
+                  moduleContent: "", // Not used - questions from extracted file content only
+                  fileContent: "", // Not used - will extract from fileUrl
+                  fileUrl, // CRITICAL: This is used to extract actual file content
                   fileType, // Pass file type (pdf, video, powerpoint)
                   fileName, // Pass file name
                   numberOfQuestions: 5, // Default 5 questions
+                  frames: framesToUse, // Pass extracted frames for large videos
                 })
                 
+                // Clear extracted frames after use
+                setExtractedVideoFrames(null)
+                
                 console.log("✅ Quiz generated:", generatedQuestions.length, "questions")
+                
+                // Log generated questions as JSON
+                console.log("📋 GENERATED QUIZ QUESTIONS (JSON):", JSON.stringify({
+                  moduleId: moduleId,
+                  moduleTitle: module.title,
+                  fileName: fileName,
+                  fileType: fileType,
+                  numberOfQuestions: generatedQuestions.length,
+                  questions: generatedQuestions,
+                  generatedAt: new Date().toISOString(),
+                }, null, 2))
                 
                 // Convert generated quiz format to match InteractiveQuiz expectations
                 // Generated quiz has: correctAnswer as number (0-3)
@@ -591,15 +685,24 @@ export default function StaffTrainingDetailPage() {
                 
                 console.log("📝 Converted quiz questions:", convertedQuestions)
                 
+                // Log converted questions as JSON
+                console.log("📋 CONVERTED QUIZ QUESTIONS (JSON):", JSON.stringify({
+                  moduleId: moduleId,
+                  convertedQuestions: convertedQuestions,
+                  convertedAt: new Date().toISOString(),
+                }, null, 2))
+                
                 // Store generated quiz
                 setGeneratedQuizzes(prev => ({
                   ...prev,
                   [moduleId]: convertedQuestions
                 }))
                 
-                // Show quiz immediately
+                // Show quiz immediately - keep viewer open so user can review
                 setCurrentQuizModuleId(moduleId)
                 setShowQuiz(true)
+                setIsViewerMinimized(false) // Show viewer in panel mode (not fullscreen) when quiz is shown
+                // DON'T close viewer - keep module visible for review
                 
                 toast({
                   title: "✅ Quiz Generated!",
@@ -609,21 +712,37 @@ export default function StaffTrainingDetailPage() {
                 console.error("❌ Error generating quiz:", error)
                 const errorMessage = error.message || "Failed to generate quiz from module content"
                 
-                // Show detailed error message
+                // Check if it's a video extraction error
+                const isVideoError = errorMessage.includes("video") || errorMessage.includes("25MB") || errorMessage.includes("audio track") || errorMessage.includes("Unable to extract content from video")
+                
+                // Show detailed error message with helpful guidance
+                // For video errors, make it clear the module can still be completed
                 toast({
-                  title: "❌ Quiz Generation Failed",
-                  description: errorMessage.includes("OpenAI") 
+                  title: isVideoError ? "⚠️ Quiz Not Generated (Video Too Large)" : "❌ Quiz Generation Failed",
+                  description: isVideoError
+                    ? `Video is too large (>25MB) for automatic quiz generation. The module will be marked as complete. You can add quiz questions manually later.\n\n💡 To enable auto-quiz: Compress video to <25MB or split into smaller modules.`
+                    : errorMessage.includes("OpenAI") 
                     ? "OpenAI API error. Please check API configuration and ensure module has content."
                     : errorMessage.includes("content") || errorMessage.includes("too short")
                     ? "Module content is insufficient. Please ensure the module has description, content, or files for AI to analyze."
                     : errorMessage,
-                  variant: "destructive",
+                  variant: isVideoError ? "default" : "destructive", // Use default (info) for video errors, not destructive
+                  duration: 12000, // Show longer for important errors
                 })
                 
                 // Still allow module completion without quiz if generation fails
                 console.warn("⚠️ Allowing module completion without quiz due to generation error")
+                console.log("✅ Module will be marked as complete. Quiz can be added manually later.")
+                
                 // Complete module without quiz if generation fails
                 await completeModule(moduleId, updatedTimeSpent, updatedViewedFiles)
+                
+                // Show success message that module is complete
+                toast({
+                  title: "✅ Module Completed",
+                  description: "Module marked as complete. Quiz questions can be added manually if needed.",
+                  duration: 5000,
+                })
               } finally {
                 setIsGeneratingQuiz(false)
               }
@@ -1084,15 +1203,15 @@ export default function StaffTrainingDetailPage() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className={`lg:col-span-2 space-y-6 ${showQuiz && showContentViewer ? 'pt-[50vh]' : ''}`}>
             {/* Quiz Generation Loading */}
             {isGeneratingQuiz && (
               <Card>
                 <CardContent className="p-8 text-center">
                   <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold mb-2">🤖 Generating Quiz...</h3>
+                  <h3 className="text-xl font-semibold mb-2">🤖 Generating Quiz Questions...</h3>
                   <p className="text-gray-600">
-                    Creating questions based on module content. This may take a few seconds...
+                    Extracting content from file and creating questions. This may take a few moments...
                   </p>
                 </CardContent>
               </Card>
@@ -1129,10 +1248,7 @@ export default function StaffTrainingDetailPage() {
                   }
                 })()}
                 onComplete={(score, passed) => handleQuizComplete(score, passed, currentQuizModuleId)}
-                onCancel={() => {
-                  setShowQuiz(false)
-                  setCurrentQuizModuleId(null)
-                }}
+                // REMOVED onCancel - Quiz is required, cannot be cancelled
                 title={currentQuizModuleId 
                   ? `Module Quiz: ${training.modules?.find((m: any, idx: number) => (m.id || `module-${idx}`) === currentQuizModuleId)?.title || 'Module Quiz'}`
                   : 'Final Training Quiz'
@@ -1339,10 +1455,26 @@ export default function StaffTrainingDetailPage() {
       {/* Content Viewers */}
       {showContentViewer && currentViewerFile && (
         <>
-          {/* Video Viewer */}
+          {/* Video Viewer - Modal Style */}
           {(currentViewerFile.type === "video" || currentViewerFile.fileType === "video") && (
-            <div className="fixed inset-0 z-50 bg-black flex flex-col">
-              <div className="flex-1 flex flex-col">
+            <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4">
+              <Card className={`${showQuiz ? 'w-full max-w-4xl' : 'w-full max-w-5xl'} bg-black border-gray-800 shadow-2xl`}>
+                <CardHeader className="border-b border-gray-800 pb-3">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-white text-lg font-semibold">
+                      {currentViewerFile.fileName || currentViewerFile.name || "Training Video"}
+                    </CardTitle>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={handleCloseViewer}
+                      className="text-white hover:bg-gray-800 hover:text-white"
+                    >
+                      <X className="h-5 w-5" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-0">
                 <VideoPlayer
                   videoUrl={currentViewerFile.fileUrl}
                   title={currentViewerFile.fileName || currentViewerFile.name || "Training Video"}
@@ -1351,17 +1483,14 @@ export default function StaffTrainingDetailPage() {
                   onAddBookmark={(time, note) => {
                     setBookmarks(prev => [...prev, { time, note }])
                   }}
-                />
-              </div>
-              <div className="p-4 bg-gray-900 border-t border-gray-700 text-center">
-                <Button
-                  variant="outline"
-                  onClick={handleCloseViewer}
-                  className="bg-white hover:bg-gray-100"
-                >
-                  Close (Content not marked as complete)
-                </Button>
-              </div>
+                    extractFramesOnComplete={true} // Extract frames for large videos
+                    onFramesExtracted={(frames) => {
+                      console.log(`📸 Received ${frames.length} extracted frames`)
+                      setExtractedVideoFrames(frames)
+                    }}
+                  />
+                </CardContent>
+              </Card>
             </div>
           )}
           
@@ -1375,6 +1504,7 @@ export default function StaffTrainingDetailPage() {
               totalPages={currentViewerFile.totalPages} // Optional - will auto-detect if not provided
               onComplete={handleContentComplete}
               onClose={handleCloseViewer}
+              isPanelMode={showQuiz} // Pass prop to indicate panel mode
             />
           )}
           
@@ -1390,6 +1520,7 @@ export default function StaffTrainingDetailPage() {
               totalSlides={currentViewerFile.totalSlides || 10}
               onComplete={handleContentComplete}
               onClose={handleCloseViewer}
+              isPanelMode={showQuiz} // Pass prop to indicate panel mode
             />
           )}
           

@@ -85,6 +85,9 @@ export default function EvaluationsPage() {
   const [isNewEvaluationOpen, setIsNewEvaluationOpen] = useState(false)
   const [isStandardEvaluationOpen, setIsStandardEvaluationOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false)
+  const [reportData, setReportData] = useState<any>(null)
+  const [showReportPreview, setShowReportPreview] = useState(false)
 
   // Video evaluation state
   const [isLiveCameraActive, setIsLiveCameraActive] = useState(false)
@@ -192,22 +195,52 @@ export default function EvaluationsPage() {
         setError(null)
         const allEvaluations: EvaluationRecord[] = []
 
+        // Pre-fetch all staff members once for both evaluation types
+        let staffMap = new Map()
+        try {
+          const staffRes = await fetch('/api/staff/list')
+          if (staffRes.ok) {
+            const staffData = await staffRes.json()
+            if (staffData.staff && Array.isArray(staffData.staff)) {
+              // Create map with multiple lookup keys (id, user_id, email)
+              staffData.staff.forEach((s: any) => {
+                if (s.id) staffMap.set(s.id, s)
+                if (s.user_id) staffMap.set(s.user_id, s)
+                if (s.email) staffMap.set(s.email, s)
+              })
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load staff list:', e)
+        }
+
+        // Helper function to get staff info
+        const getStaffInfo = (staffId: string | null | undefined) => {
+          if (!staffId) return { name: null, role: null }
+          const staff = staffMap.get(staffId) || null
+          if (!staff) return { name: null, role: null }
+          
+          const name = staff.name || null
+          const role = staff.credentials || staff.role_id || staff.department || null
+          return { name, role }
+        }
+
         // Load performance evaluations
         try {
           const perfRes = await fetch('/api/self-evaluations')
           if (perfRes.ok) {
             const perfData = await perfRes.json()
             if (perfData.evaluations && Array.isArray(perfData.evaluations)) {
-              // Get staff names
-              const staffIds = [...new Set(perfData.evaluations.map((e: any) => e.staff_id).filter(Boolean))]
-              const staffRes = await fetch('/api/staff/list')
-              const staffData = await staffRes.json()
-              const staffMap = new Map((staffData.staff || []).map((s: any) => [s.id, s]))
-
               perfData.evaluations.forEach((evalRecord: any) => {
-                const staffMember = staffMap.get(evalRecord.staff_id) as any
-                const staffName = staffMember?.name || "Unknown Staff"
-                const staffRole = staffMember?.role_id || staffMember?.department || "Staff"
+                // Skip records without staff_id
+                if (!evalRecord.staff_id) return
+                
+                const staffInfo = getStaffInfo(evalRecord.staff_id)
+                // Only include records with valid staff names
+                if (!staffInfo.name) {
+                  console.warn('Skipping evaluation with missing staff name:', evalRecord.id)
+                  return
+                }
                 
                 const overallScore = evalRecord.overall_score 
                   ? parseFloat(evalRecord.overall_score.toString()) 
@@ -216,25 +249,42 @@ export default function EvaluationsPage() {
                     : undefined
 
                 let status: any = "in-progress"
-                if (evalRecord.status === "approved") status = "excellent"
-                else if (evalRecord.status === "submitted" && overallScore) {
+                if (evalRecord.status === "approved") {
+                  status = overallScore && overallScore >= 90 ? "excellent" : 
+                           overallScore && overallScore >= 80 ? "good" : 
+                           overallScore && overallScore >= 70 ? "satisfactory" : "good"
+                } else if (evalRecord.status === "submitted" && overallScore !== undefined) {
                   if (overallScore >= 90) status = "excellent"
                   else if (overallScore >= 80) status = "good"
                   else if (overallScore >= 70) status = "satisfactory"
                   else if (overallScore >= 60) status = "needs-improvement"
                   else status = "unsatisfactory"
-                } else if (evalRecord.status === "submitted") status = "in-progress"
-                else status = "in-progress"
+                } else if (evalRecord.status === "submitted") {
+                  status = "in-progress"
+                } else if (evalRecord.status === "draft") {
+                  status = "in-progress"
+                }
+
+                // Get evaluator name
+                let evaluatorName = "Supervisor"
+                if (evalRecord.approved_by_name) {
+                  evaluatorName = evalRecord.approved_by_name
+                } else if (evalRecord.reviewer_name) {
+                  evaluatorName = evalRecord.reviewer_name
+                } else if (evalRecord.approved_by) {
+                  const evaluatorInfo = getStaffInfo(evalRecord.approved_by)
+                  if (evaluatorInfo.name) evaluatorName = evaluatorInfo.name
+                }
 
                 allEvaluations.push({
                   id: evalRecord.id,
-                  staffName,
-                  staffRole,
+                  staffName: staffInfo.name,
+                  staffRole: staffInfo.role || "Staff",
                   evaluationType: "performance",
                   assessmentType: evalRecord.assessment_type || "annual",
                   status,
                   overallScore,
-                  evaluatorName: evalRecord.approved_by_name || evalRecord.reviewer_name || "Supervisor",
+                  evaluatorName,
                   completedDate: evalRecord.approved_at || evalRecord.submitted_at || evalRecord.created_at,
                   nextDue: evalRecord.due_date,
                   priority: status === "needs-improvement" || status === "unsatisfactory" ? "high" : 
@@ -254,26 +304,58 @@ export default function EvaluationsPage() {
             const compData = await compRes.json()
             if (compData.records && Array.isArray(compData.records)) {
               compData.records.forEach((record: any) => {
-                const overallScore = record.overallScore ? record.overallScore * 20 : undefined
+                // Skip records with missing staff info
+                if (!record.staffName || record.staffName === "Unknown" || !record.staffId) {
+                  console.warn('Skipping competency evaluation with missing staff info:', record.id)
+                  return
+                }
+                
+                const overallScore = record.overallScore ? Math.round(record.overallScore) : undefined
                 
                 let status: any = "in-progress"
-                if (record.status === "competent" && overallScore) {
-                  if (overallScore >= 90) status = "excellent"
-                  else if (overallScore >= 80) status = "good"
-                  else status = "satisfactory"
-                } else if (record.status === "needs-improvement") status = "needs-improvement"
-                else if (record.status === "not-competent") status = "unsatisfactory"
-                else status = "in-progress"
+                if (record.status === "competent") {
+                  if (overallScore !== undefined) {
+                    if (overallScore >= 90) status = "excellent"
+                    else if (overallScore >= 80) status = "good"
+                    else status = "satisfactory"
+                  } else {
+                    status = "satisfactory"
+                  }
+                } else if (record.status === "needs-improvement") {
+                  status = "needs-improvement"
+                } else if (record.status === "not-competent") {
+                  status = "unsatisfactory"
+                } else {
+                  status = "in-progress"
+                }
+
+                // Get evaluator name - try to look up if missing
+                let evaluatorName = record.evaluatorName
+                if (!evaluatorName || evaluatorName === "Unknown") {
+                  if (record.evaluatorId) {
+                    const evaluatorInfo = getStaffInfo(record.evaluatorId)
+                    evaluatorName = evaluatorInfo.name || "Supervisor"
+                  } else {
+                    evaluatorName = "Supervisor"
+                  }
+                }
+
+                // Get staff role if missing
+                let staffRole = record.staffRole
+                if (!staffRole || staffRole === "STAFF") {
+                  const staffInfo = getStaffInfo(record.staffId)
+                  staffRole = staffInfo.role || "Staff"
+                }
 
                 allEvaluations.push({
                   id: record.id,
-                  staffName: record.staffName || "Unknown Staff",
-                  staffRole: record.staffRole || "Staff",
+                  staffName: record.staffName,
+                  staffRole: staffRole,
                   evaluationType: "competency",
                   assessmentType: record.evaluationType || "annual",
                   status,
                   overallScore,
-                  evaluatorName: record.evaluatorName || "Supervisor",
+                  evaluatorName,
                   completedDate: record.evaluationDate || record.created_at || new Date().toISOString(),
                   nextDue: record.nextEvaluationDue,
                   priority: status === "needs-improvement" || status === "unsatisfactory" ? "high" : 
@@ -285,6 +367,13 @@ export default function EvaluationsPage() {
         } catch (e) {
           console.error('Failed to load competency evaluations:', e)
         }
+
+        // Sort by completed date (newest first)
+        allEvaluations.sort((a, b) => {
+          const dateA = a.completedDate ? new Date(a.completedDate).getTime() : 0
+          const dateB = b.completedDate ? new Date(b.completedDate).getTime() : 0
+          return dateB - dateA
+        })
 
         setEvaluationHistory(allEvaluations)
       } catch (e) {
@@ -311,11 +400,17 @@ export default function EvaluationsPage() {
         return <Badge className="bg-red-100 text-red-800">Unsatisfactory</Badge>
       case "in-progress":
       case "submitted":
+      case "draft":
         return <Badge className="bg-gray-100 text-gray-800">In Progress</Badge>
       case "approved":
         return <Badge className="bg-green-100 text-green-800">Approved</Badge>
+      case "competent":
+        return <Badge className="bg-green-100 text-green-800">Competent</Badge>
+      case "not-competent":
+        return <Badge className="bg-red-100 text-red-800">Not Competent</Badge>
       default:
-        return <Badge variant="secondary">Unknown</Badge>
+        // Fallback to "In Progress" instead of "Unknown"
+        return <Badge className="bg-gray-100 text-gray-800">In Progress</Badge>
     }
   }
 
@@ -336,32 +431,74 @@ export default function EvaluationsPage() {
     return matchesSearch && matchesStatus
   })
 
-  const competencyRecords = filteredHistory.filter((r) => r.evaluationType === "competency")
-  const performanceRecords = filteredHistory.filter((r) => r.evaluationType === "performance")
+  // Filter records by type - only show completed evaluations (exclude in-progress)
+  const competencyRecords = evaluationHistory.filter((r) => 
+    r.evaluationType === "competency" && 
+    r.status !== "in-progress" &&
+    r.completedDate
+  )
+  const performanceRecords = evaluationHistory.filter((r) => 
+    r.evaluationType === "performance" && 
+    r.status !== "in-progress" &&
+    r.completedDate
+  )
 
   const getOverviewStats = () => {
-    const totalEvaluations = evaluationHistory.length
-    const completedThisMonth = evaluationHistory.filter((r) => {
+    // Only count evaluations that have been completed (submitted or approved, not in-progress)
+    const completedEvaluations = evaluationHistory.filter((r) => 
+      r.status !== "in-progress" && r.completedDate
+    )
+    
+    const totalEvaluations = completedEvaluations.length
+    
+    // Calculate completed this month with proper date handling
+    const now = new Date()
+    const currentMonth = now.getMonth()
+    const currentYear = now.getFullYear()
+    
+    const completedThisMonth = completedEvaluations.filter((r) => {
       if (!r.completedDate) return false
-      const completedDate = new Date(r.completedDate)
-      const now = new Date()
-      return completedDate.getMonth() === now.getMonth() && completedDate.getFullYear() === now.getFullYear()
+      try {
+        const completedDate = new Date(r.completedDate)
+        // Check if date is valid
+        if (isNaN(completedDate.getTime())) return false
+        return completedDate.getMonth() === currentMonth && completedDate.getFullYear() === currentYear
+      } catch (e) {
+        return false
+      }
     }).length
 
-    const scoresWithValues = evaluationHistory.filter(r => r.overallScore !== undefined)
-    const averageScore = scoresWithValues.length > 0
-      ? scoresWithValues.reduce((sum, record) => sum + (record.overallScore || 0), 0) / scoresWithValues.length
-      : 0
+    // Calculate average score from completed evaluations with valid scores (0-100 scale)
+    const scoresWithValues = completedEvaluations.filter(r => {
+      const score = r.overallScore
+      return score !== undefined && 
+             score !== null && 
+             !isNaN(score) &&
+             typeof score === 'number' &&
+             score >= 0 &&
+             score <= 100
+    })
+    
+    let averageScore = 0
+    if (scoresWithValues.length > 0) {
+      const sum = scoresWithValues.reduce((sum, record) => {
+        const score = record.overallScore || 0
+        return sum + score
+      }, 0)
+      averageScore = sum / scoresWithValues.length
+    }
 
-    const needsAttention = evaluationHistory.filter((r) =>
-      ["needs-improvement", "unsatisfactory"].includes(r.status),
+    // Count evaluations that need attention (needs improvement or unsatisfactory)
+    const needsAttention = completedEvaluations.filter((r) =>
+      ["needs-improvement", "unsatisfactory", "not-competent"].includes(r.status),
     ).length
 
     return {
       totalEvaluations,
       completedThisMonth,
-      averageScore: Math.round(averageScore),
+      averageScore: scoresWithValues.length > 0 ? Math.round(averageScore * 10) / 10 : 0, // Round to 1 decimal place
       needsAttention,
+      recordsWithScores: scoresWithValues.length, // Track how many records contributed to average
     }
   }
 
@@ -377,14 +514,29 @@ export default function EvaluationsPage() {
       return
     }
 
+    // Parse evaluation type (format: "competency-initial" or "performance-annual")
+    const parts = selectedEvaluationType.split("-")
+    if (parts.length < 2) {
+      toast({
+        title: "Invalid Evaluation Type",
+        description: "Please select a valid evaluation type",
+        variant: "destructive"
+      })
+      return
+    }
+
+    const evalType = parts[0] // "competency" or "performance"
+    const assessmentType = parts.slice(1).join("-") // "initial", "annual", "mid-year", etc.
+
     // If skipDialog is true (called from New Evaluation dialog), navigate directly
     // Otherwise, show confirmation dialog first
     if (skipDialog) {
-    const [evalType, assessmentType] = selectedEvaluationType.split("-")
-    if (evalType === "competency") {
-      router.push(`/staff-competency`)
-    } else {
-      router.push(`/self-evaluation?staffId=${selectedStaffMember}&type=${assessmentType}`)
+      if (evalType === "competency") {
+        // Navigate to staff-competency page with staffId parameter
+        router.push(`/staff-competency?staffId=${encodeURIComponent(selectedStaffMember)}&evaluationType=${encodeURIComponent(assessmentType)}`)
+      } else {
+        // Navigate to self-evaluation page with staffId and type parameters
+        router.push(`/self-evaluation?staffId=${encodeURIComponent(selectedStaffMember)}&type=${encodeURIComponent(assessmentType)}&evaluationType=performance`)
       }
     } else {
       // Open dialog for confirmation
@@ -1290,34 +1442,179 @@ export default function EvaluationsPage() {
   }, [liveVideoStream])
 
   const handleGenerateReport = async (type: "competency" | "performance" | "analytics") => {
-    // Filter evaluations by type
-    const filtered = type === "analytics" 
-      ? evaluationHistory 
-      : evaluationHistory.filter(e => e.evaluationType === type)
-    
-    // Create CSV content
-    const headers = ["ID", "Staff Name", "Role", "Type", "Assessment Type", "Status", "Score", "Evaluator", "Completed Date", "Next Due"]
-    const rows = filtered.map(e => [
-      e.id,
-      e.staffName,
-      e.staffRole,
-      e.evaluationType,
-      e.assessmentType,
-      e.status,
-      e.overallScore?.toString() || "N/A",
-      e.evaluatorName,
-      e.completedDate,
-      e.nextDue || "N/A"
-    ])
-    
-    const csv = [headers, ...rows].map(row => row.join(",")).join("\n")
-    const blob = new Blob([csv], { type: "text/csv" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${type}-report-${new Date().toISOString().split("T")[0]}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
+    try {
+      setIsGeneratingReport(true)
+      
+      // Filter evaluations by type - only include completed evaluations
+      const filtered = type === "analytics" 
+        ? evaluationHistory.filter(e => e.status !== "in-progress" && e.completedDate)
+        : evaluationHistory.filter(e => 
+            e.evaluationType === type && 
+            e.status !== "in-progress" && 
+            e.completedDate
+          )
+      
+      if (filtered.length === 0) {
+        toast({
+          title: "No Data Available",
+          description: `No completed ${type} evaluations found to generate a report.`,
+          variant: "destructive"
+        })
+        setIsGeneratingReport(false)
+        return
+      }
+
+      // Calculate statistics
+      const stats = {
+        total: filtered.length,
+        withScores: filtered.filter(e => e.overallScore !== undefined && e.overallScore !== null).length,
+        averageScore: filtered
+          .filter(e => e.overallScore !== undefined && e.overallScore !== null)
+          .reduce((sum, e) => sum + (e.overallScore || 0), 0) / 
+          filtered.filter(e => e.overallScore !== undefined && e.overallScore !== null).length || 0,
+        byStatus: filtered.reduce((acc, e) => {
+          acc[e.status] = (acc[e.status] || 0) + 1
+          return acc
+        }, {} as Record<string, number>),
+        byAssessmentType: filtered.reduce((acc, e) => {
+          acc[e.assessmentType] = (acc[e.assessmentType] || 0) + 1
+          return acc
+        }, {} as Record<string, number>),
+        needsAttention: filtered.filter(e => 
+          ["needs-improvement", "unsatisfactory", "not-competent"].includes(e.status)
+        ).length,
+        completedThisMonth: filtered.filter(e => {
+          if (!e.completedDate) return false
+          try {
+            const date = new Date(e.completedDate)
+            const now = new Date()
+            return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear()
+          } catch {
+            return false
+          }
+        }).length
+      }
+
+      // Prepare report data
+      const report = {
+        type,
+        generatedAt: new Date().toISOString(),
+        generatedBy: currentUser.name || "System",
+        statistics: stats,
+        evaluations: filtered.map(e => ({
+          id: e.id,
+          staffName: e.staffName,
+          staffRole: e.staffRole,
+          evaluationType: e.evaluationType,
+          assessmentType: e.assessmentType,
+          status: e.status,
+          overallScore: e.overallScore,
+          evaluatorName: e.evaluatorName,
+          completedDate: e.completedDate ? new Date(e.completedDate).toLocaleDateString() : "N/A",
+          nextDue: e.nextDue ? new Date(e.nextDue).toLocaleDateString() : "N/A",
+          priority: e.priority
+        })),
+        summary: {
+          totalEvaluations: stats.total,
+          averageScore: Math.round(stats.averageScore * 10) / 10,
+          needsAttention: stats.needsAttention,
+          completedThisMonth: stats.completedThisMonth
+        }
+      }
+
+      setReportData(report)
+      setShowReportPreview(true)
+
+      toast({
+        title: "Report Generated",
+        description: `Successfully generated ${type} report with ${filtered.length} evaluation(s)`,
+      })
+    } catch (error: any) {
+      console.error("Error generating report:", error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate report. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setIsGeneratingReport(false)
+    }
+  }
+
+  const handleExportReport = (format: "csv" | "json") => {
+    if (!reportData) return
+
+    try {
+      if (format === "csv") {
+        // Create CSV content with proper escaping
+        const escapeCSV = (value: any) => {
+          if (value === null || value === undefined) return ""
+          const str = String(value)
+          if (str.includes(",") || str.includes('"') || str.includes("\n")) {
+            return `"${str.replace(/"/g, '""')}"`
+          }
+          return str
+        }
+
+        const headers = ["ID", "Staff Name", "Role", "Type", "Assessment Type", "Status", "Score", "Evaluator", "Completed Date", "Next Due", "Priority"]
+        const rows = reportData.evaluations.map((e: any) => [
+          e.id,
+          e.staffName,
+          e.staffRole,
+          e.evaluationType,
+          e.assessmentType,
+          e.status,
+          e.overallScore?.toString() || "N/A",
+          e.evaluatorName,
+          e.completedDate,
+          e.nextDue,
+          e.priority
+        ])
+        
+        const csv = [
+          headers.map(escapeCSV).join(","),
+          ...rows.map((row: any[]) => row.map(escapeCSV).join(","))
+        ].join("\n")
+        
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `${reportData.type}-report-${new Date().toISOString().split("T")[0]}.csv`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+
+        toast({
+          title: "Export Successful",
+          description: "CSV file downloaded successfully",
+        })
+      } else if (format === "json") {
+        const json = JSON.stringify(reportData, null, 2)
+        const blob = new Blob([json], { type: "application/json" })
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = `${reportData.type}-report-${new Date().toISOString().split("T")[0]}.json`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+
+        toast({
+          title: "Export Successful",
+          description: "JSON file downloaded successfully",
+        })
+      }
+    } catch (error: any) {
+      console.error("Error exporting report:", error)
+      toast({
+        title: "Export Error",
+        description: error.message || "Failed to export report",
+        variant: "destructive"
+      })
+    }
   }
 
   return (
@@ -1395,7 +1692,20 @@ export default function EvaluationsPage() {
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Average Score</p>
-                      <p className="text-2xl font-bold text-yellow-600">{isLoadingEvaluations ? "..." : `${stats.averageScore}%`}</p>
+                      <p className="text-2xl font-bold text-yellow-600">
+                        {isLoadingEvaluations ? (
+                          "..."
+                        ) : stats.recordsWithScores > 0 ? (
+                          `${stats.averageScore}%`
+                        ) : (
+                          "N/A"
+                        )}
+                      </p>
+                      {!isLoadingEvaluations && stats.recordsWithScores > 0 && (
+                        <p className="text-xs text-gray-500 mt-1">
+                          Based on {stats.recordsWithScores} evaluation{stats.recordsWithScores !== 1 ? 's' : ''}
+                        </p>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -1429,21 +1739,27 @@ export default function EvaluationsPage() {
                 <CardContent>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
+                      <span className="text-sm">Total Competency Assessments</span>
+                      <Badge className="bg-blue-100 text-blue-800">
+                        {isLoadingEvaluations ? "..." : competencyRecords.length}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
                       <span className="text-sm">Initial Assessments</span>
                       <Badge className="bg-blue-100 text-blue-800">
-                        {competencyRecords.filter((r) => r.assessmentType === "initial").length}
+                        {isLoadingEvaluations ? "..." : competencyRecords.filter((r) => r.assessmentType === "initial").length}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Skills Validations</span>
                       <Badge className="bg-green-100 text-green-800">
-                        {competencyRecords.filter((r) => r.assessmentType === "skills-validation").length}
+                        {isLoadingEvaluations ? "..." : competencyRecords.filter((r) => r.assessmentType === "skills-validation").length}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Annual Reviews</span>
                       <Badge className="bg-purple-100 text-purple-800">
-                        {competencyRecords.filter((r) => r.assessmentType === "annual").length}
+                        {isLoadingEvaluations ? "..." : competencyRecords.filter((r) => r.assessmentType === "annual").length}
                       </Badge>
                     </div>
                     <Link href="/staff-competency">
@@ -1467,21 +1783,27 @@ export default function EvaluationsPage() {
                 <CardContent>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
+                      <span className="text-sm">Total Performance Evaluations</span>
+                      <Badge className="bg-green-100 text-green-800">
+                        {isLoadingEvaluations ? "..." : performanceRecords.length}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between">
                       <span className="text-sm">Annual Reviews</span>
                       <Badge className="bg-green-100 text-green-800">
-                        {performanceRecords.filter((r) => r.assessmentType === "annual").length}
+                        {isLoadingEvaluations ? "..." : performanceRecords.filter((r) => r.assessmentType === "annual").length}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Mid-Year Reviews</span>
                       <Badge className="bg-blue-100 text-blue-800">
-                        {performanceRecords.filter((r) => r.assessmentType === "mid-year").length}
+                        {isLoadingEvaluations ? "..." : performanceRecords.filter((r) => r.assessmentType === "mid-year").length}
                       </Badge>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm">Probationary Reviews</span>
                       <Badge className="bg-yellow-100 text-yellow-800">
-                        {performanceRecords.filter((r) => r.assessmentType === "probationary").length}
+                        {isLoadingEvaluations ? "..." : performanceRecords.filter((r) => r.assessmentType === "probationary").length}
                       </Badge>
                     </div>
                     <Link href="/self-evaluation">
@@ -2323,9 +2645,23 @@ export default function EvaluationsPage() {
                         <h3 className="font-semibold">Competency Reports</h3>
                       </div>
                       <p className="text-sm text-gray-600 mb-4">Skills assessment and competency validation reports</p>
-                      <Button variant="outline" className="w-full bg-transparent" onClick={() => handleGenerateReport("competency")}>
-                        <Download className="h-4 w-4 mr-2" />
-                        Generate Report
+                      <Button 
+                        variant="outline" 
+                        className="w-full bg-transparent" 
+                        onClick={() => handleGenerateReport("competency")}
+                        disabled={isGeneratingReport || isLoadingEvaluations}
+                      >
+                        {isGeneratingReport ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-4 w-4 mr-2" />
+                            Generate Report
+                          </>
+                        )}
                       </Button>
                     </CardContent>
                   </Card>
@@ -2337,9 +2673,23 @@ export default function EvaluationsPage() {
                         <h3 className="font-semibold">Performance Reports</h3>
                       </div>
                       <p className="text-sm text-gray-600 mb-4">Performance evaluation and productivity analysis</p>
-                      <Button variant="outline" className="w-full bg-transparent" onClick={() => handleGenerateReport("performance")}>
-                        <Download className="h-4 w-4 mr-2" />
-                        Generate Report
+                      <Button 
+                        variant="outline" 
+                        className="w-full bg-transparent" 
+                        onClick={() => handleGenerateReport("performance")}
+                        disabled={isGeneratingReport || isLoadingEvaluations}
+                      >
+                        {isGeneratingReport ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-4 w-4 mr-2" />
+                            Generate Report
+                          </>
+                        )}
                       </Button>
                     </CardContent>
                   </Card>
@@ -2351,9 +2701,23 @@ export default function EvaluationsPage() {
                         <h3 className="font-semibold">Staff Analytics</h3>
                       </div>
                       <p className="text-sm text-gray-600 mb-4">Department and role-based performance analytics</p>
-                      <Button variant="outline" className="w-full bg-transparent" onClick={() => handleGenerateReport("analytics")}>
-                        <Download className="h-4 w-4 mr-2" />
-                        Generate Report
+                      <Button 
+                        variant="outline" 
+                        className="w-full bg-transparent" 
+                        onClick={() => handleGenerateReport("analytics")}
+                        disabled={isGeneratingReport || isLoadingEvaluations}
+                      >
+                        {isGeneratingReport ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <Download className="h-4 w-4 mr-2" />
+                            Generate Report
+                          </>
+                        )}
                       </Button>
                     </CardContent>
                   </Card>
@@ -2496,6 +2860,171 @@ export default function EvaluationsPage() {
         </DialogContent>
       </Dialog>
 
+      {/* Report Preview Dialog */}
+      <Dialog open={showReportPreview} onOpenChange={setShowReportPreview}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center justify-between">
+              <div className="flex items-center">
+                <FileText className="h-5 w-5 mr-2" />
+                {reportData?.type ? `${reportData.type.charAt(0).toUpperCase() + reportData.type.slice(1)} Report` : "Evaluation Report"}
+              </div>
+              <div className="flex items-center space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleExportReport("csv")}
+                  disabled={!reportData}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export CSV
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleExportReport("json")}
+                  disabled={!reportData}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Export JSON
+                </Button>
+              </div>
+            </DialogTitle>
+            <DialogDescription>
+              Generated on {reportData?.generatedAt ? new Date(reportData.generatedAt).toLocaleString() : "N/A"} by {reportData?.generatedBy || "System"}
+            </DialogDescription>
+          </DialogHeader>
+          {reportData && (
+            <div className="space-y-6 py-4">
+              {/* Summary Statistics */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-gray-600">Total Evaluations</p>
+                    <p className="text-2xl font-bold text-blue-600">{reportData.summary.totalEvaluations}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-gray-600">Average Score</p>
+                    <p className="text-2xl font-bold text-green-600">
+                      {reportData.summary.averageScore > 0 ? `${reportData.summary.averageScore}%` : "N/A"}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-gray-600">Needs Attention</p>
+                    <p className="text-2xl font-bold text-red-600">{reportData.summary.needsAttention}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-gray-600">This Month</p>
+                    <p className="text-2xl font-bold text-purple-600">{reportData.summary.completedThisMonth}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Status Breakdown */}
+              {Object.keys(reportData.statistics.byStatus).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Status Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {Object.entries(reportData.statistics.byStatus).map(([status, count]) => (
+                        <div key={status} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                          <span className="text-sm font-medium capitalize">{status.replace("-", " ")}</span>
+                          <Badge>{count as number}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Assessment Type Breakdown */}
+              {Object.keys(reportData.statistics.byAssessmentType).length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Assessment Type Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      {Object.entries(reportData.statistics.byAssessmentType).map(([type, count]) => (
+                        <div key={type} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                          <span className="text-sm font-medium capitalize">{type.replace("-", " ")}</span>
+                          <Badge>{count as number}</Badge>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Evaluations List */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Evaluation Details</CardTitle>
+                  <CardDescription>{reportData.evaluations.length} evaluation(s) included in this report</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b">
+                          <th className="text-left p-2">Staff Name</th>
+                          <th className="text-left p-2">Role</th>
+                          <th className="text-left p-2">Type</th>
+                          <th className="text-left p-2">Status</th>
+                          <th className="text-right p-2">Score</th>
+                          <th className="text-left p-2">Completed</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reportData.evaluations.slice(0, 20).map((evaluation: any) => (
+                          <tr key={evaluation.id} className="border-b hover:bg-gray-50">
+                            <td className="p-2">{evaluation.staffName}</td>
+                            <td className="p-2">{evaluation.staffRole}</td>
+                            <td className="p-2 capitalize">{evaluation.assessmentType.replace("-", " ")}</td>
+                            <td className="p-2">{getStatusBadge(evaluation.status)}</td>
+                            <td className="p-2 text-right">
+                              {evaluation.overallScore !== undefined ? `${evaluation.overallScore}%` : "N/A"}
+                            </td>
+                            <td className="p-2">{evaluation.completedDate}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {reportData.evaluations.length > 20 && (
+                      <p className="text-sm text-gray-500 mt-4 text-center">
+                        Showing first 20 of {reportData.evaluations.length} evaluations. Export to view all.
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="flex justify-end space-x-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => setShowReportPreview(false)}>
+                  Close
+                </Button>
+                <Button onClick={() => handleExportReport("csv")}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download CSV
+                </Button>
+                <Button onClick={() => handleExportReport("json")}>
+                  <Download className="h-4 w-4 mr-2" />
+                  Download JSON
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
       {/* Standard Evaluation Dialog */}
       <Dialog open={isStandardEvaluationOpen} onOpenChange={setIsStandardEvaluationOpen}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -2523,11 +3052,35 @@ export default function EvaluationsPage() {
               <Button
                 className="w-full bg-indigo-600 hover:bg-indigo-700"
                 onClick={() => {
-                  const [evalType, assessmentType] = selectedEvaluationType.split("-")
+                  if (!selectedStaffMember || !selectedEvaluationType) {
+                    toast({
+                      title: "Missing Information",
+                      description: "Please select both staff member and evaluation type",
+                      variant: "destructive"
+                    })
+                    return
+                  }
+
+                  // Parse evaluation type (format: "competency-initial" or "performance-annual")
+                  const parts = selectedEvaluationType.split("-")
+                  if (parts.length < 2) {
+                    toast({
+                      title: "Invalid Evaluation Type",
+                      description: "Please select a valid evaluation type",
+                      variant: "destructive"
+                    })
+                    return
+                  }
+
+                  const evalType = parts[0] // "competency" or "performance"
+                  const assessmentType = parts.slice(1).join("-") // "initial", "annual", "mid-year", etc.
+
                   if (evalType === "competency") {
-                    router.push(`/staff-competency`)
+                    // Navigate to staff-competency page with staffId parameter
+                    router.push(`/staff-competency?staffId=${encodeURIComponent(selectedStaffMember)}&evaluationType=${encodeURIComponent(assessmentType)}`)
                   } else {
-                    router.push(`/self-evaluation?staffId=${selectedStaffMember}&type=${assessmentType}`)
+                    // Navigate to self-evaluation page with staffId and type parameters
+                    router.push(`/self-evaluation?staffId=${encodeURIComponent(selectedStaffMember)}&type=${encodeURIComponent(assessmentType)}&evaluationType=performance`)
                   }
                   setIsStandardEvaluationOpen(false)
                 }}

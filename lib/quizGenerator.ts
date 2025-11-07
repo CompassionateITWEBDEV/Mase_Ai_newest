@@ -17,6 +17,7 @@ interface GenerateQuizParams {
   fileType?: string
   fileName?: string
   numberOfQuestions?: number
+  frames?: Array<{ data: string; timestamp?: string }> // Client-side extracted video frames
 }
 
 /**
@@ -25,16 +26,22 @@ interface GenerateQuizParams {
 async function extractFileContent(
   fileUrl?: string,
   fileType?: string,
-  fileName?: string
+  fileName?: string,
+  frames?: Array<{ data: string; timestamp?: string }>
 ): Promise<string> {
-  if (!fileUrl) {
-    console.warn("⚠️ No fileUrl provided for extraction")
+  if (!fileUrl && !frames) {
+    console.warn("⚠️ No fileUrl or frames provided for extraction")
     return ""
   }
 
   try {
     console.log(`🔍 Extracting content from ${fileType}: ${fileName}`)
-    console.log(`🔍 File URL: ${fileUrl.substring(0, 100)}...`)
+    if (fileUrl) {
+      console.log(`🔍 File URL: ${fileUrl.substring(0, 100)}...`)
+    }
+    if (frames && frames.length > 0) {
+      console.log(`📸 Using ${frames.length} client-extracted frames for video OCR`)
+    }
     
     const response = await fetch("/api/extract-content", {
       method: "POST",
@@ -45,13 +52,15 @@ async function extractFileContent(
         fileUrl,
         fileType,
         fileName,
+        frames, // Pass frames for client-side extracted video frames
       }),
     })
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}))
       console.error(`❌ Extraction failed: ${response.status}`, errorData)
-      return ""
+      // Throw error with helpful message
+      throw new Error(errorData.message || errorData.error || `Extraction failed with status ${response.status}`)
     }
 
     const data = await response.json()
@@ -69,16 +78,20 @@ async function extractFileContent(
       console.log(`✅ Content preview: ${data.content.substring(0, 300)}...`)
       return data.content
     } else {
+      // If extraction failed, throw error with helpful message
+      const errorMsg = data.message || data.error || "Content extraction returned empty. Please check if the file is accessible and contains readable content."
       console.warn(`⚠️ Extraction returned empty or invalid content:`, {
         extracted: data.extracted,
         contentLength: data.content?.length || 0,
-        error: data.error
+        error: data.error,
+        message: data.message
       })
-      return ""
+      throw new Error(errorMsg)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Error extracting file content:", error)
-    return ""
+    // Re-throw error to propagate to caller
+    throw error
   }
 }
 
@@ -95,6 +108,7 @@ export async function generateQuiz({
   fileType,
   fileName,
   numberOfQuestions = 5,
+  frames, // Client-side extracted video frames
 }: GenerateQuizParams): Promise<QuizQuestion[]> {
   try {
     // ALWAYS extract content from file if fileUrl is provided (regardless of fileContent)
@@ -103,7 +117,7 @@ export async function generateQuiz({
     if (fileUrl) {
       console.log("📄 ALWAYS extracting content from file for quiz generation...", { fileUrl, fileType, fileName })
       try {
-        extractedFileContent = await extractFileContent(fileUrl, fileType, fileName)
+        extractedFileContent = await extractFileContent(fileUrl, fileType, fileName, frames)
         console.log("📄 Extraction result:", {
           success: extractedFileContent.length > 0,
           length: extractedFileContent.length,
@@ -123,64 +137,115 @@ export async function generateQuiz({
       }
     }
 
-    // Combine all available content - PRIORITIZE extracted file content (actual content, not metadata)
-    let combinedContent = ""
+    // CRITICAL: Use ONLY extracted file content - NO database metadata (module title, description, training info)
+    // Questions must be generated ONLY from the actual file content (PDF, PowerPoint, video)
+    // DO NOT use module title, description, training title, or any database metadata
     
-    // CRITICAL: Prioritize extracted file content FIRST (this is the actual file content)
+    let contentToAnalyze = ""
+    
+    // ONLY use extracted file content - ignore all database metadata
     if (extractedFileContent && extractedFileContent.trim().length > 50) {
       // This is the actual extracted content from the file (PDF text, video transcript, etc.)
-      combinedContent += `ACTUAL FILE CONTENT (Extracted from ${fileType || "file"}):\n${extractedFileContent.substring(0, 12000)}\n\n`
-      console.log("✅ Using extracted file content for quiz generation:", extractedFileContent.length, "characters")
+      // Use ONLY this content - NO module title, description, or training info
+      contentToAnalyze = extractedFileContent.substring(0, 15000) // Use up to 15k chars of extracted content
+      console.log("✅ Using ONLY extracted file content for quiz generation:", extractedFileContent.length, "characters")
       console.log("✅ Extracted content preview:", extractedFileContent.substring(0, 500))
-    } else {
-      console.warn("⚠️ No extracted file content available - will use module metadata only")
-    }
-    
-    // Add module information as context ONLY (file content is primary)
-    // Only add minimal metadata if we have extracted content
-    if (extractedFileContent && extractedFileContent.trim().length > 50) {
-      // We have actual file content, so only add minimal context
-      combinedContent += `\n--- Module Context (for reference only, questions should be based on ACTUAL FILE CONTENT above) ---\n`
-      combinedContent += `Module Title: ${moduleTitle || "Untitled Module"}\n`
-      if (moduleDescription && moduleDescription.trim().length > 0) {
-        combinedContent += `Module Description: ${moduleDescription.substring(0, 200)}\n`
+      console.log("✅ NOT using module title, description, or training metadata from database")
+      } else {
+        // If no file content extracted, provide helpful error message
+        // Check if it's a video file to provide specific guidance
+        const isVideo = fileType === "video" || fileName?.toLowerCase().match(/\.(mp4|webm|mov|avi|mkv)$/)
+        
+        let errorMsg = ""
+        if (isVideo) {
+          errorMsg = `Unable to extract content from video file. ` +
+            `OpenAI Whisper API has a 25MB file size limit. ` +
+            `\n\nFor large videos (1 hour, 30 mins, etc.), please:` +
+            `\n1. Compress video to <25MB using video compression tools (HandBrake, FFmpeg, or online compressors)` +
+            `\n2. Split long videos into smaller modules (<25MB each)` +
+            `\n3. Extract audio track separately and upload as audio file` +
+            `\n4. Use a video processing service to extract and compress audio` +
+            `\n5. Create quiz questions manually for this module` +
+            `\n\nQuestions must be generated from extracted file content, not from module title/description.`
+        } else {
+          errorMsg = `No content extracted from file. Cannot generate quiz from database metadata.
+Please ensure:
+1. File is accessible (PDF, PowerPoint, or video)
+2. PDF.co API is configured correctly (PDF_CO_API_KEY) for PDF/PowerPoint
+3. OpenAI API is configured correctly (OPENAI_API_KEY) for video transcription
+4. File contains extractable content
+5. For videos: File size is <25MB and has an audio track
+
+Questions must be generated from extracted file content, not from module title/description.
+
+If extraction fails, you may need to:
+- Compress large videos to <25MB
+- Ensure videos have audio tracks
+- Check that files are accessible
+- Manually create quiz questions if automatic extraction is not possible`
+        }
+        
+        console.error("❌", errorMsg)
+        throw new Error(errorMsg)
       }
-    } else {
-      // No extracted content, use module info as primary source (fallback)
-      console.warn("⚠️ No file content extracted - quiz will be based on module title/description only")
-      combinedContent += `Module Title: ${moduleTitle || "Untitled Module"}\n`
-      if (moduleDescription && moduleDescription.trim().length > 0) {
-        combinedContent += `Module Description: ${moduleDescription}\n`
+    
+    // Ensure we have sufficient extracted content
+    // Filter out error messages and validate content quality
+    const errorPatterns = [
+      "i'm sorry",
+      "i can't extract",
+      "no text",
+      "no visible text",
+      "cannot extract",
+      "there is no",
+      "does not contain"
+    ]
+    
+    const hasRealContent = errorPatterns.every(pattern => 
+      !contentToAnalyze.toLowerCase().includes(pattern)
+    ) && contentToAnalyze.trim().length > 100
+    
+    const minContentLength = 100 // Need at least 100 characters of extracted content
+    
+    if (!hasRealContent || contentToAnalyze.length < minContentLength) {
+      // Check if it's mostly error messages
+      const errorCount = errorPatterns.filter(pattern => 
+        contentToAnalyze.toLowerCase().includes(pattern)
+      ).length
+      
+      if (errorCount > 0) {
+        throw new Error(
+          `No valid content extracted from video. The extraction returned error messages instead of actual content. ` +
+          `\n\nPossible reasons:` +
+          `\n1. Video frames don't contain visible text (person talking without slides)` +
+          `\n2. Video is too large (>25MB) - audio transcript not extracted` +
+          `\n3. Video has no audio track or visual text` +
+          `\n\nSolutions:` +
+          `\n1. Ensure video has visible text/slides or clear audio narration` +
+          `\n2. Compress video to <25MB to enable audio transcription` +
+          `\n3. Add slides or visual aids with text to the video` +
+          `\n4. Create quiz questions manually for this module` +
+          `\n\nQuestions must be generated from extracted video content (speech/text), not from error messages.`
+        )
       }
-      if (moduleContent && moduleContent.trim().length > 0) {
-        combinedContent += `Module Content: ${moduleContent.substring(0, 2000)}\n`
-      }
-    }
-    
-    const contentToAnalyze = combinedContent.trim()
-    
-    console.log(`📝 Content to analyze: ${contentToAnalyze.length} characters`)
-    console.log(`📝 Content preview: ${contentToAnalyze.substring(0, 300)}...`)
-    
-    // Ensure we have minimum content - very lenient to allow AI to work with minimal content
-    // AI can generate questions from just title and description
-    const minContentLength = 20 // Very low threshold - just need title
-    
-    if (contentToAnalyze.length < minContentLength) {
+      
       throw new Error(
-        `Insufficient content for quiz generation. Only ${contentToAnalyze.length} characters available. ` +
-        `Please add at least a module title and description. Current content: "${contentToAnalyze.substring(0, 100)}..."`
+        `Insufficient content extracted from file. Only ${contentToAnalyze.length} characters extracted. ` +
+        `Need at least ${minContentLength} characters of extracted file content to generate quiz questions. ` +
+        `Please ensure the file contains extractable text content (speech, slides, or visual text).`
       )
     }
     
+    console.log(`📝 Content to analyze (EXTRACTED FILE CONTENT ONLY): ${contentToAnalyze.length} characters`)
+    console.log(`📝 Content preview: ${contentToAnalyze.substring(0, 300)}...`)
+    
     // Log content for debugging
-    console.log(`📊 Content summary:`, {
-      title: moduleTitle,
-      descriptionLength: moduleDescription?.length || 0,
-      contentLength: moduleContent?.length || 0,
+    console.log(`📊 Content summary (ONLY extracted file content, NO database metadata):`, {
       extractedFileLength: extractedFileContent?.length || 0,
-      fileContentLength: fileContent?.length || 0,
-      totalLength: contentToAnalyze.length
+      contentToAnalyzeLength: contentToAnalyze.length,
+      fileType: fileType || "unknown",
+      fileName: fileName || "unknown",
+      note: "NOT using module title, description, or training metadata"
     })
 
     const response = await fetch("/api/generate-quiz", {
@@ -223,72 +288,12 @@ export async function generateQuiz({
 }
 
 /**
- * Fallback questions in case API fails
+ * REMOVED: Fallback questions function
+ * 
+ * NO HARDCODED QUESTIONS - All questions must be generated from extracted data
+ * If content extraction fails, the system will throw an error instead of using fallback
+ * This ensures questions are always based on actual file content
  */
-function getFallbackQuestions(moduleTitle: string): QuizQuestion[] {
-  return [
-    {
-      id: "q1",
-      question: `What is the main objective of the "${moduleTitle}" module?`,
-      options: [
-        "To provide basic understanding of the topic",
-        "To test your knowledge",
-        "To complete the training requirement",
-        "All of the above",
-      ],
-      correctAnswer: 3,
-      explanation: "The module aims to provide comprehensive understanding and fulfill training requirements.",
-    },
-    {
-      id: "q2",
-      question: "How should you apply the concepts learned in this module?",
-      options: [
-        "In daily work practices",
-        "Only during emergencies",
-        "When supervised",
-        "Never apply them",
-      ],
-      correctAnswer: 0,
-      explanation: "Concepts should be integrated into daily work practices for best results.",
-    },
-    {
-      id: "q3",
-      question: "What is the recommended approach to retain information from this module?",
-      options: [
-        "Memorize everything",
-        "Take notes and review regularly",
-        "Watch videos multiple times",
-        "Skip difficult parts",
-      ],
-      correctAnswer: 1,
-      explanation: "Taking notes and regular review ensures better retention of key concepts.",
-    },
-    {
-      id: "q4",
-      question: "When should you seek clarification about module content?",
-      options: [
-        "Never, figure it out yourself",
-        "Only after completing the module",
-        "Immediately when confused",
-        "Wait until the next training",
-      ],
-      correctAnswer: 2,
-      explanation: "Seeking clarification immediately prevents misunderstandings and ensures proper learning.",
-    },
-    {
-      id: "q5",
-      question: "How does this module contribute to your professional development?",
-      options: [
-        "It doesn't contribute at all",
-        "It provides required CEU hours only",
-        "It enhances skills and knowledge for better patient care",
-        "It's just a formality",
-      ],
-      correctAnswer: 2,
-      explanation: "Training modules are designed to enhance professional skills and improve patient care quality.",
-    },
-  ]
-}
 
 /**
  * Extract text content from PDF (if using pdf-parse library)

@@ -69,13 +69,12 @@ async function performAIAnalysis(request: EvaluationRequest): Promise<AIEvaluati
     willUseMock: !hasOpenAIKey
   })
   
-  // If OpenAI is not configured, fall back to mock
+  // If OpenAI is not configured, throw error - NO MOCK ANALYSIS
   if (!hasOpenAIKey) {
-    console.warn('⚠️ OpenAI API key not found in environment variables (OPENAI_API_KEY or NEXT_PUBLIC_OPENAI_API_KEY)')
-    console.warn('⚠️ Using MOCK ANALYSIS - will give LOW scores (20-30) to ensure accuracy')
-    console.warn('⚠️ To enable real AI analysis, set OPENAI_API_KEY in your .env.local file')
-    console.warn('⚠️ Mock analysis cannot properly detect medical activity vs idle/non-medical content')
-    return await performMockAIAnalysis(request)
+    console.error('❌ OpenAI API key not found in environment variables (OPENAI_API_KEY or NEXT_PUBLIC_OPENAI_API_KEY)')
+    console.error('❌ Real AI analysis is REQUIRED - no mock/hardcoded analysis will be used')
+    console.error('❌ To enable real AI analysis, set OPENAI_API_KEY in your .env.local file')
+    throw new Error('OpenAI API key not configured. Real AI analysis is required for accurate competency evaluation. Please configure OPENAI_API_KEY in your .env.local file. Mock/hardcoded analysis is not available.')
   }
   
   console.log('✅ OpenAI API key found - using REAL Medical AI analysis (GPT-4o)')
@@ -325,8 +324,16 @@ Focus on MEDICAL STANDARDS, HEALTHCARE PROTOCOLS, PATIENT SAFETY, and provide co
     // Enhanced prompt for video/audio analysis or live camera frame analysis
     const hasVideo = !!(request.videoData || request.videoUrl)
     const isLiveFrame = request.evaluationType === 'live' && request.videoUrl?.includes('live_frame')
+    const hasMultipleFrames = !!(request as any).frames && Array.isArray((request as any).frames) && (request as any).frames.length > 1
+    
     // Determine if this is a frame (from live camera OR extracted from recorded video)
-    const isFrame = isLiveFrame || (request.videoUrl?.includes('video_frame') || (request.videoData && request.videoData.length > 1000))
+    // Video files are typically >1MB in base64, frames are usually <500KB
+    // Also check if videoUrl indicates it's a frame or multiple frames
+    const isFrame = isLiveFrame || 
+                   request.videoUrl?.includes('video_frame') || 
+                   request.videoUrl?.includes('video_frames') ||
+                   request.videoUrl?.includes('live_frame') ||
+                   (request.videoData && request.videoData.length < 500000) // Frames are smaller than videos
     // Build user prompt based on video availability and type
     let userPrompt: string
     
@@ -388,11 +395,11 @@ FIRST, verify this is MEDICAL content, THEN identify WHO is in the frame, THEN d
 - **Is Medical Communication Happening?**: Is ${staffName} actually talking/interacting with a patient in a medical context OR silent/alone/not communicating?
 - **What Medical Activity Level?**: Active clinical work, medical preparation, waiting/idle, or non-medical activity?
 - **FAIR SCORING RULE**: 
-  - If content is NOT medical: Score all areas LOW (20-40) (confidence is INDEPENDENT - can be HIGH if you're certain it's non-medical), state "Non-medical content"
-  - If ${staffName} is NOT visible or cannot be identified, note this and adjust confidence scores based on how certain you are
-  - If ${staffName} is visible but NOT doing clinical work, score Clinical Skills LOW (20-40) (confidence is INDEPENDENT - can be HIGH if you're certain no clinical work is happening)
-  - If ${staffName} is visible but NOT communicating medically, score Communication LOW (20-40) (confidence is INDEPENDENT - can be HIGH if you're certain they're not communicating)
-  - DO NOT give high scores when nothing relevant is observable - be HONEST and FAIR
+  - If content is NOT medical: Score all areas based on what you observe - if non-medical activities visible, scores reflect that. State clearly "Non-medical content" and describe what you see.
+  - If ${staffName} is NOT visible or cannot be identified, note this clearly and adjust confidence scores based on how certain you are about identification
+  - If ${staffName} is visible but NOT doing clinical work, score Clinical Skills based on what you observe - if no clinical work visible, score reflects that. State clearly what activity is visible.
+  - If ${staffName} is visible but NOT communicating medically, score Communication based on what you observe - if no communication visible, score reflects that. State clearly what you observe.
+  - DO NOT give high scores when nothing relevant is observable - be HONEST and ACCURATE based on actual observations
 
 **1. ACCURATE ACTIVITY DETECTION & FRAME ANALYSIS**
 Analyze this SINGLE frame with meticulous attention to detail. FIRST determine what's actually happening, THEN examine:
@@ -443,30 +450,28 @@ For this frame, provide:
 - **Contextual Notes**: Frame clarity, visibility limitations, motion blur (if present)
 - **Non-Activity Acknowledgment**: If NO relevant activity is visible, clearly state "No clinical work/communication observable in this frame"
 
-**3. ACCURATE & FAIR SCORING METHODOLOGY - VERY STRICT RULES**
-Score ONLY what you can clearly see. Be FAIR and ACCURATE - NEVER give high scores for non-medical content or idle activity:
+**3. ACCURATE & FAIR SCORING METHODOLOGY - ANALYZE ACTUAL CONTENT**
+Score ONLY what you can clearly see in the frame. Be FAIR and ACCURATE based on ACTUAL OBSERVATIONS:
 
-**CRITICAL SCORING RULES - MUST FOLLOW:**
-- **IF NOT MEDICAL CONTENT**: MAXIMUM score is 30 for ALL areas (confidence is INDEPENDENT - determine based on how certain you are of your assessment, could be 25, 30, 35, 40, 80, 90, etc. - NOT tied to medical rules)
-- **IF Person is IDLE/Just Messing Around/Not Doing Anything**: MAXIMUM score is 30 for ALL areas (confidence is INDEPENDENT - if you can clearly see they're idle, confidence can be HIGH like 85-95%)
-- **IF Person is NOT Talking/Communicating**: Communication score MUST be 20-30 (confidence is INDEPENDENT - if you're certain they're not talking, confidence can be HIGH like 80-90%)
-- **IF Person is NOT Doing Medical Work**: Clinical Skills score MUST be 20-30 (confidence is INDEPENDENT - if you're certain no medical work is happening, confidence can be HIGH like 85-95%)
-- **NEVER give scores above 40 for non-medical activities** - this is a medical evaluation system
-- **NEVER give scores above 50 for idle/inactive behavior** - person must be actively doing medical work
-- **IF Medical Content but NO Activity**: Score 20-30 (confidence is INDEPENDENT - determine based on how certain you are, not medical rules)
-- **IF Medical Content with Activity**: Score based on quality (0-100)
+**CRITICAL SCORING RULES - ANALYZE WHAT YOU ACTUALLY SEE:**
+- **ACCURATE ANALYSIS REQUIRED**: Score based on what is ACTUALLY visible in the frame, not assumptions or hardcoded values
+- **IF NOT MEDICAL CONTENT**: Score appropriately low based on what you observe - if person is doing non-medical activities, score reflects that
+- **IF Person is IDLE/Not Doing Anything**: Score based on what you observe - if clearly idle, score reflects lack of activity
+- **IF Person is NOT Talking/Communicating**: Communication score reflects what you observe - if no communication visible, score accordingly
+- **IF Person is NOT Doing Medical Work**: Clinical Skills score reflects what you observe - if no medical work visible, score accordingly
+- **IF Medical Content with Activity**: Score 0-100 based on QUALITY of what you observe - technique, safety, compliance, professionalism
+- **BE HONEST**: If you cannot see something clearly, reflect that in your confidence score, not by giving arbitrary scores
 
-**Clinical Skills Scoring - STRICT:**
-- **IF Medical Clinical Work CLEARLY Visible**: Score 0-100 based on:
-  * Movement quality (HIGH/MEDIUM/LOW)
-  * Technique quality, accuracy, procedural compliance
-  * Hand steadiness and precision
-  * Body mechanics and ergonomics
-- **IF Person is Just Standing/Sitting/Idle**: Score 20-30 (confidence is INDEPENDENT - if you can clearly see they're idle, confidence can be HIGH like 85-95%), state "No medical clinical work observable - person appears idle"
-- **IF Person is Messing Around/Not Doing Medical Work**: Score 20-30 (confidence is INDEPENDENT - if you're certain it's non-medical, confidence can be HIGH like 80-90%), state "Non-medical activity - no clinical work detected"
-- **IF NO Clinical Work Visible OR Non-Medical**: Score 20-30 (confidence is INDEPENDENT - determine based on how certain you are, not tied to medical rules), state "No medical clinical work observable" or "Non-medical activity"
-- **NEVER give scores above 50 when no medical clinical activity is clearly detected**
-- **NEVER give scores above 40 for idle/inactive behavior**
+**Clinical Skills Scoring - ACCURATE ANALYSIS:**
+- **IF Medical Clinical Work CLEARLY Visible**: Score 0-100 based on ACTUAL OBSERVATION of:
+  * Movement quality (assess what you see - smooth vs jerky, controlled vs uncontrolled)
+  * Technique quality (assess actual technique visible - proper vs improper, accurate vs inaccurate)
+  * Hand steadiness (assess what you observe - steady vs shaky, precise vs imprecise)
+  * Body mechanics (assess posture and positioning visible - proper vs improper ergonomics)
+  * Procedural compliance (assess if proper medical procedures appear to be followed)
+- **IF Person is Just Standing/Sitting/Idle**: Score based on what you observe - if clearly idle with no medical activity, score reflects that. State clearly what you observe.
+- **IF Person is Not Doing Medical Work**: Score based on what you observe - if non-medical activity visible, score reflects that. State clearly what activity is visible.
+- **IF NO Clinical Work Visible**: Score based on what you can actually see - if nothing medical is observable, score reflects that. Be honest about what is and isn't visible.
 
 **Communication Scoring - STRICT (Medical Context Only):**
 - **IF Medical Communication CLEARLY Visible (Person is Talking)**: Score 0-100 based on:
@@ -486,15 +491,14 @@ Score ONLY what you can clearly see. Be FAIR and ACCURATE - NEVER give high scor
 - **LOW Movement Quality (Below 60)**: Jerky movements, poor control, shaky hands, imprecise technique, awkward movements
 - **If Non-Medical or No Medical Activity or Idle**: Movement quality cannot be assessed - state "N/A - No medical activity detected" and score 20-30
 
-**Overall Performance Score (1-5) - STRICT:**
-- **IF No Medical Activity or Idle**: Overall score MUST be 1 (Poor) or 2 (Below Average) at most
-- **IF Not Talking/Communicating**: Cannot score above 2 for communication-related evaluations
-- **IF Just Messing Around**: Overall score MUST be 1 (Poor)
-- **5 (Excellent)**: ONLY if exceptional medical work is clearly visible and person is actively performing medical tasks
-- **4 (Good)**: ONLY if good medical work is clearly visible and person is actively performing medical tasks
-- **3 (Average)**: ONLY if some medical work is visible
-- **2 (Below Average)**: If minimal or no medical activity
-- **1 (Poor)**: If no medical activity, idle, or just messing around
+**Overall Performance Score (1-5) - ACCURATE ASSESSMENT:**
+- **Score based on ACTUAL OBSERVATIONS** of what is visible in the frame
+- **5 (Excellent)**: If exceptional medical work is clearly visible and person is actively performing medical tasks with high quality
+- **4 (Good)**: If good medical work is clearly visible and person is actively performing medical tasks competently
+- **3 (Average)**: If some medical work is visible but quality is average or mixed
+- **2 (Below Average)**: If minimal medical activity visible or quality is below standards
+- **1 (Poor)**: If no medical activity visible, person is idle, or non-medical content observed
+- **Be accurate**: Score reflects what you actually observe, not assumptions or hardcoded values
 
 **General Scoring Rules - VERY STRICT:**
 - **Score (0-100)**: Base ONLY on what is clearly visible and observable in THIS frame
@@ -1135,14 +1139,128 @@ Base your evaluation on realistic, professional performance expectations for a $
           
           // For frames (from live camera OR extracted from recorded video), use Vision API with messages format
           if (isFrame && request.videoData) {
-            // Use Vision API with image
+            // Check if we have multiple frames for frame-by-frame analysis
+            const frames = (request as any).frames as Array<{ data: string; timestamp: string }> | undefined
+            const frameCount = frames?.length || 0
+            const competencyArea = request.competencyArea || 'general'
+            
+            if (frames && frameCount > 1) {
+              // FRAME-BY-FRAME ANALYSIS: Analyze each frame based on competency area
+              const analysisStartTime = Date.now()
+              console.log(`📸 Starting frame-by-frame analysis: ${frameCount} frames for ${competencyArea} competency`)
+              
+              const frameAnalyses: any[] = []
+              const frameTimings: Array<{ frameNumber: number; processingTimeMs: number; timestamp: string }> = []
+              
+              // Analyze each frame
+              for (let i = 0; i < frames.length; i++) {
+                const frame = frames[i]
+                const frameNum = i + 1
+                const frameStartTime = Date.now()
+                console.log(`🔍 Analyzing frame ${frameNum}/${frameCount} at ${frame.timestamp || 'unknown time'}...`)
+                
+                try {
+                  const framePrompt = `${videoAnalysisPrompt}\n\n**FRAME ${frameNum} of ${frameCount}** (Timestamp: ${frame.timestamp || 'unknown'})\n\n**FOCUS ON ${competencyArea.toUpperCase()} COMPETENCY**: Analyze this frame specifically for ${competencyArea} competency. Look for:\n- ${competencyArea}-related activities, techniques, or behaviors\n- Compliance with ${competencyArea} standards and protocols\n- Quality of ${competencyArea} performance visible in this frame\n\nProvide specific observations about ${competencyArea} competency in this frame.`
+                  
+                  const { object: frameAnalysis } = await generateObject({
+                    model: openai("gpt-4o"),
+                    schema: aiAnalysisSchema,
+                    messages: [
+                      {
+                        role: 'system',
+                        content: `You are a MEDICAL AI expert from OpenAI specializing in healthcare competency evaluation. You have deep knowledge of medical protocols, clinical standards, and patient safety requirements. Analyze medical activities with precision and provide accurate, evidence-based assessments based on ACTUAL OBSERVATIONS from the frame.\n\n**FOCUS ON ${competencyArea.toUpperCase()} COMPETENCY**: This analysis is specifically for ${competencyArea} competency evaluation. Analyze the frame with focus on ${competencyArea}-related activities, techniques, compliance, and quality.\n\n**CRITICAL REQUIREMENTS FOR ACCURATE ANALYSIS:**\n- **NO HARDCODED VALUES**: All scores must be based on what you ACTUALLY observe in the frame, not assumptions or hardcoded ranges\n- **ACCURATE OBSERVATION**: Analyze the frame carefully and score based on what is visible - technique, safety, compliance, communication\n- **SCORING SCALE: 0-100% (Maximum is 100%)**: All scores must be between 0-100 based on actual quality observed\n- **CONFIDENCE VALUES: 0-100%**: Confidence reflects how certain you are in your assessment - must be DIFFERENT for each competency area based on what you can see\n- **VARIED CONFIDENCE**: Each competency should have its own unique confidence based on visibility and clarity\n- **BE HONEST**: If you cannot see something clearly, reflect that in confidence, not by guessing scores`
+                      },
+                      {
+                        role: 'user',
+                        content: [
+                          {
+                            type: 'text',
+                            text: retryCount > 0 
+                              ? `${framePrompt}\n\n**RETRY ATTEMPT**: Please ensure your response is valid JSON with all competencyScores elements as complete objects.`
+                              : framePrompt
+                          },
+                          {
+                            type: 'image',
+                            image: frame.data.startsWith('data:') 
+                              ? frame.data 
+                              : `data:image/jpeg;base64,${frame.data}`
+                          }
+                        ]
+                      }
+                    ],
+                    temperature: 0.3
+                  })
+                  
+                  const frameProcessingTime = Date.now() - frameStartTime
+                  const processingTimeSeconds = (frameProcessingTime / 1000).toFixed(2)
+                  
+                  frameAnalyses.push({
+                    frameNumber: frameNum,
+                    timestamp: frame.timestamp,
+                    analysis: frameAnalysis
+                  })
+                  
+                  frameTimings.push({
+                    frameNumber: frameNum,
+                    processingTimeMs: frameProcessingTime,
+                    timestamp: frame.timestamp || 'unknown'
+                  })
+                  
+                  console.log(`✅ Frame ${frameNum}/${frameCount} analyzed successfully in ${processingTimeSeconds}s`)
+                } catch (frameError: any) {
+                  const frameProcessingTime = Date.now() - frameStartTime
+                  console.warn(`⚠️ Error analyzing frame ${frameNum} after ${(frameProcessingTime / 1000).toFixed(2)}s:`, frameError.message)
+                  // Continue with other frames
+                }
+              }
+              
+              const totalAnalysisTime = Date.now() - analysisStartTime
+              const avgTimePerFrame = frameTimings.length > 0 
+                ? frameTimings.reduce((sum, t) => sum + t.processingTimeMs, 0) / frameTimings.length 
+                : 0
+              
+              console.log(`📊 Frame-by-frame analysis completed:`)
+              console.log(`   - Total frames analyzed: ${frameAnalyses.length}/${frameCount}`)
+              console.log(`   - Total processing time: ${(totalAnalysisTime / 1000).toFixed(2)}s`)
+              console.log(`   - Average time per frame: ${(avgTimePerFrame / 1000).toFixed(2)}s`)
+              console.log(`   - Frame timings:`, frameTimings.map(t => `Frame ${t.frameNumber}: ${(t.processingTimeMs / 1000).toFixed(2)}s`).join(', '))
+              
+              // Combine analyses from all frames
+              console.log(`📊 Combining analyses from ${frameAnalyses.length} frames for ${competencyArea}...`)
+              
+              // Aggregate scores and observations from all frames
+              const combinedAnalysis = combineFrameAnalyses(frameAnalyses, competencyArea)
+              
+              // Store timing info in combined analysis (after it's created)
+              if (combinedAnalysis) {
+                ;(combinedAnalysis as any).frameTimings = frameTimings
+                ;(combinedAnalysis as any).totalAnalysisTime = totalAnalysisTime
+                ;(combinedAnalysis as any).avgTimePerFrame = avgTimePerFrame
+              }
+              
+              aiAnalysisAttempt = combinedAnalysis
+              
+            } else {
+              // Single frame analysis (existing logic)
+              // Validate that videoData is actually image data, not video file data
+              const isLikelyImage = request.videoData.length < 500000 && // Frames are smaller
+                                   (request.videoUrl?.includes('frame') || request.videoUrl?.includes('.jpg') || request.videoUrl?.includes('.png'))
+              
+              if (!isLikelyImage && request.videoData.length > 500000) {
+                // This is likely a video file, not a frame - we can't process it directly
+                console.warn('⚠️ Video file detected but frame extraction required. Video files cannot be sent directly to Vision API.')
+                console.warn('⚠️ Please extract a frame from the video on the client side before sending.')
+                throw new Error('Video file provided but frame extraction required. Please extract a frame from the video before sending to AI analysis.')
+              }
+              
+              // Use Vision API with image frame
             const { object } = await generateObject({
               model: openai("gpt-4o"), // Using GPT-4o - OpenAI's most advanced model with medical AI capabilities (max score: 100%)
               schema: aiAnalysisSchema,
               messages: [
                 {
                   role: 'system',
-                  content: 'You are a MEDICAL AI expert from OpenAI specializing in healthcare competency evaluation. You have deep knowledge of medical protocols, clinical standards, and patient safety requirements. Analyze medical activities with precision and provide accurate, evidence-based assessments.\n\n**SCORING SCALE: 0-100% (Maximum is 100%)**\n- All scores must be between 0-100 (100% is the absolute maximum)\n- All confidence values must be between 0-100 (100% is the absolute maximum)\n\n**CRITICAL CONFIDENCE REQUIREMENT**: You MUST provide DIFFERENT confidence values for each competency area. DO NOT use the same confidence value (like 30%) for all competencies. Each competency should have its own unique confidence based on what you can actually see. For example: Hand Hygiene: 28%, Patient Identification: 32%, Communication: 35%, Documentation: 30%, Equipment: 27%. Using the same confidence for all competencies is FORBIDDEN and indicates you are not properly assessing each area individually.'
+                    content: 'You are a MEDICAL AI expert from OpenAI specializing in healthcare competency evaluation. You have deep knowledge of medical protocols, clinical standards, and patient safety requirements. Analyze medical activities with precision and provide accurate, evidence-based assessments based on ACTUAL OBSERVATIONS from the frame.\n\n**CRITICAL REQUIREMENTS FOR ACCURATE ANALYSIS:**\n- **NO HARDCODED VALUES**: All scores must be based on what you ACTUALLY observe in the frame, not assumptions or hardcoded ranges\n- **ACCURATE OBSERVATION**: Analyze the frame carefully and score based on what is visible - technique, safety, compliance, communication\n- **SCORING SCALE: 0-100% (Maximum is 100%)**: All scores must be between 0-100 based on actual quality observed\n- **CONFIDENCE VALUES: 0-100%**: Confidence reflects how certain you are in your assessment - must be DIFFERENT for each competency area based on what you can see\n- **VARIED CONFIDENCE**: Each competency should have its own unique confidence based on visibility and clarity. For example: Hand Hygiene: 28%, Patient Identification: 32%, Communication: 35%, Documentation: 30%, Equipment: 27%. Using the same confidence for all competencies is FORBIDDEN.\n- **BE HONEST**: If you cannot see something clearly, reflect that in confidence, not by guessing scores'
                 },
                 {
                   role: 'user',
@@ -1155,7 +1273,9 @@ Base your evaluation on realistic, professional performance expectations for a $
                     },
                     {
                       type: 'image',
-                      image: `data:image/jpeg;base64,${request.videoData}`
+                        image: request.videoData.startsWith('data:') 
+                          ? request.videoData 
+                          : `data:image/jpeg;base64,${request.videoData}`
                     }
                   ]
                 }
@@ -1164,6 +1284,7 @@ Base your evaluation on realistic, professional performance expectations for a $
             })
             
             aiAnalysisAttempt = object
+            }
           } else {
             // This should not happen - frames should be handled above
             // But if we get here, it means we have video data but no frame
@@ -1253,6 +1374,11 @@ Base your evaluation on realistic, professional performance expectations for a $
     
       console.log('🏥 OpenAI Medical AI analysis completed successfully', hasVideo ? '(with video analysis)' : '(standard healthcare competency evaluation)')
 
+    // Preserve timing information from frame-by-frame analysis
+    const frameTimings = (aiAnalysis as any).frameTimings
+    const totalAnalysisTime = (aiAnalysis as any).totalAnalysisTime
+    const avgTimePerFrame = (aiAnalysis as any).avgTimePerFrame
+
     // Transform OpenAI response to our format
     // With Zod schema, data is already validated and typed correctly
     const competencyScores: CompetencyScore[] = aiAnalysis.competencyScores.map((score) => ({
@@ -1314,7 +1440,7 @@ Base your evaluation on realistic, professional performance expectations for a $
     const overallPerformanceScore = aiAnalysis.overallPerformanceScore
     const overallPerformanceJustification = aiAnalysis.overallPerformanceJustification || ''
 
-    return {
+    const evaluationResult: any = {
       evaluationId: `eval_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       staffId: request.staffId,
       overallScore,
@@ -1329,7 +1455,16 @@ Base your evaluation on realistic, professional performance expectations for a $
       evaluationTime: request.duration,
       timestamp: new Date().toISOString(),
       status: "completed",
-    };
+    }
+    
+    // Preserve timing information if available
+    if (frameTimings || totalAnalysisTime) {
+      evaluationResult.frameTimings = frameTimings
+      evaluationResult.totalAnalysisTime = totalAnalysisTime
+      evaluationResult.avgTimePerFrame = avgTimePerFrame
+    }
+    
+    return evaluationResult
   } catch (error: any) {
     console.error('OpenAI API Error:', error)
     console.error('Error details:', {
@@ -1338,9 +1473,117 @@ Base your evaluation on realistic, professional performance expectations for a $
       stack: error?.stack,
       cause: error?.cause
     })
-    // Fall back to mock analysis if OpenAI fails
-    console.log('Falling back to mock analysis due to OpenAI error')
-    return await performMockAIAnalysis(request)
+    // DO NOT fall back to mock - throw error for accurate analysis
+    console.error('❌ OpenAI API error - real AI analysis failed')
+    console.error('❌ Error details:', error.message)
+    console.error('❌ Real AI analysis is REQUIRED - no mock/hardcoded analysis will be used')
+    throw new Error(`AI analysis failed: ${error.message}. Real AI analysis is required for accurate competency evaluation. Please check OpenAI API configuration and ensure the API key is valid.`)
+  }
+}
+
+/**
+ * Combine analyses from multiple frames into a single comprehensive analysis
+ */
+function combineFrameAnalyses(
+  frameAnalyses: Array<{ frameNumber: number; timestamp: string; analysis: any }>,
+  competencyArea: string
+): any {
+  if (frameAnalyses.length === 0) {
+    throw new Error('No frame analyses to combine')
+  }
+  
+  // If only one frame, return its analysis
+  if (frameAnalyses.length === 1) {
+    return frameAnalyses[0].analysis
+  }
+  
+  // Combine multiple frame analyses
+  const allCompetencyScores: Record<string, Array<{ score: number; confidence: number; observations: string[]; recommendations: string[]; evidence: any[] }>> = {}
+  const allStrengths: string[] = []
+  const allDevelopmentAreas: string[] = []
+  const allRiskFactors: string[] = []
+  
+  // Aggregate data from all frames
+  frameAnalyses.forEach(({ frameNumber, timestamp, analysis }) => {
+    // Aggregate competency scores
+    if (analysis.competencyScores && Array.isArray(analysis.competencyScores)) {
+      analysis.competencyScores.forEach((score: any) => {
+        const category = score.category
+        if (!allCompetencyScores[category]) {
+          allCompetencyScores[category] = []
+        }
+        allCompetencyScores[category].push({
+          score: score.score || 0,
+          confidence: score.confidence || 50,
+          observations: (score.observations || []).map((obs: string) => `[Frame ${frameNumber} @ ${timestamp}] ${obs}`),
+          recommendations: score.recommendations || [],
+          evidence: (score.evidence || []).map((ev: any) => ({ ...ev, frameNumber, timestamp }))
+        })
+      })
+    }
+    
+    // Aggregate strengths, development areas, risk factors
+    if (analysis.strengths) allStrengths.push(...analysis.strengths)
+    if (analysis.developmentAreas) allDevelopmentAreas.push(...analysis.developmentAreas)
+    if (analysis.riskFactors) allRiskFactors.push(...analysis.riskFactors)
+  })
+  
+  // Calculate combined competency scores (average with confidence weighting)
+  const combinedCompetencyScores = Object.entries(allCompetencyScores).map(([category, scores]) => {
+    const totalWeightedScore = scores.reduce((sum, s) => sum + (s.score * (s.confidence / 100)), 0)
+    const totalWeight = scores.reduce((sum, s) => sum + (s.confidence / 100), 0)
+    const avgScore = totalWeight > 0 ? Math.round(totalWeightedScore / totalWeight) : 0
+    
+    const avgConfidence = Math.round(scores.reduce((sum, s) => sum + s.confidence, 0) / scores.length)
+    
+    // Combine all observations and evidence
+    const allObservations = scores.flatMap(s => s.observations)
+    const allRecommendations = [...new Set(scores.flatMap(s => s.recommendations))]
+    const allEvidence = scores.flatMap(s => s.evidence)
+    
+    return {
+      category,
+      score: Math.min(100, Math.max(0, avgScore)),
+      confidence: Math.min(100, Math.max(0, avgConfidence)),
+      observations: allObservations.slice(0, 10), // Limit to top 10
+      recommendations: allRecommendations.slice(0, 5), // Limit to top 5
+      evidence: allEvidence.slice(0, 10) // Limit to top 10
+    }
+  })
+  
+  // Get unique strengths and development areas
+  const uniqueStrengths = [...new Set(allStrengths)].slice(0, 5)
+  const uniqueDevelopmentAreas = [...new Set(allDevelopmentAreas)].slice(0, 4)
+  const uniqueRiskFactors = [...new Set(allRiskFactors)].slice(0, 5)
+  
+  // Calculate overall score from combined competency scores
+  const overallScore = combinedCompetencyScores.length > 0
+    ? Math.round(
+        combinedCompetencyScores.reduce((sum, s) => sum + (s.score * (s.confidence / 100)), 0) /
+        combinedCompetencyScores.reduce((sum, s) => sum + (s.confidence / 100), 0)
+      )
+    : 0
+  
+  // Calculate average confidence
+  const avgConfidence = combinedCompetencyScores.length > 0
+    ? Math.round(combinedCompetencyScores.reduce((sum, s) => sum + s.confidence, 0) / combinedCompetencyScores.length)
+    : 50
+  
+  // Determine overall performance score (1-5)
+  let overallPerformanceScore = 1
+  if (overallScore >= 90) overallPerformanceScore = 5
+  else if (overallScore >= 80) overallPerformanceScore = 4
+  else if (overallScore >= 70) overallPerformanceScore = 3
+  else if (overallScore >= 60) overallPerformanceScore = 2
+  
+  return {
+    competencyScores: combinedCompetencyScores,
+    strengths: uniqueStrengths,
+    developmentAreas: uniqueDevelopmentAreas,
+    riskFactors: uniqueRiskFactors,
+    overallPerformanceScore,
+    overallPerformanceJustification: `Frame-by-frame analysis of ${frameAnalyses.length} frames for ${competencyArea} competency. Combined assessment from multiple frames provides comprehensive evaluation.`,
+    trainingRecommendations: uniqueDevelopmentAreas.map(area => `Focus on improving ${area}`).slice(0, 6)
   }
 }
 
@@ -1499,10 +1742,12 @@ export async function POST(request: NextRequest) {
     let body: EvaluationRequest
     
     if (contentType.includes('multipart/form-data')) {
-      // Handle FormData with video file or live camera frame
+      // Handle FormData with video file, live camera frame, or multiple frames
       const formData = await request.formData()
       const videoFile = formData.get('video') as File | null
       const frameImage = formData.get('frameImage') as File | null
+      const framesJson = formData.get('frames') as string | null // Multiple frames as JSON string
+      const frameCount = formData.get('frameCount') ? parseInt(formData.get('frameCount') as string) : 0
       const isLiveFrame = formData.get('isLiveFrame') === 'true'
       
       body = {
@@ -1515,8 +1760,33 @@ export async function POST(request: NextRequest) {
         videoUrl: undefined,
       }
 
+      // Process multiple frames for frame-by-frame analysis
+      if (framesJson && frameCount > 0) {
+        try {
+          const frames = JSON.parse(framesJson) as Array<{ data: string; timestamp: string }>
+          console.log(`📸 MULTIPLE FRAMES RECEIVED: ${frames.length} frames for ${body.competencyArea} analysis`)
+          
+          if (frames.length > 0) {
+            // Store frames in request for frame-by-frame analysis
+            // We'll analyze all frames and combine results
+            body.videoData = frames[0].data // Use first frame as primary, but we'll analyze all
+            body.videoUrl = `video_frames_${Date.now()}_${frames.length}_frames.json`
+            
+            // Store all frames in a custom property (we'll need to modify the interface)
+            // For now, we'll pass frames through notes or create a new field
+            // Actually, let's modify the request to include frames array
+            ;(body as any).frames = frames // Add frames to body for processing
+            ;(body as any).frameCount = frames.length
+            
+            console.log(`✅ Prepared ${frames.length} frames for frame-by-frame ${body.competencyArea} analysis`)
+          }
+        } catch (error) {
+          console.error('❌ Error parsing frames JSON:', error)
+          // Fall through to other processing
+        }
+      }
       // Process frame image (from live camera OR extracted from recorded video)
-      if (frameImage) {
+      else if (frameImage) {
         const frameSource = isLiveFrame ? 'live camera' : 'extracted from recorded video'
         console.log(`📸 Frame image received (${frameSource}):`, frameImage.name, frameImage.size, 'bytes')
         // Convert frame image to base64 for OpenAI Vision
@@ -1916,7 +2186,8 @@ export async function POST(request: NextRequest) {
     const isMockMode = result.overallPerformanceJustification?.includes('MOCK ANALYSIS') || 
                        result.competencyScores[0]?.observations?.some((obs: string) => obs.includes('MOCK ANALYSIS'))
 
-    return NextResponse.json({
+    // Prepare response with timing information if available
+    const responseData: any = {
       success: true,
       data: result,
       evaluationId: result.evaluationId || null, // Include AI assessment ID for saving to competency
@@ -1924,7 +2195,28 @@ export async function POST(request: NextRequest) {
         ? "⚠️ MOCK ANALYSIS MODE: OpenAI API key not configured. Configure OPENAI_API_KEY in .env.local for real AI analysis. Mock mode gives low scores (20-30) to ensure accuracy."
         : "AI competency evaluation completed successfully",
       isMockMode: isMockMode
-    })
+    }
+    
+    // Add timing information if frame-by-frame analysis was performed
+    if ((body as any).frames && Array.isArray((body as any).frames)) {
+      const frameTimings = (result as any).frameTimings
+      const totalAnalysisTime = (result as any).totalAnalysisTime
+      const avgTimePerFrame = (result as any).avgTimePerFrame
+      
+      if (frameTimings || totalAnalysisTime) {
+        responseData.timing = {
+          frameCount: (body as any).frames.length,
+          totalAnalysisTimeMs: totalAnalysisTime,
+          totalAnalysisTimeSeconds: totalAnalysisTime ? (totalAnalysisTime / 1000).toFixed(2) : null,
+          avgTimePerFrameMs: avgTimePerFrame,
+          avgTimePerFrameSeconds: avgTimePerFrame ? (avgTimePerFrame / 1000).toFixed(2) : null,
+          frameTimings: frameTimings || []
+        }
+        console.log(`📊 Timing info included in response:`, responseData.timing)
+      }
+    }
+    
+    return NextResponse.json(responseData)
   } catch (error) {
     console.error("AI Competency Evaluation Error:", error)
     return NextResponse.json(

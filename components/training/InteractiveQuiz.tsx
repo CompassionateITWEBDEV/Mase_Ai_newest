@@ -272,12 +272,8 @@ export function InteractiveQuiz({
           </Button>
 
           <div className="flex space-x-2">
-            {onCancel && (
-              <Button variant="ghost" onClick={onCancel}>
-                Cancel
-              </Button>
-            )}
-
+            {/* REMOVED Cancel button - Quiz is required, cannot be cancelled */}
+            
             {isLastQuestion ? (
               <Button
                 onClick={handleSubmit}

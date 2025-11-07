@@ -39,3 +39,4 @@ CREATE POLICY "Authenticated users can upload modules" ON storage.objects FOR IN
 -- Step 5: Verify
 SELECT id, name, public, file_size_limit FROM storage.buckets WHERE id IN ('training-files', 'training-modules');
 
+
