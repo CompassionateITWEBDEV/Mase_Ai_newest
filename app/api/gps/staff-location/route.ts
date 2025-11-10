@@ -19,6 +19,16 @@ export async function GET(request: NextRequest) {
       auth: { autoRefreshToken: false, persistSession: false }
     })
 
+    // Get active trip first (if exists, use its route points for most accurate location)
+    const { data: activeTrip } = await supabase
+      .from('staff_trips')
+      .select('id, start_time, start_location, route_points')
+      .eq('staff_id', staffId)
+      .eq('status', 'active')
+      .order('start_time', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
     // Get last known location from staff_location_updates (most recent only)
     const { data: lastLocation, error: locationError } = await supabase
       .from('staff_location_updates')
@@ -28,31 +38,44 @@ export async function GET(request: NextRequest) {
       .limit(1)
       .maybeSingle()
 
+    // Prioritize active trip route points for most accurate current location
+    let useLocation = lastLocation
+    if (activeTrip?.route_points && Array.isArray(activeTrip.route_points) && activeTrip.route_points.length > 0) {
+      // Get the most recent route point (last in array) - this is the most current GPS location
+      const latestRoutePoint = activeTrip.route_points[activeTrip.route_points.length - 1]
+      if (latestRoutePoint && latestRoutePoint.lat && latestRoutePoint.lng) {
+        // Use route point from active trip - this is the most accurate current location
+        useLocation = {
+          latitude: latestRoutePoint.lat,
+          longitude: latestRoutePoint.lng,
+          accuracy: 10, // GPS route points have good accuracy
+          speed: null,
+          heading: null,
+          timestamp: latestRoutePoint.timestamp || new Date().toISOString(),
+          trip_id: activeTrip.id
+        }
+      }
+    } else if (lastLocation && lastLocation.accuracy && parseFloat(lastLocation.accuracy.toString()) > 1000) {
+      // If no active trip and location is IP-based, don't use it
+      useLocation = null
+    }
+
     // Validate location is recent (within last 30 minutes) - if older, it might be stale
     let isLocationRecent = false
     let locationAgeMinutes = null
     let isIPGeolocation = false
-    if (lastLocation?.timestamp) {
-      const locationTime = new Date(lastLocation.timestamp)
+    if (useLocation?.timestamp) {
+      const locationTime = new Date(useLocation.timestamp)
       const now = new Date()
       locationAgeMinutes = Math.round((now.getTime() - locationTime.getTime()) / 60000)
       isLocationRecent = locationAgeMinutes <= 30 // Consider recent if within 30 minutes
       
       // Check if location is IP-based (accuracy > 1000m)
-      if (lastLocation.accuracy && parseFloat(lastLocation.accuracy.toString()) > 1000) {
+      if (useLocation.accuracy && parseFloat(useLocation.accuracy.toString()) > 1000) {
         isIPGeolocation = true
       }
     }
 
-    // Get active trip if exists
-    const { data: activeTrip } = await supabase
-      .from('staff_trips')
-      .select('id, start_time, start_location, route_points')
-      .eq('staff_id', staffId)
-      .eq('status', 'active')
-      .order('start_time', { ascending: false })
-      .limit(1)
-      .maybeSingle()
 
     // Get current visit if exists
     const { data: currentVisit } = await supabase
@@ -75,9 +98,9 @@ export async function GET(request: NextRequest) {
     let status = 'offline'
     if (activeTrip) {
       status = currentVisit ? 'on_visit' : 'driving'
-    } else if (lastLocation) {
+    } else if (useLocation) {
       // Check if location is recent (within last 5 minutes)
-      const lastUpdateTime = new Date(lastLocation.timestamp)
+      const lastUpdateTime = new Date(useLocation.timestamp)
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
       if (lastUpdateTime > fiveMinutesAgo) {
         status = 'active'
@@ -86,10 +109,10 @@ export async function GET(request: NextRequest) {
 
     // Get address from coordinates (optional - can use reverse geocoding API)
     let address = null
-    if (lastLocation?.latitude && lastLocation?.longitude) {
+    if (useLocation?.latitude && useLocation?.longitude) {
       // For now, we'll just return coordinates
       // In production, you could use Google Maps Geocoding API or similar
-      address = `${lastLocation.latitude.toFixed(6)}, ${lastLocation.longitude.toFixed(6)}`
+      address = `${useLocation.latitude.toFixed(6)}, ${useLocation.longitude.toFixed(6)}`
     }
 
     return NextResponse.json({
@@ -99,13 +122,13 @@ export async function GET(request: NextRequest) {
         name: staff.name,
         department: staff.department
       } : null,
-      currentLocation: lastLocation ? {
-        latitude: parseFloat(lastLocation.latitude.toString()),
-        longitude: parseFloat(lastLocation.longitude.toString()),
-        accuracy: lastLocation.accuracy ? parseFloat(lastLocation.accuracy.toString()) : null,
-        speed: lastLocation.speed ? parseFloat(lastLocation.speed.toString()) : null,
-        heading: lastLocation.heading ? parseFloat(lastLocation.heading.toString()) : null,
-        timestamp: lastLocation.timestamp,
+      currentLocation: useLocation ? {
+        latitude: parseFloat(useLocation.latitude.toString()),
+        longitude: parseFloat(useLocation.longitude.toString()),
+        accuracy: useLocation.accuracy ? parseFloat(useLocation.accuracy.toString()) : null,
+        speed: useLocation.speed ? parseFloat(useLocation.speed.toString()) : null,
+        heading: useLocation.heading ? parseFloat(useLocation.heading.toString()) : null,
+        timestamp: useLocation.timestamp,
         address: address,
         isRecent: isLocationRecent,
         ageMinutes: locationAgeMinutes,
@@ -124,7 +147,9 @@ export async function GET(request: NextRequest) {
         startTime: currentVisit.start_time
       } : null,
       status: status,
-      lastUpdateTime: lastLocation?.timestamp || null
+      lastUpdateTime: useLocation?.timestamp || null,
+      hasActiveTrip: !!activeTrip,
+      locationSource: useLocation && lastLocation && useLocation !== lastLocation ? 'active_trip_route' : 'location_updates'
     })
   } catch (error: any) {
     console.error("Error fetching staff location:", error)

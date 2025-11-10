@@ -90,6 +90,9 @@ export default function StaffPerformancePage() {
     isRecent?: boolean
     ageMinutes?: number | null
     isIPGeolocation?: boolean
+    heading?: number | null
+    speed?: number | null
+    routePoints?: Array<{lat: number, lng: number, timestamp: string}> | null
   } | null>(null)
   const [locationLoading, setLocationLoading] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
@@ -259,7 +262,10 @@ export default function StaffPerformancePage() {
               status: data.status || 'offline',
               isRecent: data.currentLocation.isRecent,
               ageMinutes: data.currentLocation.ageMinutes,
-              isIPGeolocation: data.currentLocation.isIPGeolocation
+              isIPGeolocation: data.currentLocation.isIPGeolocation,
+              heading: data.currentLocation.heading || null,
+              speed: data.currentLocation.speed || null,
+              routePoints: data.activeTrip?.routePoints || null
             })
           } else {
             setStaffLocation(null)
@@ -279,12 +285,12 @@ export default function StaffPerformancePage() {
     
     loadStaffLocation()
     
-    // Refresh location every 15 seconds if staff is selected (more frequent for real-time tracking)
+    // Refresh location every 5 seconds if staff is selected (real-time tracking for moving vehicle)
     const interval = setInterval(() => {
       if (selectedStaff?.id) {
         loadStaffLocation()
       }
-    }, 15000) // 15 seconds - more frequent updates to show real-time location while driving
+    }, 5000) // 5 seconds - very frequent updates to show vehicle moving in real-time
     
     return () => clearInterval(interval)
   }, [selectedStaff?.id])
@@ -468,122 +474,6 @@ export default function StaffPerformancePage() {
                     </div>
                   </div>
                 </CardHeader>
-                {/* Current Location */}
-                {selectedStaff && (
-                  <CardContent className="pt-0">
-                    <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          <MapPin className="h-4 w-4 text-blue-600" />
-                          <span className="text-sm font-medium text-blue-900">Current Location</span>
-                        </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            setLocationLoading(true)
-                            fetch(`/api/gps/staff-location?staff_id=${encodeURIComponent(selectedStaff.id)}`, { cache: 'no-store' })
-                              .then(res => res.json())
-                              .then(data => {
-                                if (data.success && data.currentLocation) {
-                                  setStaffLocation({
-                                    latitude: data.currentLocation.latitude,
-                                    longitude: data.currentLocation.longitude,
-                                    accuracy: data.currentLocation.accuracy,
-                                    timestamp: data.currentLocation.timestamp,
-                                    address: data.currentLocation.address,
-                                    status: data.status || 'offline'
-                                  })
-                                }
-                                setLocationLoading(false)
-                              })
-                              .catch(e => {
-                                setLocationError("Failed to refresh location")
-                                setLocationLoading(false)
-                              })
-                          }}
-                          disabled={locationLoading}
-                        >
-                          <RefreshCw className={`h-3 w-3 mr-1 ${locationLoading ? 'animate-spin' : ''}`} />
-                          Refresh
-                        </Button>
-                      </div>
-                      {locationLoading && !staffLocation ? (
-                        <div className="text-xs text-gray-500">Loading location...</div>
-                      ) : locationError ? (
-                        <div className="text-xs text-red-600">{locationError}</div>
-                      ) : staffLocation ? (
-                        <div className="space-y-2">
-                          {/* Warning if location is old */}
-                          {(staffLocation.ageMinutes ?? 0) > 30 && (
-                            <Alert variant="destructive" className="mb-2 py-2">
-                              <AlertCircle className="h-3 w-3" />
-                              <AlertDescription className="text-xs">
-                                ⚠️ Location is {staffLocation.ageMinutes ?? 0} minutes old. Staff may need to start GPS tracking to get current location.
-                              </AlertDescription>
-                            </Alert>
-                          )}
-                          {(staffLocation.isIPGeolocation || (staffLocation.accuracy && staffLocation.accuracy > 1000)) && (
-                            <Alert variant="destructive" className="mb-2 py-2">
-                              <AlertCircle className="h-3 w-3" />
-                              <AlertDescription className="text-xs">
-                                ⚠️ <strong>IP Geolocation Detected!</strong> Location accuracy is {staffLocation.accuracy ? staffLocation.accuracy.toFixed(0) : 'unknown'}m. 
-                                Staff must enable <strong>device GPS</strong> on their phone/device and start GPS tracking for accurate location. 
-                                IP geolocation can show wrong city (e.g., Davao instead of Cagayan).
-                              </AlertDescription>
-                            </Alert>
-                          )}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-gray-600">Coordinates:</span>
-                            <span className="text-xs font-mono text-gray-800">
-                              {staffLocation.latitude.toFixed(6)}, {staffLocation.longitude.toFixed(6)}
-                            </span>
-                          </div>
-                          {staffLocation.accuracy && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs text-gray-600">Accuracy:</span>
-                              <span className={`text-xs ${staffLocation.accuracy > 1000 ? 'text-red-600 font-semibold' : staffLocation.accuracy <= 100 ? 'text-green-600' : 'text-gray-800'}`}>
-                                ±{staffLocation.accuracy.toFixed(0)}m
-                                {staffLocation.accuracy <= 100 && ' ✓ GPS'}
-                                {staffLocation.accuracy > 1000 && ' ⚠️ IP-based'}
-                              </span>
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-gray-600">Last Update:</span>
-                            <span className={`text-xs ${staffLocation.isRecent ? 'text-green-600' : 'text-orange-600 font-semibold'}`}>
-                              {new Date(staffLocation.timestamp).toLocaleString()}
-                              {staffLocation.ageMinutes != null && (
-                                <span className="ml-1">
-                                  ({staffLocation.ageMinutes} min ago)
-                                </span>
-                              )}
-                            </span>
-                          </div>
-                          <div className="pt-2 border-t border-blue-200">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="w-full text-xs"
-                              onClick={() => {
-                                const googleMapsUrl = `https://www.google.com/maps?q=${staffLocation.latitude},${staffLocation.longitude}`
-                                window.open(googleMapsUrl, '_blank')
-                              }}
-                            >
-                              <MapPin className="h-3 w-3 mr-1" />
-                              View on Google Maps
-                              <ExternalLink className="h-3 w-3 ml-1" />
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-xs text-gray-500">
-                          No location data available. Staff may not have started tracking yet.
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                )}
               </Card>
 
               {/* Key Metrics */}

@@ -116,18 +116,26 @@ export default function StaffTrackingPage() {
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        // Validate that we got device GPS coordinates (not IP-based)
+        // Validate location accuracy
         const accuracy = position.coords.accuracy || 0
         
-        // IP-based location typically has accuracy > 1000 meters
-        // Device GPS should have accuracy < 100 meters (usually 5-50m)
-        if (accuracy > 1000) {
-          console.warn('Location accuracy is low - may be using IP geolocation instead of device GPS')
+        // PC/Laptop: WiFi-based location (100-2000m) - acceptable
+        // Mobile: Device GPS (< 100m) - preferred
+        // IP geolocation: (> 2000m) - very inaccurate
+        if (accuracy > 2000) {
+          console.warn('Location accuracy is very low - may be using IP geolocation')
           toast({
             title: "Low Accuracy Warning",
-            description: "Location accuracy is low. Please ensure GPS is enabled on your device.",
+            description: `Location accuracy is very low (${accuracy.toFixed(0)}m). Please enable location services. For best accuracy, use a mobile device with GPS.`,
             variant: "destructive"
           })
+        } else if (accuracy > 1000) {
+          // WiFi-based location on PC (acceptable but less accurate)
+          console.info('WiFi-based location detected (PC/Laptop) - acceptable for tracking')
+          // Don't show error - PC WiFi location works
+        } else if (accuracy <= 100) {
+          // Good GPS accuracy
+          console.info('Device GPS detected - excellent accuracy')
         }
 
         // Verify coordinates are valid (not 0,0 or null)
@@ -198,15 +206,21 @@ export default function StaffTrackingPage() {
         setLocationError(null)
         setLastUpdateTime(new Date())
         
-        // Validate GPS accuracy - warn if IP-based location (accuracy > 1000m)
-        if (newLocation.accuracy && newLocation.accuracy > 1000) {
-          console.warn('Low GPS accuracy detected - may be using IP geolocation. Accuracy:', newLocation.accuracy)
-          // Set error state to inform user
-          setLocationError(`Low accuracy (${newLocation.accuracy.toFixed(0)}m) - Enable device GPS for accurate tracking`)
-          // Don't update location if accuracy is too low - wait for device GPS
+        // Validate GPS accuracy - warn if accuracy is very high (IP geolocation)
+        // PC/Laptop WiFi location: 100-2000m (acceptable)
+        // Mobile GPS: < 100m (preferred)
+        // IP geolocation: > 2000m (reject)
+        if (newLocation.accuracy && newLocation.accuracy > 2000) {
+          console.warn('Very low accuracy detected - may be using IP geolocation. Accuracy:', newLocation.accuracy)
+          setLocationError(`Very low accuracy (${newLocation.accuracy.toFixed(0)}m) - Please enable location services. For best accuracy, use mobile device with GPS.`)
+          // Don't update location if accuracy is too low
           return
+        } else if (newLocation.accuracy && newLocation.accuracy > 1000) {
+          // WiFi-based location on PC (acceptable but less accurate)
+          console.info('WiFi-based location detected (PC/Laptop). Accuracy:', newLocation.accuracy)
+          setLocationError(`WiFi location (${newLocation.accuracy.toFixed(0)}m accuracy) - For better accuracy, use mobile device with GPS`)
         } else {
-          // Clear error if we have good GPS
+          // Good GPS accuracy
           setLocationError(null)
         }
 
@@ -494,14 +508,9 @@ export default function StaffTrackingPage() {
   const endTrip = async () => {
     if (!currentTrip) return
 
-    if (currentVisit) {
-      toast({
-        title: "Active Visit",
-        description: "Please end the current visit before ending the trip.",
-        variant: "destructive"
-      })
-      return
-    }
+    // Note: Visit can continue independently after trip ends
+    // Driving time and visit time are separate
+    // We don't require ending visit before ending trip
 
     try {
       setIsLoading(true)
@@ -523,7 +532,8 @@ export default function StaffTrackingPage() {
           costPerMile: data.trip.costPerMile || 0.67
         })
         setCurrentTrip(null)
-        setCurrentVisit(null)
+        // Don't clear currentVisit - visit can continue independently
+        // setCurrentVisit(null) // Removed - visits are independent
         setIsTracking(false)
         stopWatchingPosition()
         toast({
@@ -556,13 +566,15 @@ export default function StaffTrackingPage() {
   })
 
   const startVisit = async () => {
-    if (!currentTrip) {
-      alert('Please start a trip first')
-      return
-    }
-
+    // Visit can be started independently - doesn't require active trip
+    // Driving time and visit time are separate
+    
     if (!visitForm.patientName || !visitForm.patientAddress) {
-      alert('Please fill in patient name and address')
+      toast({
+        title: "Required Fields",
+        description: "Please fill in patient name and address",
+        variant: "destructive"
+      })
       return
     }
 
@@ -572,7 +584,7 @@ export default function StaffTrackingPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           staffId,
-          tripId: currentTrip.id,
+          tripId: currentTrip?.id || null, // Optional - visit can be independent
           patientName: visitForm.patientName,
           patientAddress: visitForm.patientAddress,
           visitType: visitForm.visitType,
@@ -686,8 +698,18 @@ export default function StaffTrackingPage() {
                     <span className="font-medium">Lng:</span> {location.lng.toFixed(6)}
                   </div>
                   {location.accuracy && (
-                    <div className="text-xs text-gray-500">
-                      Accuracy: ±{location.accuracy.toFixed(0)}m
+                    <div className="text-xs">
+                      <span className="text-gray-500">Accuracy: </span>
+                      <span className={`font-medium ${
+                        location.accuracy <= 100 ? 'text-green-600' : 
+                        location.accuracy <= 1000 ? 'text-yellow-600' : 
+                        'text-red-600'
+                      }`}>
+                        ±{location.accuracy.toFixed(0)}m
+                        {location.accuracy <= 100 && ' ✓ GPS'}
+                        {location.accuracy > 100 && location.accuracy <= 1000 && ' ⚠️ WiFi'}
+                        {location.accuracy > 1000 && ' ⚠️ Low'}
+                      </span>
                     </div>
                   )}
                   {lastUpdateTime && (
@@ -805,7 +827,7 @@ export default function StaffTrackingPage() {
                     variant="destructive" 
                     className="w-full" 
                     onClick={endTrip}
-                    disabled={isLoading || !!currentVisit}
+                    disabled={isLoading}
                   >
                     {isLoading ? (
                       <>
@@ -823,7 +845,7 @@ export default function StaffTrackingPage() {
                     <Alert>
                       <AlertCircle className="h-4 w-4" />
                       <AlertDescription className="text-xs">
-                        Please end the current visit before ending the trip.
+                        Note: You have an active visit. Visit time is tracked separately from drive time. You can end the trip and continue the visit.
                       </AlertDescription>
                     </Alert>
                   )}
@@ -840,7 +862,7 @@ export default function StaffTrackingPage() {
               <Users className="h-5 w-5 mr-2" />
               Patient Visit
             </CardTitle>
-            <CardDescription>Track patient visits during your trip</CardDescription>
+            <CardDescription>Track patient visits (independent from GPS trip tracking)</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {!currentVisit ? (
@@ -880,7 +902,7 @@ export default function StaffTrackingPage() {
                 <Button 
                   className="w-full" 
                   onClick={startVisit} 
-                  disabled={!currentTrip || isLoading}
+                  disabled={isLoading}
                 >
                   {isLoading ? (
                     <>

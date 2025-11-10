@@ -14,15 +14,22 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Staff ID, latitude, and longitude are required" }, { status: 400 })
     }
 
-    // Reject IP-based geolocation - require device GPS (accuracy should be < 1000m)
-    // IP geolocation typically has accuracy > 1000m (often 5000m+)
-    // Device GPS should have accuracy < 100m (usually 5-50m)
-    if (accuracy && accuracy > 1000) {
+    // Accept different accuracy levels based on device type
+    // PC/Laptop: WiFi-based location (100-1000m accuracy) - acceptable
+    // Mobile: Device GPS (< 100m accuracy) - preferred
+    // IP geolocation: (> 1000m accuracy) - reject
+    // Note: We allow up to 2000m to accommodate PC WiFi location which can be 500-1500m
+    if (accuracy && accuracy > 2000) {
       return NextResponse.json({ 
         success: false,
-        error: "Location accuracy too low. Please enable device GPS (not IP geolocation). Current accuracy: " + accuracy.toFixed(0) + "m. Device GPS should be < 100m.",
+        error: "Location accuracy too low. Current accuracy: " + accuracy.toFixed(0) + "m. Please ensure location services are enabled. For best accuracy, use a mobile device with GPS.",
         requiresDeviceGPS: true
       }, { status: 400 })
+    }
+    
+    // Log warning if accuracy is high (but still accept it for PC compatibility)
+    if (accuracy && accuracy > 1000) {
+      console.warn(`Location accuracy is high (${accuracy.toFixed(0)}m) - may be using WiFi-based location on PC. For better accuracy, use mobile device with GPS.`)
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {

@@ -1,42 +1,135 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Navigation, Clock, DollarSign, TrendingUp, MapPin, Zap, BarChart3 } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Navigation, Clock, DollarSign, TrendingUp, MapPin, Zap, BarChart3, Loader2, AlertCircle, CheckCircle } from "lucide-react"
+import { toast } from "@/components/ui/use-toast"
+
+interface RouteData {
+  staffId: string
+  staffName: string
+  staffDepartment: string
+  costPerMile: number
+  currentRoute: string[]
+  optimizedRoute: string[]
+  currentOrder: string[]
+  optimizedOrder: string[]
+  currentDistance: number
+  optimizedDistance: number
+  distanceSaved: number
+  timeSaved: number
+  costSaved: number
+  waypoints: Array<{ id: string, name: string, address: string, lat: number, lng: number }>
+}
+
+interface SummaryData {
+  totalSavings: number
+  totalTimeSaved: number
+  totalDistanceSaved: number
+  avgEfficiencyGain: number
+  routesOptimized: number
+}
 
 export default function RouteOptimizationPage() {
   const [optimizing, setOptimizing] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [routeData, setRouteData] = useState<RouteData[]>([])
+  const [summary, setSummary] = useState<SummaryData>({
+    totalSavings: 0,
+    totalTimeSaved: 0,
+    totalDistanceSaved: 0,
+    avgEfficiencyGain: 0,
+    routesOptimized: 0
+  })
+  const [error, setError] = useState<string | null>(null)
+  const [applyingRoute, setApplyingRoute] = useState<string | null>(null)
 
-  const routeData = [
-    {
-      staffId: "RN-2024-001",
-      name: "Sarah Johnson",
-      currentRoute: ["Patient A", "Patient B", "Patient C", "Patient D"],
-      optimizedRoute: ["Patient A", "Patient C", "Patient B", "Patient D"],
-      currentDistance: 28.5,
-      optimizedDistance: 22.3,
-      timeSaved: 15,
-      costSaved: 4.15,
-    },
-    {
-      staffId: "PT-2024-001",
-      name: "Michael Chen",
-      currentRoute: ["Patient E", "Patient F", "Patient G"],
-      optimizedRoute: ["Patient F", "Patient E", "Patient G"],
-      currentDistance: 15.2,
-      optimizedDistance: 12.8,
-      timeSaved: 8,
-      costSaved: 1.61,
-    },
-  ]
+  useEffect(() => {
+    loadRoutes()
+  }, [])
+
+  const loadRoutes = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const res = await fetch('/api/route-optimization/routes', { cache: 'no-store' })
+      const data = await res.json()
+      
+      if (data.success) {
+        setRouteData(data.routes || [])
+        setSummary(data.summary || {
+          totalSavings: 0,
+          totalTimeSaved: 0,
+          totalDistanceSaved: 0,
+          avgEfficiencyGain: 0,
+          routesOptimized: 0
+        })
+      } else {
+        setError(data.error || "Failed to load routes")
+      }
+    } catch (e: any) {
+      console.error("Error loading routes:", e)
+      setError(e.message || "Failed to load routes")
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleOptimizeAll = async () => {
     setOptimizing(true)
-    // Simulate optimization process
-    setTimeout(() => setOptimizing(false), 3000)
+    try {
+      await loadRoutes()
+      toast({
+        title: "Routes Optimized",
+        description: `Optimized ${routeData.length} routes. Potential savings: $${summary.totalSavings.toFixed(2)}`,
+      })
+    } catch (e: any) {
+      toast({
+        title: "Optimization Failed",
+        description: e.message || "Failed to optimize routes",
+        variant: "destructive"
+      })
+    } finally {
+      setOptimizing(false)
+    }
+  }
+
+  const handleApplyRoute = async (staffId: string, optimizedOrder: string[]) => {
+    setApplyingRoute(staffId)
+    try {
+      const res = await fetch('/api/route-optimization/routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId, optimizedOrder })
+      })
+      
+      const data = await res.json()
+      if (data.success) {
+        toast({
+          title: "Route Applied",
+          description: "Optimized route has been applied successfully",
+        })
+        await loadRoutes() // Reload to show updated data
+      } else {
+        toast({
+          title: "Failed to Apply Route",
+          description: data.error || "Failed to apply optimized route",
+          variant: "destructive"
+        })
+      }
+    } catch (e: any) {
+      toast({
+        title: "Error",
+        description: e.message || "Failed to apply route",
+        variant: "destructive"
+      })
+    } finally {
+      setApplyingRoute(null)
+    }
   }
 
   return (
@@ -54,7 +147,7 @@ export default function RouteOptimizationPage() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">$5.76</div>
+            <div className="text-2xl font-bold text-green-600">${summary.totalSavings.toFixed(2)}</div>
             <p className="text-xs text-muted-foreground">Per day across all routes</p>
           </CardContent>
         </Card>
@@ -65,7 +158,7 @@ export default function RouteOptimizationPage() {
             <Clock className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">23 min</div>
+            <div className="text-2xl font-bold text-blue-600">{summary.totalTimeSaved} min</div>
             <p className="text-xs text-muted-foreground">Total time saved daily</p>
           </CardContent>
         </Card>
@@ -76,7 +169,7 @@ export default function RouteOptimizationPage() {
             <Navigation className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">8.6 mi</div>
+            <div className="text-2xl font-bold text-purple-600">{summary.totalDistanceSaved.toFixed(1)} mi</div>
             <p className="text-xs text-muted-foreground">Less driving per day</p>
           </CardContent>
         </Card>
@@ -87,7 +180,7 @@ export default function RouteOptimizationPage() {
             <TrendingUp className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">12%</div>
+            <div className="text-2xl font-bold text-orange-600">{summary.avgEfficiencyGain.toFixed(1)}%</div>
             <p className="text-xs text-muted-foreground">Average improvement</p>
           </CardContent>
         </Card>
@@ -111,44 +204,73 @@ export default function RouteOptimizationPage() {
               </div>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Staff Member</TableHead>
-                    <TableHead>Current Distance</TableHead>
-                    <TableHead>Optimized Distance</TableHead>
-                    <TableHead>Savings</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {routeData.map((route) => (
-                    <TableRow key={route.staffId}>
-                      <TableCell>
-                        <div className="font-medium">{route.name}</div>
-                        <div className="text-sm text-muted-foreground">{route.staffId}</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium">{route.currentDistance} mi</div>
-                        <div className="text-sm text-muted-foreground">Current route</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium text-green-600">{route.optimizedDistance} mi</div>
-                        <div className="text-sm text-muted-foreground">Optimized route</div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="font-medium text-green-600">${route.costSaved.toFixed(2)}</div>
-                        <div className="text-sm text-muted-foreground">{route.timeSaved} min saved</div>
-                      </TableCell>
-                      <TableCell>
-                        <Button variant="outline" size="sm">
-                          Apply Route
-                        </Button>
-                      </TableCell>
+              {loading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <span className="ml-2">Loading routes...</span>
+                </div>
+              ) : error ? (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              ) : routeData.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No routes available for optimization.</p>
+                  <p className="text-sm mt-2">Routes require staff with active trips and scheduled visits with location data.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Staff Member</TableHead>
+                      <TableHead>Current Distance</TableHead>
+                      <TableHead>Optimized Distance</TableHead>
+                      <TableHead>Savings</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {routeData.map((route) => (
+                      <TableRow key={route.staffId}>
+                        <TableCell>
+                          <div className="font-medium">{route.staffName}</div>
+                          <div className="text-sm text-muted-foreground">{route.staffDepartment}</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">{route.currentDistance} mi</div>
+                          <div className="text-sm text-muted-foreground">{route.currentRoute.length} stops</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium text-green-600">{route.optimizedDistance} mi</div>
+                          <div className="text-sm text-muted-foreground">Optimized route</div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium text-green-600">${route.costSaved.toFixed(2)}</div>
+                          <div className="text-sm text-muted-foreground">{route.timeSaved} min saved</div>
+                        </TableCell>
+                        <TableCell>
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => handleApplyRoute(route.staffId, route.optimizedOrder)}
+                            disabled={applyingRoute === route.staffId}
+                          >
+                            {applyingRoute === route.staffId ? (
+                              <>
+                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                Applying...
+                              </>
+                            ) : (
+                              "Apply Route"
+                            )}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -187,20 +309,20 @@ export default function RouteOptimizationPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm">Routes optimized today</span>
-                <span className="font-bold">12</span>
+                <span className="text-sm">Routes optimized</span>
+                <span className="font-bold">{summary.routesOptimized}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Total savings this week</span>
-                <span className="font-bold text-green-600">$34.50</span>
+                <span className="text-sm">Total potential savings</span>
+                <span className="font-bold text-green-600">${summary.totalSavings.toFixed(2)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Average efficiency gain</span>
-                <span className="font-bold text-blue-600">15%</span>
+                <span className="font-bold text-blue-600">{summary.avgEfficiencyGain.toFixed(1)}%</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">CO2 reduction</span>
-                <span className="font-bold text-green-600">12.3 lbs</span>
+                <span className="text-sm">Distance saved</span>
+                <span className="font-bold text-green-600">{summary.totalDistanceSaved.toFixed(1)} mi</span>
               </div>
             </CardContent>
           </Card>

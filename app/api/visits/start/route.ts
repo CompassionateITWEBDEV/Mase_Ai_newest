@@ -18,23 +18,20 @@ export async function POST(request: NextRequest) {
       auth: { autoRefreshToken: false, persistSession: false }
     })
 
-    // Get active trip if not provided
-    let activeTripId = tripId
+    // Get active trip if not provided (optional - visit can be independent)
+    let activeTripId = tripId || null
     if (!activeTripId) {
       const { data: activeTrip } = await supabase
         .from('staff_trips')
         .select('id, start_time, start_location')
         .eq('staff_id', staffId)
         .eq('status', 'active')
-        .single()
+        .maybeSingle()
       
-      if (!activeTrip) {
-        return NextResponse.json({ error: "No active trip found. Please start a trip first." }, { status: 400 })
-      }
-      activeTripId = activeTrip.id
+      activeTripId = activeTrip?.id || null
     }
 
-    // Calculate drive time to this visit
+    // Calculate drive time to this visit (only if there's an active trip)
     let driveTimeToVisit = 0
     let distanceToVisit = 0
 
@@ -43,7 +40,7 @@ export async function POST(request: NextRequest) {
         .from('staff_trips')
         .select('start_time, start_location, route_points')
         .eq('id', activeTripId)
-        .single()
+        .maybeSingle()
 
       if (trip && latitude && longitude) {
         const startLocation = trip.start_location as any
@@ -67,6 +64,7 @@ export async function POST(request: NextRequest) {
         }
       }
     }
+    // If no active trip, drive time and distance will be 0 (visit is independent)
 
     const visitLocation = latitude && longitude 
       ? { lat: parseFloat(latitude), lng: parseFloat(longitude), address: patientAddress || null }
