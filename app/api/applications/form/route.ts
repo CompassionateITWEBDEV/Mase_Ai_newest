@@ -47,7 +47,6 @@ const APPLICATION_FORM_COLUMNS = new Set<string>([
   "conviction_details",
   "registry_history",
   "background_consent",
-  "background_check_consent",
   "tb_test_status",
   "tb_test_date",
   "tb_history_details",
@@ -112,7 +111,7 @@ const CANONICAL_ALIAS: Record<string, string> = {
   license: "license_number",
   cpr: "cpr_certification",
   other_certs: "other_certifications",
-  background_consent: "background_check_consent",
+  // background_consent: "background_check_consent", // Removed - use background_consent directly
   drug_testing_consent: "drug_test_consent",
   flu_vaccine: "flu_vaccination",
   immunization_records: "immunization_details",
@@ -164,7 +163,7 @@ const toSnakeCase = (value: string) =>
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .toLowerCase()
 
-/** parse *_year columns to integers; pass through others */
+/** parse *_year columns to integers; handle physical_accommodation string to boolean; pass through others */
 const convertForColumn = (column: string, value: unknown) => {
   if (value === null || value === undefined) return null
   if (typeof value === "boolean") return value
@@ -173,6 +172,25 @@ const convertForColumn = (column: string, value: unknown) => {
     if (column.endsWith("_year")) {
       const parsed = parseInt(value, 10)
       return Number.isNaN(parsed) ? null : parsed
+    }
+    // Handle physical_accommodation: convert string values to boolean
+    // The database column is BOOLEAN, so we need to convert:
+    // "yes" → false (can perform without accommodation)
+    // "accommodation" → true (can perform with accommodation)
+    // "no" → false (cannot perform - stored as false, details in physical_details)
+    if (column === "physical_accommodation") {
+      const lowerValue = value.toLowerCase().trim()
+      if (lowerValue === "accommodation" || lowerValue === "with-accommodation") {
+        return true // Accommodation needed
+      } else if (lowerValue === "yes") {
+        return false // Can perform without accommodation
+      } else if (lowerValue === "no") {
+        return false // Cannot perform (also false, but physical_details will have details)
+      } else {
+        // If it's already a boolean string, convert it
+        const bool = normalizeBoolean(value)
+        return bool !== null ? bool : false
+      }
     }
     return value
   }
@@ -244,6 +262,17 @@ export async function POST(request: NextRequest) {
       // 4) keep only allowed columns; unknowns → additional_info
       if (APPLICATION_FORM_COLUMNS.has(columnName)) {
         payload[columnName] = convertForColumn(columnName, normalized)
+        // Log background_consent specifically for debugging
+        if (columnName === 'background_consent') {
+          console.log('✅ Background consent being saved:', {
+            rawKey,
+            columnName,
+            rawValue,
+            normalized,
+            finalValue: payload[columnName],
+            type: typeof payload[columnName]
+          })
+        }
       } else {
         additionalNotes.push(`${rawKey}: ${normalized}`)
       }

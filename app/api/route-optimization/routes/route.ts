@@ -19,10 +19,15 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * c
 }
 
-// Get coordinates from address (simplified - in production, use geocoding API)
+// Get coordinates from address using geocoding service
+// Note: For now, we'll rely on visit_location from the database
+// If visit_location is not available, we'll skip geocoding to avoid external API calls
 async function getCoordinates(address: string): Promise<{ lat: number, lng: number } | null> {
-  // For now, return null - we'll use visit_location if available
-  // In production, integrate with Google Maps Geocoding API
+  if (!address) return null
+  
+  // For now, return null - we'll rely on visit_location from database
+  // If geocoding is needed in the future, implement a geocoding service here
+  // (e.g., Google Maps Geocoding API, OpenStreetMap Nominatim, etc.)
   return null
 }
 
@@ -97,12 +102,21 @@ export async function GET(request: NextRequest) {
 
     if (staffError) {
       console.error('Error fetching staff:', staffError)
-      return NextResponse.json({ error: "Failed to fetch staff members" }, { status: 500 })
+      return NextResponse.json({ success: false, error: "Failed to fetch staff members" }, { status: 500 })
     }
 
     if (!staffMembers || staffMembers.length === 0) {
-      return NextResponse.json({ success: true, routes: [] })
+      console.log('No active staff members found')
+      return NextResponse.json({ success: true, routes: [], summary: {
+        totalSavings: 0,
+        totalTimeSaved: 0,
+        totalDistanceSaved: 0,
+        avgEfficiencyGain: 0,
+        routesOptimized: 0
+      }})
     }
+
+    console.log(`Found ${staffMembers.length} active staff members`)
 
     // Get active trips and scheduled visits for each staff member
     const routes = await Promise.all(
@@ -117,61 +131,78 @@ export async function GET(request: NextRequest) {
           .limit(1)
           .maybeSingle()
 
-        // Get scheduled visits for today (in_progress visits)
-        const startOfDay = new Date(date)
-        startOfDay.setHours(0, 0, 0, 0)
-        const endOfDay = new Date(date)
-        endOfDay.setHours(23, 59, 59, 999)
-
-        // Get visits that are in_progress (active visits that can be optimized)
-        const { data: visits } = await supabase
+        // Get visits for route optimization:
+        // 1. in_progress visits (already started)
+        // 2. scheduled visits (scheduled_time set, not completed/cancelled) with location data
+        // Must have visit_location data for route optimization
+        const { data: visits, error: visitsError } = await supabase
           .from('staff_visits')
           .select('id, patient_name, patient_address, visit_location, scheduled_time, start_time, status')
           .eq('staff_id', staff.id)
-          .eq('status', 'in_progress')
-          .order('scheduled_time', { ascending: true, nullsFirst: false })
+          .in('status', ['in_progress']) // Only in_progress visits (started visits)
+          .not('visit_location', 'is', null) // Only visits with location data
+          .order('scheduled_time', { ascending: true, nullsFirst: true })
+          .order('start_time', { ascending: true, nullsFirst: true })
+
+        if (visitsError) {
+          console.error(`Error fetching visits for staff ${staff.id}:`, visitsError)
+        }
 
         if (!visits || visits.length === 0) {
           return null
         }
 
-        // Build waypoints from visits
-        const waypoints = visits.map((visit, index) => {
+        // Build waypoints from visits (only those with valid location data)
+        const waypoints: Array<{
+          id: string
+          name: string
+          address: string
+          lat: number
+          lng: number
+          scheduledTime?: string
+          originalIndex: number
+        }> = []
+        
+        for (let i = 0; i < visits.length; i++) {
+          const visit = visits[i]
           let lat = 0
           let lng = 0
 
-          // Try to get coordinates from visit_location
+          // Get coordinates from visit_location (required - we filtered for this)
           if (visit.visit_location) {
             const loc = visit.visit_location as any
-            lat = loc.lat || 0
-            lng = loc.lng || 0
+            lat = loc.lat || (Array.isArray(loc) ? loc[0] : 0)
+            lng = loc.lng || (Array.isArray(loc) ? loc[1] : 0)
           }
 
-          // If no coordinates, try to parse from address (basic)
-          // In production, use geocoding API
-          if (lat === 0 && lng === 0 && visit.patient_address) {
-            // For now, return placeholder - would need geocoding
-            // This is a limitation - we need addresses geocoded
+          // Only add waypoint if we have valid coordinates
+          if (lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) {
+            waypoints.push({
+              id: visit.id,
+              name: visit.patient_name || `Visit ${waypoints.length + 1}`,
+              address: visit.patient_address || '',
+              lat: parseFloat(lat.toString()),
+              lng: parseFloat(lng.toString()),
+              scheduledTime: visit.scheduled_time,
+              originalIndex: i
+            })
           }
-
-          return {
-            id: visit.id,
-            name: visit.patient_name || `Patient ${index + 1}`,
-            address: visit.patient_address || '',
-            lat,
-            lng,
-            scheduledTime: visit.scheduled_time,
-            originalIndex: index
-          }
-        }).filter(w => w.lat !== 0 && w.lng !== 0) // Only include visits with valid coordinates
+        }
 
         if (waypoints.length < 2) {
           return null // Need at least 2 waypoints to optimize
         }
 
         // Calculate current route distance (in order of scheduled_time)
-        const currentOrder = waypoints.map(w => w.id)
-        const currentDistance = calculateRouteDistance(waypoints.map(w => ({ lat: w.lat, lng: w.lng })))
+        // Sort waypoints by scheduled_time to get current order
+        const sortedBySchedule = [...waypoints].sort((a, b) => {
+          if (!a.scheduledTime && !b.scheduledTime) return 0
+          if (!a.scheduledTime) return 1
+          if (!b.scheduledTime) return -1
+          return new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime()
+        })
+        const currentOrder = sortedBySchedule.map(w => w.id)
+        const currentDistance = calculateRouteDistance(sortedBySchedule.map(w => ({ lat: w.lat, lng: w.lng })))
 
         // Optimize route
         const optimizedOrder = optimizeRouteOrder(waypoints)
@@ -209,16 +240,18 @@ export async function GET(request: NextRequest) {
       })
     )
 
-    const validRoutes = routes.filter(r => r !== null)
+    const validRoutes = routes.filter((r): r is NonNullable<typeof r> => r !== null)
+
+    console.log(`Found ${validRoutes.length} valid routes to optimize`)
 
     // Calculate totals
-    const totalSavings = validRoutes.reduce((sum, r) => sum + (r?.costSaved || 0), 0)
-    const totalTimeSaved = validRoutes.reduce((sum, r) => sum + (r?.timeSaved || 0), 0)
-    const totalDistanceSaved = validRoutes.reduce((sum, r) => sum + (r?.distanceSaved || 0), 0)
+    const totalSavings = validRoutes.reduce((sum, r) => sum + (r.costSaved || 0), 0)
+    const totalTimeSaved = validRoutes.reduce((sum, r) => sum + (r.timeSaved || 0), 0)
+    const totalDistanceSaved = validRoutes.reduce((sum, r) => sum + (r.distanceSaved || 0), 0)
     const avgEfficiencyGain = validRoutes.length > 0
       ? validRoutes.reduce((sum, r) => {
-          const gain = r!.currentDistance > 0
-            ? ((r!.distanceSaved / r!.currentDistance) * 100)
+          const gain = r.currentDistance > 0
+            ? ((r.distanceSaved / r.currentDistance) * 100)
             : 0
           return sum + gain
         }, 0) / validRoutes.length
@@ -237,7 +270,18 @@ export async function GET(request: NextRequest) {
     })
   } catch (error: any) {
     console.error("Error fetching routes:", error)
-    return NextResponse.json({ error: error.message || "Failed to fetch routes" }, { status: 500 })
+    return NextResponse.json({ 
+      success: false,
+      error: error.message || "Failed to fetch routes",
+      routes: [],
+      summary: {
+        totalSavings: 0,
+        totalTimeSaved: 0,
+        totalDistanceSaved: 0,
+        avgEfficiencyGain: 0,
+        routesOptimized: 0
+      }
+    }, { status: 500 })
   }
 }
 

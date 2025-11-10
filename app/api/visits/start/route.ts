@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
-    const { staffId, tripId, patientName, patientAddress, visitType, scheduledTime, latitude, longitude } = await request.json()
+    const { staffId, tripId, patientName, patientAddress, visitType, scheduledTime, latitude, longitude, driveTimeFromLastTrip } = await request.json()
 
     if (!staffId) {
       return NextResponse.json({ error: "Staff ID is required" }, { status: 400 })
@@ -31,40 +31,87 @@ export async function POST(request: NextRequest) {
       activeTripId = activeTrip?.id || null
     }
 
-    // Calculate drive time to this visit (only if there's an active trip)
+    // Calculate drive time to this visit
+    // Priority: 1) Use driveTimeFromLastTrip (from End Trip), 2) Calculate from location
     let driveTimeToVisit = 0
     let distanceToVisit = 0
 
-    if (activeTripId) {
-      const { data: trip } = await supabase
+    // Priority 1: Use the trip duration from End Trip button (most accurate)
+    if (driveTimeFromLastTrip && driveTimeFromLastTrip > 0) {
+      driveTimeToVisit = driveTimeFromLastTrip
+      // Calculate distance based on drive time (assuming 25 mph average)
+      distanceToVisit = (driveTimeFromLastTrip / 60) * 25 // Convert minutes to hours, then multiply by speed
+    } else if (latitude && longitude) {
+      // Priority 2: Calculate from last completed trip's end_location
+      const { data: lastCompletedTrip } = await supabase
         .from('staff_trips')
-        .select('start_time, start_location, route_points')
-        .eq('id', activeTripId)
+        .select('id, end_location, end_time, total_drive_time')
+        .eq('staff_id', staffId)
+        .eq('status', 'completed')
+        .order('end_time', { ascending: false })
+        .limit(1)
         .maybeSingle()
 
-      if (trip && latitude && longitude) {
-        const startLocation = trip.start_location as any
-        if (startLocation && (startLocation.lat || startLocation[0])) {
-          const startLat = startLocation.lat || startLocation[0]
-          const startLng = startLocation.lng || startLocation[1]
+      // If we have a completed trip with drive time, use it
+      if (lastCompletedTrip?.total_drive_time) {
+        driveTimeToVisit = lastCompletedTrip.total_drive_time
+        // Get distance from trip
+        const { data: tripData } = await supabase
+          .from('staff_trips')
+          .select('total_distance')
+          .eq('id', lastCompletedTrip.id)
+          .single()
+        distanceToVisit = parseFloat(tripData?.total_distance?.toString() || '0')
+      } else if (lastCompletedTrip?.end_location) {
+        // Calculate from end location if no drive time saved
+        const endLocation = lastCompletedTrip.end_location as any
+        if (endLocation && (endLocation.lat || endLocation[0])) {
+          const fromLocation = {
+            lat: endLocation.lat || endLocation[0],
+            lng: endLocation.lng || endLocation[1]
+          }
           
-          // Calculate distance
           const R = 3959 // miles
-          const dLat = (parseFloat(latitude) - startLat) * Math.PI / 180
-          const dLon = (parseFloat(longitude) - startLng) * Math.PI / 180
+          const dLat = (parseFloat(latitude) - fromLocation.lat) * Math.PI / 180
+          const dLon = (parseFloat(longitude) - fromLocation.lng) * Math.PI / 180
           const a = 
             Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos(startLat * Math.PI / 180) * Math.cos(parseFloat(latitude) * Math.PI / 180) *
+            Math.cos(fromLocation.lat * Math.PI / 180) * Math.cos(parseFloat(latitude) * Math.PI / 180) *
             Math.sin(dLon / 2) * Math.sin(dLon / 2)
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
           distanceToVisit = R * c
-
-          // Estimate drive time (assuming average speed of 25 mph for city driving)
           driveTimeToVisit = Math.round((distanceToVisit / 25) * 60)
+        }
+      } else if (activeTripId) {
+        // Priority 3: Use active trip's start_location
+        const { data: activeTrip } = await supabase
+          .from('staff_trips')
+          .select('start_location')
+          .eq('id', activeTripId)
+          .maybeSingle()
+
+        if (activeTrip?.start_location) {
+          const startLocation = activeTrip.start_location as any
+          if (startLocation && (startLocation.lat || startLocation[0])) {
+            const fromLocation = {
+              lat: startLocation.lat || startLocation[0],
+              lng: startLocation.lng || startLocation[1]
+            }
+            
+            const R = 3959 // miles
+            const dLat = (parseFloat(latitude) - fromLocation.lat) * Math.PI / 180
+            const dLon = (parseFloat(longitude) - fromLocation.lng) * Math.PI / 180
+            const a = 
+              Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(fromLocation.lat * Math.PI / 180) * Math.cos(parseFloat(latitude) * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2)
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+            distanceToVisit = R * c
+            driveTimeToVisit = Math.round((distanceToVisit / 25) * 60)
+          }
         }
       }
     }
-    // If no active trip, drive time and distance will be 0 (visit is independent)
 
     const visitLocation = latitude && longitude 
       ? { lat: parseFloat(latitude), lng: parseFloat(longitude), address: patientAddress || null }

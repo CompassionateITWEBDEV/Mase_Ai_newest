@@ -237,6 +237,42 @@ export default function StaffPerformancePage() {
     loadPipGoals()
   }, [selectedStaff?.id])
 
+  // Auto-refresh stats every 30 seconds to show updated visit/drive times
+  useEffect(() => {
+    if (!selectedStaff?.id) return
+
+    const reloadStats = async () => {
+      try {
+        const statsRes = await fetch(`/api/staff-performance/stats?staff_id=${selectedStaff.id}&period=day`, { cache: 'no-store' })
+        const stats = await statsRes.json()
+        
+        if (stats.success) {
+          // Update selected staff with new stats
+          setSelectedStaff(prev => prev ? {
+            ...prev,
+            todayStats: {
+              totalDriveTime: stats.todayStats.totalDriveTime,
+              totalVisits: stats.todayStats.totalVisits,
+              totalMiles: stats.todayStats.totalMiles,
+              totalVisitTime: stats.todayStats.totalVisitTime,
+              avgVisitDuration: stats.todayStats.avgVisitDuration,
+              efficiencyScore: stats.todayStats.efficiencyScore,
+              costPerMile: stats.todayStats.costPerMile,
+              totalCost: stats.todayStats.totalCost
+            },
+            visits: stats.visits || []
+          } : null)
+        }
+      } catch (e) {
+        console.error('Failed to reload stats:', e)
+      }
+    }
+
+    const interval = setInterval(reloadStats, 30000) // Refresh every 30 seconds to show updated visit and drive times
+
+    return () => clearInterval(interval)
+  }, [selectedStaff?.id])
+
   // Load staff location when staff is selected
   useEffect(() => {
     const loadStaffLocation = async () => {
@@ -633,11 +669,13 @@ export default function StaffPerformancePage() {
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">
-                              {visit.startTime} - {visit.endTime}
+                              {visit.startTime} {visit.endTime ? `- ${visit.endTime}` : visit.endTime === 'In Progress' ? '- In Progress' : ''}
                             </div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant="outline">{formatTime(visit.duration)}</Badge>
+                            <Badge variant={(visit as any).status === 'in_progress' ? 'default' : 'outline'}>
+                              {formatTime(visit.duration)} {(visit as any).status === 'in_progress' && !visit.endTime && '(ongoing)'}
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             <Badge variant="secondary">{formatTime(visit.driveTime)}</Badge>

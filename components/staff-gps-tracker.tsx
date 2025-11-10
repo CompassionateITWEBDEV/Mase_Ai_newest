@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { MapPin, User, Clock, Gauge, Sparkles, MessageSquare, Phone, BarChart3 } from "lucide-react"
+import LiveStaffMap from "@/components/live-staff-map"
 
 interface StaffMember {
   id: string
@@ -19,7 +20,7 @@ interface StaffMember {
   totalDriveTimeToday: number
   totalVisitTimeToday: number
   efficiencyScore: number
-  location: { lat: number; lng: number }
+  location: { lat: number; lng: number } | null
 }
 
 interface StaffGpsTrackerProps {
@@ -28,7 +29,9 @@ interface StaffGpsTrackerProps {
 }
 
 export default function StaffGpsTracker({ staffFleet, filter }: StaffGpsTrackerProps) {
-  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(staffFleet[0] || null)
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(
+    staffFleet.find(s => s.location !== null) || staffFleet[0] || null
+  )
 
   const filteredFleet = staffFleet.filter((staff) => {
     if (filter === "All") return true
@@ -67,31 +70,11 @@ export default function StaffGpsTracker({ staffFleet, filter }: StaffGpsTrackerP
       <div className="lg:col-span-2">
         <Card className="h-[600px]">
           <CardContent className="p-0 h-full relative">
-            {/* This is a placeholder for a real map component like React Leaflet or Google Maps */}
-            <div className="w-full h-full bg-gray-200 rounded-lg flex items-center justify-center">
-              <div className="text-center text-gray-500">
-                <MapPin className="h-16 w-16 mx-auto" />
-                <p>Live Map View</p>
-              </div>
-            </div>
-            {/* Render staff markers on the map */}
-            {filteredFleet.map((staff) => (
-              <div
-                key={staff.id}
-                className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-pointer"
-                style={{
-                  top: `${50 + (staff.location.lat - 34.0522) * 2000}%`,
-                  left: `${50 + (staff.location.lng + 118.2437) * 2000}%`,
-                }}
-                onClick={() => setSelectedStaff(staff)}
-              >
-                <div
-                  className={`w-3 h-3 rounded-full ${getStatusColor(staff.status)} ring-2 ring-white ${
-                    selectedStaff?.id === staff.id ? "ring-blue-500 ring-4" : ""
-                  }`}
-                />
-              </div>
-            ))}
+            <LiveStaffMap
+              staffFleet={filteredFleet}
+              selectedStaff={selectedStaff}
+              onStaffSelect={setSelectedStaff}
+            />
           </CardContent>
         </Card>
       </div>

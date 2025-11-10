@@ -227,9 +227,6 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
 
   // Handle file selection
   const handleFileChange = (docKey: string, event: React.ChangeEvent<HTMLInputElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-    
     const file = event.target.files?.[0]
     if (file) {
       // Validate file size (max 10MB)
@@ -247,10 +244,25 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
         event.target.value = ''
         return
       }
-      setSelectedFiles(prev => ({
-        ...prev,
-        [docKey]: file
-      }))
+      
+      // Add file to selectedFiles state
+      setSelectedFiles(prev => {
+        const updated = {
+          ...prev,
+          [docKey]: file
+        }
+        console.log('✅ File added to selectedFiles:', {
+          docKey,
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.type,
+          totalFiles: Object.keys(updated).length,
+          allKeys: Object.keys(updated)
+        })
+        return updated
+      })
+    } else {
+      console.warn('⚠️ No file selected for:', docKey)
     }
   }
 
@@ -404,15 +416,31 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
     if (formData.hipaa_training === undefined || formData.hipaa_training === null) {
       errors.push('HIPAA training question must be answered')
     }
+    // If HIPAA training is "Yes", details must be provided
+    if (formData.hipaa_training === true && !formData.hipaa_details?.trim()) {
+      errors.push('Please provide HIPAA certification details')
+    }
     if (!formData.hipaa_agreement) errors.push('HIPAA agreement must be accepted')
     if (formData.conflict_interest === undefined || formData.conflict_interest === null) {
       errors.push('Conflict of interest question must be answered')
     }
+    // If conflict of interest is "Yes", details must be provided
+    if (formData.conflict_interest === true && !formData.conflict_details?.trim()) {
+      errors.push('Please provide details about your conflict of interest')
+    }
     if (formData.relationship_conflict === undefined || formData.relationship_conflict === null) {
       errors.push('Relationship conflict question must be answered')
     }
+    // If relationship conflict is "Yes", details must be provided
+    if (formData.relationship_conflict === true && !formData.relationship_details?.trim()) {
+      errors.push('Please provide details about your relationship conflicts')
+    }
     if (formData.conviction_history === undefined || formData.conviction_history === null) {
       errors.push('Conviction history question must be answered')
+    }
+    // If conviction history is "Yes", details must be provided
+    if (formData.conviction_history === true && !formData.conviction_details?.trim()) {
+      errors.push('Please provide details about your conviction history')
     }
     if (formData.registry_history === undefined || formData.registry_history === null) {
       errors.push('Registry history question must be answered')
@@ -423,6 +451,10 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
     if (!formData.tb_test_status?.trim()) errors.push('TB test status is required')
     if (formData.infection_training === undefined || formData.infection_training === null) {
       errors.push('Infection prevention training question must be answered')
+    }
+    // If infection training is "Yes", details must be provided
+    if (formData.infection_training === true && !formData.infection_details?.trim()) {
+      errors.push('Please provide details about your infection prevention training')
     }
     if (!formData.happ_agreement) errors.push('HAPP agreement must be accepted')
     if (!formData.physical_accommodation?.trim()) {
@@ -463,7 +495,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
       const errorMessage = `Please fix the following errors:\n\n${validationErrors.join('\n')}`
       alert(errorMessage)
       // Navigate to the first step with errors
-      if (validationErrors.some(err => err.includes('First name') || err.includes('Email') || err.includes('Phone'))) {
+      if (validationErrors.some(err => err.includes('First name') || err.includes('Email') || err.includes('Phone') || err.includes('State') || err.includes('City') || err.includes('Address') || err.includes('Zip code'))) {
         setCurrentStep(1)
       } else if (validationErrors.some(err => err.includes('experience') || err.includes('education'))) {
         setCurrentStep(2)
@@ -490,7 +522,16 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
         body: formDataToSubmit,
       })
 
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ Application submission failed:', response.status, errorText)
+        alert(`Failed to submit application: ${errorText}`)
+        setIsSubmitting(false)
+        return
+      }
+
       const result = await response.json()
+      console.log('📝 Application API response:', result)
 
       if (result.success) {
         // Now submit detailed form data - use formData state instead of FormData
@@ -540,6 +581,13 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
         // Add job_application_id
         formObject.job_application_id = result.applicationId || result.id || 'temp-id'
 
+        // Log background_consent value before submission
+        console.log('📋 Submitting form data with background_consent:', {
+          background_consent: formObject.background_consent,
+          type: typeof formObject.background_consent,
+          allFormData: formObject
+        })
+
         // Submit detailed form data
         const detailedResponse = await fetch('/api/applications/form', {
           method: 'POST',
@@ -554,27 +602,77 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
         if (detailedResult.success) {
           // Upload all selected files
           const jobApplicationId = result.applicationId || result.id || result.application?.id
-          const applicantId = result.applicant_id || result.application?.applicant_id
+          // Fix: API returns applicantId (camelCase), not applicant_id (snake_case)
+          const applicantId = result.applicantId || result.applicant_id || result.application?.applicant_id || result.application?.applicantId
           
-          if (jobApplicationId && applicantId && Object.keys(selectedFiles).length > 0) {
-            console.log('Uploading documents:', Object.keys(selectedFiles).length, 'files')
+          console.log('📋 Form submission check:', {
+            jobApplicationId,
+            applicantId,
+            formId: detailedResult.form_id,
+            resultKeys: Object.keys(result),
+            resultObject: result,
+            selectedFilesCount: Object.keys(selectedFiles).length,
+            selectedFilesKeys: Object.keys(selectedFiles),
+            detailedResultKeys: Object.keys(detailedResult),
+            detailedResult: detailedResult
+          })
+          
+          // Check if we have all required IDs and files to upload
+          const hasRequiredIds = jobApplicationId && applicantId
+          const hasFiles = Object.keys(selectedFiles).length > 0
+          
+          if (hasRequiredIds && hasFiles) {
+            console.log('📤 Starting document upload:', Object.keys(selectedFiles).length, 'files')
             
-            // Map document keys to document types
+            // Map document keys to document types based on the actual input field labels
+            // Note: Keys are normalized: apostrophes removed, non-alphanumeric replaced with underscore
+            // This ensures accurate mapping - each input field maps to the correct document type
+            // IMPORTANT: Only use 'other' for documents that truly don't fit other categories
             const documentTypeMap: { [key: string]: string } = {
-              'resume_cv': 'resume',
-              'professional_license': 'license',
-              'degree_diploma': 'certification',
-              'cpr_certification': 'certification',
-              'tb_test_results': 'certification',
-              'drivers_license': 'other',
-              'social_security_card': 'other',
-              'car_insurance': 'other'
+              'resume_cv': 'resume',                    // Resume/CV → resume
+              'professional_license': 'license',        // Professional License → license
+              'degree_diploma': 'certification',        // Degree/Diploma → certification
+              'cpr_certification': 'certification',     // CPR Certification → certification
+              'tb_test_results': 'certification',       // TB Test Results → certification
+              'drivers_license': 'license',            // Driver's License → license (NOT other!)
+              'social_security_card': 'other',         // Social Security Card → other (identification - no specific type available)
+              'car_insurance': 'other',                // Car Insurance → other (insurance - no specific type available)
+              'background_check': 'background_check'   // Background Check → background_check
+            }
+            
+            // Validate all document keys are in the map
+            const unmappedKeys = Object.keys(selectedFiles).filter(key => !documentTypeMap[key])
+            if (unmappedKeys.length > 0) {
+              console.error('❌ Unmapped document keys found:', unmappedKeys)
+              console.error('Available keys in map:', Object.keys(documentTypeMap))
+              alert(`Error: Some documents could not be mapped to a document type. Keys: ${unmappedKeys.join(', ')}. Please contact support.`)
             }
             
             // Upload each file
             const uploadPromises = Object.entries(selectedFiles).map(async ([docKey, file]) => {
               try {
-                const documentType = documentTypeMap[docKey] || 'other'
+                // Get document type from map - this MUST match the input field label
+                const documentType = documentTypeMap[docKey]
+                
+                // Validate that document type is set - should never be undefined if mapping is correct
+                if (!documentType) {
+                  console.error('❌ CRITICAL: Document key not found in map:', docKey, 'File:', file.name)
+                  console.error('Available keys:', Object.keys(documentTypeMap))
+                  console.error('Selected files keys:', Object.keys(selectedFiles))
+                  alert(`Error: Document type mapping not found for "${docKey}". Please contact support.`)
+                  return { success: false, docKey, error: `Document type mapping not found for: ${docKey}` }
+                }
+                
+                // Warn if document is being saved as 'other' - this should only happen for specific document types
+                if (documentType === 'other') {
+                  const shouldBeOther = ['social_security_card', 'car_insurance'].includes(docKey)
+                  if (!shouldBeOther) {
+                    console.warn(`⚠️ Document "${docKey}" is being saved as 'other' but might need a more specific type`)
+                  }
+                }
+                
+                // Log the mapping for debugging
+                console.log(`📄 Mapping document: "${docKey}" → document_type: "${documentType}" (file: ${file.name})`)
                 
                 // Create FormData for file upload
                 const fileFormData = new FormData()
@@ -582,15 +680,58 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                 fileFormData.append('applicant_id', applicantId)
                 fileFormData.append('job_application_id', jobApplicationId)
                 fileFormData.append('application_form_id', detailedResult.form_id || '')
+                // Map back to original document name for display
+                const originalDocNames: { [key: string]: string } = {
+                  'resume_cv': 'Resume/CV',
+                  'professional_license': 'Professional License',
+                  'degree_diploma': 'Degree/Diploma',
+                  'cpr_certification': 'CPR Certification',
+                  'tb_test_results': 'TB Test Results',
+                  'drivers_license': "Driver's License",
+                  'social_security_card': 'Social Security Card',
+                  'car_insurance': 'Car Insurance',
+                  'background_check': 'Background Check'
+                }
+                const documentName = originalDocNames[docKey] || docKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+                
                 fileFormData.append('document_type', documentType)
-                fileFormData.append('document_name', docKey.replace(/_/g, ' '))
+                fileFormData.append('document_name', documentName) // Use original field name, not normalized key
                 fileFormData.append('file_name', file.name)
                 fileFormData.append('file_size', file.size.toString())
 
+                console.log('📤 Uploading file:', {
+                  docKey,
+                  originalFieldName: documentName,
+                  fileName: file.name,
+                  documentType,
+                  fileSize: file.size,
+                  applicantId,
+                  jobApplicationId,
+                  applicationFormId: detailedResult.form_id
+                })
+                
+                // Validate mapping accuracy
+                if (!documentType || documentType === 'other') {
+                  console.warn(`⚠️ Document "${documentName}" (key: ${docKey}) is mapped to "${documentType}"`)
+                } else {
+                  console.log(`✅ Document "${documentName}" correctly mapped to type: "${documentType}"`)
+                }
+                
                 const documentResponse = await fetch('/api/applications/documents/upload', {
                   method: 'POST',
                   body: fileFormData,
                 })
+
+                if (!documentResponse.ok) {
+                  const errorText = await documentResponse.text()
+                  console.error('Document upload failed - HTTP error:', documentResponse.status, errorText)
+                  try {
+                    const errorJson = JSON.parse(errorText)
+                    return { success: false, docKey, error: errorJson.error || errorText }
+                  } catch {
+                    return { success: false, docKey, error: `HTTP ${documentResponse.status}: ${errorText}` }
+                  }
+                }
 
                 const documentResult = await documentResponse.json()
                 
@@ -598,7 +739,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   console.error('Document upload failed:', docKey, documentResult.error)
                   return { success: false, docKey, error: documentResult.error }
                 } else {
-                  console.log('Document uploaded successfully:', docKey, file.name)
+                  console.log('✅ Document uploaded successfully:', docKey, file.name, documentResult)
                   return { success: true, docKey, fileName: file.name }
                 }
               } catch (error: any) {
@@ -612,11 +753,41 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
             const successfulUploads = uploadResults.filter(r => r.success).length
             const failedUploads = uploadResults.filter(r => !r.success)
             
+            console.log('📊 Upload results:', {
+              total: uploadResults.length,
+              successful: successfulUploads,
+              failed: failedUploads.length,
+              results: uploadResults
+            })
+            
             if (failedUploads.length > 0) {
-              console.warn('Some documents failed to upload:', failedUploads)
-              alert(`Application submitted successfully! ${successfulUploads} of ${uploadResults.length} documents uploaded. Some documents may need to be uploaded separately.`)
+              console.error('❌ Some documents failed to upload:', failedUploads)
+              const errorMessages = failedUploads.map(f => `${f.docKey}: ${f.error}`).join('\n')
+              alert(`Application submitted successfully! ${successfulUploads} of ${uploadResults.length} documents uploaded.\n\nFailed uploads:\n${errorMessages}`)
             } else {
-              console.log('All documents uploaded successfully')
+              console.log('✅ All documents uploaded successfully!')
+            }
+          } else {
+            const missingData = []
+            if (!jobApplicationId) missingData.push('jobApplicationId')
+            if (!applicantId) missingData.push('applicantId')
+            if (!hasFiles) missingData.push('selectedFiles')
+            
+            console.error('❌ Cannot upload files - missing required data:', {
+              hasJobApplicationId: !!jobApplicationId,
+              jobApplicationId,
+              hasApplicantId: !!applicantId,
+              applicantId,
+              hasFiles: Object.keys(selectedFiles).length > 0,
+              filesCount: Object.keys(selectedFiles).length,
+              missingData,
+              resultObject: result,
+              detailedResult: detailedResult
+            })
+            
+            if (hasFiles) {
+              const fileCount = Object.keys(selectedFiles).length
+              alert(`Warning: ${fileCount} file(s) were selected but could not be uploaded due to missing ${missingData.join(', ')}. Please contact support with confirmation number: ${result.confirmationNumber || 'N/A'}`)
             }
           }
           
@@ -791,7 +962,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                   </div>
                   <div>
                     <Label htmlFor="state">State *</Label>
-                    <Select key="state" name="state" value={formData.state} onValueChange={(value) => handleInputChange('state', value)}>
+                    <Select key="state" name="state" value={formData.state} onValueChange={(value) => handleInputChange('state', value)} required>
                       <SelectTrigger>
                         <SelectValue placeholder="Select state" />
                       </SelectTrigger>
@@ -1090,6 +1261,13 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
 
             {/* Step 4: Document Upload */}
             <div className={`space-y-6 ${currentStep !== 4 ? 'hidden' : ''}`}>
+                {Object.keys(selectedFiles).length > 0 && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                    <p className="text-sm text-blue-800">
+                      <strong>{Object.keys(selectedFiles).length}</strong> file(s) selected for upload
+                    </p>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {[
                     { name: "Resume/CV", required: true, description: "Current resume or curriculum vitae" },
@@ -1108,8 +1286,15 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       description: "Social Security Administration issued card",
                     },
                     { name: "Car Insurance", required: true, description: "Current automobile insurance certificate" },
+                    { name: "Background Check", required: false, description: "Background check authorization or results" },
                   ].map((doc, index) => {
-                    const docKey = doc.name.toLowerCase().replace(/[^a-z0-9]/g, '_')
+                    // Normalize document key: remove apostrophes, then replace non-alphanumeric with underscore
+                    // This ensures "Driver's License" becomes "drivers_license" not "driver_s_license"
+                    const docKey = doc.name.toLowerCase()
+                      .replace(/'/g, '') // Remove apostrophes first
+                      .replace(/[^a-z0-9]/g, '_') // Replace other non-alphanumeric with underscore
+                      .replace(/_+/g, '_') // Collapse multiple underscores into one
+                      .replace(/^_|_$/g, '') // Remove leading/trailing underscores
                     const selectedFile = selectedFiles[docKey]
                     
                     return (
@@ -1149,30 +1334,27 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                                 type="file"
                                 accept=".pdf,.jpg,.jpeg,.png"
                                 onChange={(e) => {
-                                  e.preventDefault()
-                                  e.stopPropagation()
                                   handleFileChange(docKey, e)
                                 }}
                                 className="hidden"
                               />
-                              <label htmlFor={`file-${docKey}`}>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                    const fileInput = document.getElementById(`file-${docKey}`) as HTMLInputElement
-                                    if (fileInput) {
-                                      fileInput.click()
-                                    }
-                                  }}
-                                  className="cursor-pointer"
-                                >
-                                  Choose File
-                                </Button>
-                              </label>
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  const fileInput = document.getElementById(`file-${docKey}`) as HTMLInputElement
+                                  if (fileInput) {
+                                    fileInput.click()
+                                  }
+                                }}
+                                className="cursor-pointer w-full"
+                              >
+                                <Upload className="h-4 w-4 mr-2" />
+                                Choose File
+                              </Button>
                             </div>
                           )}
                           <p className="text-xs text-gray-400 mt-2">PDF, JPG, PNG (Max 10MB)</p>
@@ -1227,17 +1409,20 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         </div>
                       </RadioGroup>
                     </div>
-                    <div>
-                      <Label htmlFor="hipaa-cert">HIPAA Certification Details</Label>
-                      <Textarea
-                        id="hipaa-cert"
-                        name="hipaa_details"
-                        placeholder="Provide details about your HIPAA training (date, provider, certificate number if available)"
-                        rows={3}
-                        value={formData.hipaa_details}
-                        onChange={(e) => handleInputChange('hipaa_details', e.target.value)}
-                      />
-                    </div>
+                    {formData.hipaa_training === true && (
+                      <div>
+                        <Label htmlFor="hipaa-cert">HIPAA Certification Details *</Label>
+                        <Textarea
+                          id="hipaa-cert"
+                          name="hipaa_details"
+                          placeholder="Provide details about your HIPAA training (date, provider, certificate number if available)"
+                          rows={3}
+                          value={formData.hipaa_details}
+                          onChange={(e) => handleInputChange('hipaa_details', e.target.value)}
+                          required={formData.hipaa_training === true}
+                        />
+                      </div>
+                    )}
                     <div className="flex items-center space-x-2">
                       <Checkbox 
                         id="hipaa-agreement" 
@@ -1278,17 +1463,20 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         </div>
                       </RadioGroup>
                     </div>
-                    <div>
-                      <Label htmlFor="conflict-details">If yes, please provide details</Label>
-                      <Textarea
-                        id="conflict-details"
-                        name="conflict_details"
-                        placeholder="Describe any potential conflicts of interest"
-                        rows={3}
-                        value={formData.conflict_details}
-                        onChange={(e) => handleInputChange('conflict_details', e.target.value)}
-                      />
-                    </div>
+                    {formData.conflict_interest === true && (
+                      <div>
+                        <Label htmlFor="conflict-details">If yes, please provide details *</Label>
+                        <Textarea
+                          id="conflict-details"
+                          name="conflict_details"
+                          placeholder="Describe any potential conflicts of interest"
+                          rows={3}
+                          value={formData.conflict_details}
+                          onChange={(e) => handleInputChange('conflict_details', e.target.value)}
+                          required={formData.conflict_interest === true}
+                        />
+                      </div>
+                    )}
                     <div>
                       <Label>
                         Are you related to or have personal relationships with any IrishTriplets employees, patients, or
@@ -1310,17 +1498,20 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         </div>
                       </RadioGroup>
                     </div>
-                    <div>
-                      <Label htmlFor="relationship-details">If yes, please provide details</Label>
-                      <Textarea
-                        id="relationship-details"
-                        name="relationship_details"
-                        placeholder="Describe any relationships that could present conflicts"
-                        rows={3}
-                        value={formData.relationship_details}
-                        onChange={(e) => handleInputChange('relationship_details', e.target.value)}
-                      />
-                    </div>
+                    {formData.relationship_conflict === true && (
+                      <div>
+                        <Label htmlFor="relationship-details">If yes, please provide details *</Label>
+                        <Textarea
+                          id="relationship-details"
+                          name="relationship_details"
+                          placeholder="Describe any relationships that could present conflicts"
+                          rows={3}
+                          value={formData.relationship_details}
+                          onChange={(e) => handleInputChange('relationship_details', e.target.value)}
+                          required={formData.relationship_conflict === true}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1347,17 +1538,20 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         </div>
                       </RadioGroup>
                     </div>
-                    <div>
-                      <Label htmlFor="conviction-details">If yes, please provide details</Label>
-                      <Textarea
-                        id="conviction-details"
-                        name="conviction_details"
-                        placeholder="Provide details about any convictions, including dates and circumstances"
-                        rows={3}
-                        value={formData.conviction_details}
-                        onChange={(e) => handleInputChange('conviction_details', e.target.value)}
-                      />
-                    </div>
+                    {formData.conviction_history === true && (
+                      <div>
+                        <Label htmlFor="conviction-details">If yes, please provide details *</Label>
+                        <Textarea
+                          id="conviction-details"
+                          name="conviction_details"
+                          placeholder="Provide details about any convictions, including dates and circumstances"
+                          rows={3}
+                          value={formData.conviction_details}
+                          onChange={(e) => handleInputChange('conviction_details', e.target.value)}
+                          required={formData.conviction_history === true}
+                        />
+                      </div>
+                    )}
                     <div>
                       <Label>
                         Have you ever been listed on any state abuse registry or had professional sanctions? *
@@ -1382,8 +1576,14 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                       <Checkbox 
                         id="background-consent" 
                         name="background_consent" 
-                        checked={formData.background_consent}
-                        onCheckedChange={(checked) => handleInputChange('background_consent', checked === true)} 
+                        checked={formData.background_consent === true}
+                        onCheckedChange={(checked) => {
+                          // Explicitly set to true when checked, false when unchecked
+                          // checked can be true, false, or "indeterminate"
+                          const isAuthorized = checked === true
+                          handleInputChange('background_consent', isAuthorized)
+                          console.log('Background consent changed:', { checked, isAuthorized, currentValue: formData.background_consent })
+                        }} 
                         required 
                       />
                       <Label htmlFor="background-consent" className="text-sm">
@@ -1499,17 +1699,20 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                         </div>
                       </RadioGroup>
                     </div>
-                    <div>
-                      <Label htmlFor="infection-training-details">Training Details</Label>
-                      <Textarea
-                        id="infection-training-details"
-                        name="infection_details"
-                        placeholder="Describe your infection prevention training (dates, provider, topics covered)"
-                        rows={3}
-                        value={formData.infection_details}
-                        onChange={(e) => handleInputChange('infection_details', e.target.value)}
-                      />
-                    </div>
+                    {formData.infection_training === true && (
+                      <div>
+                        <Label htmlFor="infection-training-details">Training Details *</Label>
+                        <Textarea
+                          id="infection-training-details"
+                          name="infection_details"
+                          placeholder="Describe your infection prevention training (dates, provider, topics covered)"
+                          rows={3}
+                          value={formData.infection_details}
+                          onChange={(e) => handleInputChange('infection_details', e.target.value)}
+                          required={formData.infection_training === true}
+                        />
+                      </div>
+                    )}
                     <div className="flex items-center space-x-2">
                       <Checkbox 
                         id="happ-agreement" 

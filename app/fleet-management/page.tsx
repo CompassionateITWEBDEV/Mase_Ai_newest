@@ -1,124 +1,237 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Map, Clock, DollarSign, Users, TrendingUp, ListFilter, RefreshCw, Route, Car, Timer } from "lucide-react"
+import { Map, Clock, DollarSign, Users, TrendingUp, ListFilter, RefreshCw, Route, Car, Timer, Loader2, AlertCircle } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import StaffGpsTracker from "@/components/staff-gps-tracker"
 
-// Mock data for staff fleet with detailed metrics
-const mockStaffFleet = [
-  {
-    id: "RN-2024-001",
-    name: "Sarah Johnson",
-    role: "Registered Nurse",
-    status: "En Route",
-    currentSpeed: 45, // mph
-    etaToNext: "12:35 PM",
-    nextPatient: "Margaret Anderson",
-    totalDistanceToday: 28.5, // miles
-    totalDriveTimeToday: 55, // minutes
-    totalVisitTimeToday: 120, // minutes
-    numberOfVisits: 4,
-    averageVisitDuration: 30, // minutes
-    efficiencyScore: 92, // percentage
-    location: { lat: 34.0522, lng: -118.2437 },
-    visitDetails: [
-      { patient: "John Smith", duration: 35, startTime: "8:00 AM", endTime: "8:35 AM", address: "123 Oak St" },
-      { patient: "Mary Wilson", duration: 28, startTime: "9:15 AM", endTime: "9:43 AM", address: "456 Pine Ave" },
-      { patient: "Robert Davis", duration: 32, startTime: "10:30 AM", endTime: "11:02 AM", address: "789 Elm Dr" },
-      { patient: "Linda Brown", duration: 25, startTime: "11:45 AM", endTime: "12:10 PM", address: "321 Maple St" },
-    ],
-    drivingCost: 19.1, // $0.67 per mile
-  },
-  {
-    id: "PT-2024-001",
-    name: "Michael Chen",
-    role: "Physical Therapist",
-    status: "On Visit",
-    currentSpeed: 0,
-    etaToNext: "N/A",
-    nextPatient: "Robert Thompson",
-    totalDistanceToday: 15.2,
-    totalDriveTimeToday: 35,
-    totalVisitTimeToday: 90,
-    numberOfVisits: 2,
-    averageVisitDuration: 45,
-    efficiencyScore: 88,
-    location: { lat: 34.0622, lng: -118.2537 },
-    visitDetails: [
-      { patient: "Alice Johnson", duration: 45, startTime: "9:00 AM", endTime: "9:45 AM", address: "567 Cedar Ln" },
-      { patient: "Robert Thompson", duration: 45, startTime: "11:00 AM", endTime: "11:45 AM", address: "890 Birch Rd" },
-    ],
-    drivingCost: 10.18,
-  },
-  {
-    id: "OT-2024-001",
-    name: "Emily Davis",
-    role: "Occupational Therapist",
-    status: "Idle",
-    currentSpeed: 0,
-    etaToNext: "1:15 PM",
-    nextPatient: "Dorothy Williams",
-    totalDistanceToday: 8.1,
-    totalDriveTimeToday: 20,
-    totalVisitTimeToday: 60,
-    numberOfVisits: 2,
-    averageVisitDuration: 30,
-    efficiencyScore: 95,
-    location: { lat: 34.0422, lng: -118.2637 },
-    visitDetails: [
-      { patient: "George Miller", duration: 30, startTime: "8:30 AM", endTime: "9:00 AM", address: "234 Spruce St" },
-      { patient: "Helen Garcia", duration: 30, startTime: "10:00 AM", endTime: "10:30 AM", address: "678 Willow Ave" },
-    ],
-    drivingCost: 5.43,
-  },
-  {
-    id: "LPN-2024-001",
-    name: "Lisa Garcia",
-    role: "LPN",
-    status: "Driving",
-    currentSpeed: 30,
-    etaToNext: "12:50 PM",
-    nextPatient: "James Patterson",
-    totalDistanceToday: 35.7,
-    totalDriveTimeToday: 75,
-    totalVisitTimeToday: 150,
-    numberOfVisits: 5,
-    averageVisitDuration: 30,
-    efficiencyScore: 85,
-    location: { lat: 34.0722, lng: -118.2337 },
-    visitDetails: [
-      { patient: "Tom Anderson", duration: 25, startTime: "7:30 AM", endTime: "7:55 AM", address: "345 Ash St" },
-      { patient: "Betty White", duration: 35, startTime: "8:30 AM", endTime: "9:05 AM", address: "789 Oak Ave" },
-      { patient: "Frank Wilson", duration: 30, startTime: "9:45 AM", endTime: "10:15 AM", address: "123 Pine Dr" },
-      { patient: "Grace Lee", duration: 28, startTime: "11:00 AM", endTime: "11:28 AM", address: "456 Elm St" },
-      { patient: "Henry Davis", duration: 32, startTime: "12:00 PM", endTime: "12:32 PM", address: "678 Maple Ave" },
-    ],
-    drivingCost: 23.92,
-  },
-]
+interface StaffFleetMember {
+  id: string
+  name: string
+  role: string
+  status: "En Route" | "On Visit" | "Idle" | "Offline"
+  currentSpeed: number
+  etaToNext: string
+  nextPatient: string
+  totalDistanceToday: number
+  totalDriveTimeToday: number
+  totalVisitTimeToday: number
+  numberOfVisits: number
+  averageVisitDuration: number
+  efficiencyScore: number
+  location: { lat: number; lng: number } | null
+  visitDetails: Array<{
+    patient: string
+    duration: number
+    startTime: string
+    endTime: string
+    address: string
+  }>
+  drivingCost: number
+}
 
 export default function FleetManagementDashboard() {
   const [filter, setFilter] = useState("All")
   const [selectedStaff, setSelectedStaff] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [staffFleet, setStaffFleet] = useState<StaffFleetMember[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  // Load real staff fleet data
+  useEffect(() => {
+    let isMounted = true
+    
+    const loadData = async () => {
+      await loadFleetData()
+    }
+    
+    loadData()
+    
+    // Auto-refresh every 30 seconds for real-time updates (without loading spinner)
+    const interval = setInterval(() => {
+      if (isMounted) {
+        loadFleetData(false) // Don't show loading spinner on auto-refresh
+      }
+    }, 30000) // 30 seconds
+    
+    return () => {
+      isMounted = false
+      clearInterval(interval)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const loadFleetData = async (showLoading = true) => {
+    try {
+      if (showLoading) {
+        setIsLoading(true)
+      }
+      setError(null)
+
+      // Get all active staff
+      const staffRes = await fetch('/api/staff/list', { cache: 'no-store' })
+      const staffData = await staffRes.json()
+      
+      if (!staffData.success || !Array.isArray(staffData.staff)) {
+        throw new Error('Failed to load staff list')
+      }
+
+      const activeStaff = staffData.staff.filter((s: any) => s.is_active !== false)
+
+      // Load performance stats and GPS location for each staff
+      const fleetData = await Promise.all(
+        activeStaff.map(async (staff: any) => {
+          try {
+            // Get performance stats
+            const statsRes = await fetch(
+              `/api/staff-performance/stats?staff_id=${encodeURIComponent(staff.id)}&period=day`,
+              { cache: 'no-store' }
+            )
+            const statsData = await statsRes.json()
+
+            // Get GPS location
+            const locationRes = await fetch(
+              `/api/gps/staff-location?staff_id=${encodeURIComponent(staff.id)}`,
+              { cache: 'no-store' }
+            )
+            const locationData = await locationRes.json()
+
+            // Determine status
+            let status: "En Route" | "On Visit" | "Idle" | "Offline" = "Offline"
+            let currentSpeed = 0
+            let nextPatient = "N/A"
+            let etaToNext = "N/A"
+
+            if (locationData.success && locationData.currentLocation) {
+              currentSpeed = locationData.currentLocation.speed || 0
+              
+              if (locationData.status === 'on_visit') {
+                status = "On Visit"
+              } else if (currentSpeed > 5) {
+                status = "En Route"
+              } else if (locationData.status === 'active') {
+                status = "Idle"
+              } else {
+                status = "Offline"
+              }
+            }
+
+            // Get next visit from today's visits
+            const visits = statsData.visits || []
+            const inProgressVisit = visits.find((v: any) => v.status === 'in_progress')
+            const nextVisit = visits.find((v: any) => !v.endTime)
+
+            if (inProgressVisit) {
+              nextPatient = inProgressVisit.patientName || "Current Patient"
+            } else if (nextVisit) {
+              nextPatient = nextVisit.patientName || "N/A"
+              if (nextVisit.startTime) {
+                const visitTime = new Date(nextVisit.startTime)
+                etaToNext = visitTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+              }
+            }
+
+            // Calculate efficiency score
+            const todayStats = statsData.todayStats || {}
+            const totalTime = (todayStats.totalDriveTime || 0) + (todayStats.totalVisitTime || 0)
+            const efficiencyScore = totalTime > 0
+              ? Math.round((todayStats.totalVisitTime / totalTime) * 100)
+              : 0
+
+            // Format visit details
+            const visitDetails = visits.map((v: any) => ({
+              patient: v.patientName || "Unknown",
+              duration: v.duration || 0,
+              startTime: v.startTime || "N/A",
+              endTime: v.endTime || (v.status === 'in_progress' ? 'In Progress' : 'N/A'),
+              address: v.address || "N/A"
+            }))
+
+            // Get location
+            const location = locationData.success && locationData.currentLocation
+              ? {
+                  lat: locationData.currentLocation.latitude,
+                  lng: locationData.currentLocation.longitude
+                }
+              : null
+
+            return {
+              id: staff.id,
+              name: staff.name || "Unknown",
+              role: staff.department || "Staff",
+              status,
+              currentSpeed: Math.round(currentSpeed),
+              etaToNext,
+              nextPatient,
+              totalDistanceToday: todayStats.totalMiles || 0,
+              totalDriveTimeToday: todayStats.totalDriveTime || 0,
+              totalVisitTimeToday: todayStats.totalVisitTime || 0,
+              numberOfVisits: todayStats.totalVisits || 0,
+              averageVisitDuration: todayStats.avgVisitDuration || 0,
+              efficiencyScore,
+              location,
+              visitDetails,
+              drivingCost: todayStats.totalCost || 0
+            }
+          } catch (e: any) {
+            console.error(`Error loading data for staff ${staff.id}:`, e)
+            // Return minimal data if API fails
+            return {
+              id: staff.id,
+              name: staff.name || "Unknown",
+              role: staff.department || "Staff",
+              status: "Offline" as const,
+              currentSpeed: 0,
+              etaToNext: "N/A",
+              nextPatient: "N/A",
+              totalDistanceToday: 0,
+              totalDriveTimeToday: 0,
+              totalVisitTimeToday: 0,
+              numberOfVisits: 0,
+              averageVisitDuration: 0,
+              efficiencyScore: 0,
+              location: null,
+              visitDetails: [],
+              drivingCost: 0
+            }
+          }
+        })
+      )
+
+      setStaffFleet(fleetData)
+    } catch (e: any) {
+      console.error('Error loading fleet data:', e)
+      setError(e.message || 'Failed to load fleet data')
+    } finally {
+      if (showLoading) {
+        setIsLoading(false)
+      }
+    }
+  }
+
+  const handleRefresh = () => {
+    loadFleetData()
+  }
 
   const summaryStats = useMemo(() => {
-    const totalStaff = mockStaffFleet.length
-    const enRoute = mockStaffFleet.filter((s) => s.status === "En Route" || s.status === "Driving").length
-    const onVisit = mockStaffFleet.filter((s) => s.status === "On Visit").length
-    const idle = mockStaffFleet.filter((s) => s.status === "Idle").length
-    const totalDistance = mockStaffFleet.reduce((sum, s) => sum + s.totalDistanceToday, 0)
-    const totalDriveTime = mockStaffFleet.reduce((sum, s) => sum + s.totalDriveTimeToday, 0)
-    const totalVisitTime = mockStaffFleet.reduce((sum, s) => sum + s.totalVisitTimeToday, 0)
-    const totalVisits = mockStaffFleet.reduce((sum, s) => sum + s.numberOfVisits, 0)
-    const avgEfficiency = mockStaffFleet.reduce((sum, s) => sum + s.efficiencyScore, 0) / (totalStaff || 1)
-    const totalDrivingCost = mockStaffFleet.reduce((sum, s) => sum + s.drivingCost, 0)
+    const totalStaff = staffFleet.length
+    const enRoute = staffFleet.filter((s) => s.status === "En Route" || s.status === "Driving").length
+    const onVisit = staffFleet.filter((s) => s.status === "On Visit").length
+    const idle = staffFleet.filter((s) => s.status === "Idle").length
+    const totalDistance = staffFleet.reduce((sum, s) => sum + s.totalDistanceToday, 0)
+    const totalDriveTime = staffFleet.reduce((sum, s) => sum + s.totalDriveTimeToday, 0)
+    const totalVisitTime = staffFleet.reduce((sum, s) => sum + s.totalVisitTimeToday, 0)
+    const totalVisits = staffFleet.reduce((sum, s) => sum + s.numberOfVisits, 0)
+    const avgEfficiency = totalStaff > 0
+      ? staffFleet.reduce((sum, s) => sum + s.efficiencyScore, 0) / totalStaff
+      : 0
+    const totalDrivingCost = staffFleet.reduce((sum, s) => sum + s.drivingCost, 0)
 
     return {
       totalStaff,
@@ -132,14 +245,27 @@ export default function FleetManagementDashboard() {
       avgEfficiency,
       totalDrivingCost,
     }
-  }, [mockStaffFleet])
+  }, [staffFleet])
 
-  const handleRefresh = () => {
-    setIsLoading(true)
-    setTimeout(() => setIsLoading(false), 1500)
+  const selectedStaffData = selectedStaff ? staffFleet.find((s) => s.id === selectedStaff) : null
+
+  // Filter staff based on status
+  const filteredFleet = useMemo(() => {
+    if (filter === "All") return staffFleet
+    if (filter === "En Route") return staffFleet.filter((s) => s.status === "En Route" || s.status === "Driving")
+    return staffFleet.filter((s) => s.status === filter)
+  }, [staffFleet, filter])
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-8 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+          <p className="text-gray-600">Loading fleet data...</p>
+        </div>
+      </div>
+    )
   }
-
-  const selectedStaffData = selectedStaff ? mockStaffFleet.find((s) => s.id === selectedStaff) : null
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -149,12 +275,24 @@ export default function FleetManagementDashboard() {
             <h1 className="text-3xl font-bold text-gray-900">Fleet Management & Route Optimization</h1>
             <p className="text-gray-600">Real-time GPS tracking and performance analytics for field staff.</p>
           </div>
-          <Button onClick={handleRefresh} disabled={isLoading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh Data
-          </Button>
+          <div className="flex items-center gap-3">
+            <Badge variant="outline" className="text-xs">
+              Auto-refresh: 30s
+            </Badge>
+            <Button onClick={handleRefresh} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+              Refresh Data
+            </Button>
+          </div>
         </div>
       </header>
+
+      {error && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
@@ -197,7 +335,7 @@ export default function FleetManagementDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">{summaryStats.avgEfficiency.toFixed(0)}%</div>
-            <p className="text-xs text-muted-foreground">vs. optimized routes</p>
+            <p className="text-xs text-muted-foreground">Time with patients</p>
           </CardContent>
         </Card>
         <Card>
@@ -248,7 +386,14 @@ export default function FleetManagementDashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              <StaffGpsTracker staffFleet={mockStaffFleet} filter={filter} />
+              {filteredFleet.length === 0 ? (
+                <div className="text-center py-12">
+                  <Map className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">No staff found with selected filter.</p>
+                </div>
+              ) : (
+                <StaffGpsTracker staffFleet={filteredFleet} filter={filter} />
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -261,59 +406,66 @@ export default function FleetManagementDashboard() {
                 <CardDescription>Detailed metrics for each staff member</CardDescription>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Staff Member</TableHead>
-                      <TableHead>Visits</TableHead>
-                      <TableHead>Drive Time</TableHead>
-                      <TableHead>Visit Time</TableHead>
-                      <TableHead>Miles</TableHead>
-                      <TableHead>Cost</TableHead>
-                      <TableHead>Efficiency</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {mockStaffFleet.map((staff) => (
-                      <TableRow
-                        key={staff.id}
-                        className="cursor-pointer hover:bg-gray-50"
-                        onClick={() => setSelectedStaff(staff.id)}
-                      >
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{staff.name}</div>
-                            <div className="text-sm text-gray-500">{staff.role}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline">{staff.numberOfVisits}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          {Math.floor(staff.totalDriveTimeToday / 60)}h {staff.totalDriveTimeToday % 60}m
-                        </TableCell>
-                        <TableCell>
-                          {Math.floor(staff.totalVisitTimeToday / 60)}h {staff.totalVisitTimeToday % 60}m
-                        </TableCell>
-                        <TableCell>{staff.totalDistanceToday.toFixed(1)} mi</TableCell>
-                        <TableCell>${staff.drivingCost.toFixed(2)}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              staff.efficiencyScore >= 90
-                                ? "default"
-                                : staff.efficiencyScore >= 80
-                                  ? "secondary"
-                                  : "destructive"
-                            }
-                          >
-                            {staff.efficiencyScore}%
-                          </Badge>
-                        </TableCell>
+                {staffFleet.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <p className="text-gray-600">No staff data available.</p>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Staff Member</TableHead>
+                        <TableHead>Visits</TableHead>
+                        <TableHead>Drive Time</TableHead>
+                        <TableHead>Visit Time</TableHead>
+                        <TableHead>Miles</TableHead>
+                        <TableHead>Cost</TableHead>
+                        <TableHead>Efficiency</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {staffFleet.map((staff) => (
+                        <TableRow
+                          key={staff.id}
+                          className="cursor-pointer hover:bg-gray-50"
+                          onClick={() => setSelectedStaff(staff.id)}
+                        >
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{staff.name}</div>
+                              <div className="text-sm text-gray-500">{staff.role}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{staff.numberOfVisits}</Badge>
+                          </TableCell>
+                          <TableCell>
+                            {Math.floor(staff.totalDriveTimeToday / 60)}h {staff.totalDriveTimeToday % 60}m
+                          </TableCell>
+                          <TableCell>
+                            {Math.floor(staff.totalVisitTimeToday / 60)}h {staff.totalVisitTimeToday % 60}m
+                          </TableCell>
+                          <TableCell>{staff.totalDistanceToday.toFixed(1)} mi</TableCell>
+                          <TableCell>${staff.drivingCost.toFixed(2)}</TableCell>
+                          <TableCell>
+                            <Badge
+                              variant={
+                                staff.efficiencyScore >= 90
+                                  ? "default"
+                                  : staff.efficiencyScore >= 80
+                                    ? "secondary"
+                                    : "destructive"
+                              }
+                            >
+                              {staff.efficiencyScore}%
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
 
@@ -334,28 +486,32 @@ export default function FleetManagementDashboard() {
                       </div>
                       <div>
                         <span className="text-gray-500">Avg Visit:</span>
-                        <span className="ml-2 font-medium">{selectedStaffData.averageVisitDuration} min</span>
+                        <span className="ml-2 font-medium">{selectedStaffData.averageVisitDuration.toFixed(0)} min</span>
                       </div>
                     </div>
 
                     <div className="border-t pt-4">
                       <h4 className="font-medium mb-3">Today's Visits</h4>
-                      <div className="space-y-3">
-                        {selectedStaffData.visitDetails.map((visit, index) => (
-                          <div key={index} className="p-3 bg-gray-50 rounded-lg">
-                            <div className="flex items-center justify-between mb-1">
-                              <span className="font-medium text-sm">{visit.patient}</span>
-                              <Badge variant="secondary">{visit.duration} min</Badge>
-                            </div>
-                            <div className="text-xs text-gray-500">
-                              <div>
-                                {visit.startTime} - {visit.endTime}
+                      {selectedStaffData.visitDetails.length === 0 ? (
+                        <p className="text-sm text-gray-500">No visits today</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {selectedStaffData.visitDetails.map((visit, index) => (
+                            <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="font-medium text-sm">{visit.patient}</span>
+                                <Badge variant="secondary">{visit.duration} min</Badge>
                               </div>
-                              <div>{visit.address}</div>
+                              <div className="text-xs text-gray-500">
+                                <div>
+                                  {visit.startTime} - {visit.endTime}
+                                </div>
+                                <div>{visit.address}</div>
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -382,7 +538,9 @@ export default function FleetManagementDashboard() {
                   <div className="flex justify-between">
                     <span className="text-sm">Average per Staff</span>
                     <span className="font-bold">
-                      {(summaryStats.totalDistance / summaryStats.totalStaff).toFixed(1)}
+                      {summaryStats.totalStaff > 0
+                        ? (summaryStats.totalDistance / summaryStats.totalStaff).toFixed(1)
+                        : "0.0"}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -417,10 +575,12 @@ export default function FleetManagementDashboard() {
                   <div className="flex justify-between">
                     <span className="text-sm">Productivity Ratio</span>
                     <span className="font-bold">
-                      {(
-                        (summaryStats.totalVisitTime / (summaryStats.totalVisitTime + summaryStats.totalDriveTime)) *
-                        100
-                      ).toFixed(1)}
+                      {summaryStats.totalDriveTime + summaryStats.totalVisitTime > 0
+                        ? (
+                            (summaryStats.totalVisitTime / (summaryStats.totalVisitTime + summaryStats.totalDriveTime)) *
+                            100
+                          ).toFixed(1)
+                        : "0.0"}
                       %
                     </span>
                   </div>
@@ -444,16 +604,20 @@ export default function FleetManagementDashboard() {
                   <div className="flex justify-between">
                     <span className="text-sm">Visits per Hour</span>
                     <span className="font-bold">
-                      {(
-                        (summaryStats.totalVisits / (summaryStats.totalDriveTime + summaryStats.totalVisitTime)) *
-                        60
-                      ).toFixed(1)}
+                      {summaryStats.totalDriveTime + summaryStats.totalVisitTime > 0
+                        ? (
+                            (summaryStats.totalVisits / (summaryStats.totalDriveTime + summaryStats.totalVisitTime)) *
+                            60
+                          ).toFixed(1)
+                        : "0.0"}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Miles per Visit</span>
                     <span className="font-bold">
-                      {(summaryStats.totalDistance / summaryStats.totalVisits).toFixed(1)}
+                      {summaryStats.totalVisits > 0
+                        ? (summaryStats.totalDistance / summaryStats.totalVisits).toFixed(1)
+                        : "0.0"}
                     </span>
                   </div>
                 </div>

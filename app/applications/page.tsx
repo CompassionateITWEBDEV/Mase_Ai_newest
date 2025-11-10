@@ -36,6 +36,9 @@ import {
   Shield,
   AlertTriangle,
   Heart,
+  Download,
+  Eye,
+  XCircle,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -60,6 +63,7 @@ export default function ApplicationTracking() {
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false)
   const [noteText, setNoteText] = useState("")
   const [isSavingNote, setIsSavingNote] = useState(false)
+  const [verifyingDocId, setVerifyingDocId] = useState<string | null>(null)
 
   useEffect(() => {
     loadApplications()
@@ -133,6 +137,7 @@ export default function ApplicationTracking() {
         return "screening"
       case "interview_scheduled":
         return "interview"
+      case "background_check":
       case "offer_received":
       case "offer_accepted":
         return "background"
@@ -157,6 +162,7 @@ export default function ApplicationTracking() {
       case "interview_scheduled":
       case "interview":
         return "bg-purple-100 text-purple-800"
+      case "background_check":
       case "offer_received":
       case "offer_accepted":
       case "background":
@@ -180,12 +186,200 @@ export default function ApplicationTracking() {
         return <Badge className="bg-green-100 text-green-800">Verified</Badge>
       case "pending":
         return <Badge className="bg-yellow-100 text-yellow-800">Pending</Badge>
+      case "rejected":
+        return <Badge className="bg-red-100 text-red-800">Rejected</Badge>
       case "in_progress":
         return <Badge className="bg-orange-100 text-orange-800">In Progress</Badge>
       case "completed":
         return <Badge className="bg-green-100 text-green-800">Completed</Badge>
       default:
-        return <Badge variant="secondary">Not Started</Badge>
+        return <Badge variant="secondary">{status || "Not Started"}</Badge>
+    }
+  }
+
+  // Get proper document type label for document status keys (used in Document Status section)
+  const getDocumentStatusLabel = (docKey: string) => {
+    const key = docKey.toLowerCase()
+    
+    // Map document status keys to proper labels
+    switch (key) {
+      case 'resume':
+        return 'Resume/CV'
+      case 'license':
+      case 'professional_license':
+        return 'Professional License'
+      case 'cpr':
+      case 'cpr_certification':
+        return 'CPR Certification'
+      case 'tb_test':
+      case 'tb_test_results':
+        return 'TB Test Results'
+      case 'degree_diploma':
+        return 'Degree/Diploma'
+      case 'drivers_license':
+      case 'drivers license':
+        return "Driver's License"
+      case 'social_security_card':
+      case 'social security card':
+        return 'Social Security Card'
+      case 'car_insurance':
+      case 'car insurance':
+        return 'Car Insurance'
+      case 'background_check':
+      case 'background check':
+        return 'Background Check'
+      case 'certifications':
+        return 'Certifications'
+      case 'reference':
+      case 'references':
+        return 'Reference Letter'
+      default:
+        // Capitalize and replace underscores
+        return docKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+    }
+  }
+
+  // Get proper document type label for uploaded documents (used in Uploaded Files section)
+  const getDocumentTypeLabel = (doc: any) => {
+    const docType = doc.document_type || ''
+    const docName = doc.notes || doc.file_name || ''
+    const lowerDocName = docName.toLowerCase()
+    
+    // Check notes for specific document names
+    if (lowerDocName.includes('cpr') || lowerDocName.includes('acls') || lowerDocName.includes('bls')) {
+      return 'CPR Certification'
+    }
+    if (lowerDocName.includes('tb') || lowerDocName.includes('tuberculosis')) {
+      return 'TB Test Results'
+    }
+    if (lowerDocName.includes('degree') || lowerDocName.includes('diploma')) {
+      return 'Degree/Diploma'
+    }
+    if (lowerDocName.includes('driver') || lowerDocName.includes('drivers_license')) {
+      return "Driver's License"
+    }
+    if (lowerDocName.includes('social security')) {
+      return 'Social Security Card'
+    }
+    if (lowerDocName.includes('car insurance') || lowerDocName.includes('auto insurance')) {
+      return 'Car Insurance'
+    }
+    
+    // Map document types to labels
+    switch (docType) {
+      case 'resume':
+        return 'Resume/CV'
+      case 'license':
+        return 'Professional License'
+      case 'certification':
+        return 'Certification'
+      case 'background_check':
+        return 'Background Check'
+      case 'reference':
+        return 'Reference Letter'
+      case 'other':
+        // Try to extract from notes or file name
+        if (docName && docName !== 'other') {
+          return docName.replace('Uploaded: ', '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+        }
+        return 'Other Document'
+      default:
+        return docType.charAt(0).toUpperCase() + docType.slice(1) || 'Document'
+    }
+  }
+
+  // Handle document verification
+  const handleDocumentVerification = async (documentId: string, action: 'verified' | 'rejected', notes?: string) => {
+    try {
+      setVerifyingDocId(documentId)
+      
+      let response: Response
+      try {
+        const requestBody = {
+          document_id: documentId,
+          status: action,
+          notes: notes || `Document ${action} by admin`
+        }
+        console.log('🔄 Verifying document:', { documentId, action, requestBody })
+        
+        response = await fetch('/api/applications/documents/verify', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody)
+        })
+        
+        console.log('📡 Response received:', { status: response.status, statusText: response.statusText, ok: response.ok })
+      } catch (fetchError: any) {
+        console.error('❌ Network error during document verification:', fetchError)
+        console.error('Error details:', {
+          name: fetchError.name,
+          message: fetchError.message,
+          stack: fetchError.stack
+        })
+        throw new Error(`Network error: ${fetchError.message || 'Failed to connect to server. Please check your internet connection.'}`)
+      }
+
+      if (!response.ok) {
+        let errorData: any = {}
+        try {
+          errorData = await response.json()
+        } catch (parseError) {
+          // If response is not JSON, use status text
+          errorData = { error: `HTTP ${response.status}: ${response.statusText}` }
+        }
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`)
+      }
+
+      let data: any
+      try {
+        data = await response.json()
+      } catch (parseError) {
+        throw new Error('Invalid response from server. Please try again.')
+      }
+
+      if (data.success) {
+        // Refresh applications to get updated document status
+        try {
+          await loadApplications()
+        } catch (loadError) {
+          console.error('Error loading applications after verification:', loadError)
+        }
+
+        // Update selected application if it's open - fetch fresh data from API
+        if (selectedApplication) {
+          try {
+            const refreshResponse = await fetch('/api/applications')
+            if (refreshResponse.ok) {
+              const refreshData = await refreshResponse.json()
+              if (refreshData.success) {
+                const updatedApp = refreshData.applications.find((app: any) => app.id === selectedApplication.id)
+                if (updatedApp) {
+                  setSelectedApplication(updatedApp)
+                  console.log('✅ Updated selected application with fresh data after document verification')
+                }
+              }
+            }
+          } catch (refreshError) {
+            console.error('Error refreshing selected application:', refreshError)
+            // Fallback to finding from current applications list
+            const updatedApp = applications.find(app => app.id === selectedApplication.id)
+            if (updatedApp) {
+              setSelectedApplication(updatedApp)
+            }
+          }
+        }
+        alert(`Document ${action} successfully!`)
+      } else {
+        throw new Error(data.error || 'Verification failed')
+      }
+    } catch (error: any) {
+      console.error('Error updating document verification:', error)
+      const errorMessage = error.message || 'Please try again.'
+      alert(`Failed to ${action} document: ${errorMessage}`)
+    } finally {
+      setVerifyingDocId(null)
     }
   }
 
@@ -303,11 +497,11 @@ export default function ApplicationTracking() {
 
     try {
       // Map UI status values to API status values
-      // API accepts: 'pending', 'accepted', 'rejected', 'reviewing', 'interview_scheduled', 'offer_received', 'offer_accepted', 'offer_declined'
+      // API accepts: 'pending', 'accepted', 'rejected', 'reviewing', 'interview_scheduled', 'background_check', 'offer_received', 'offer_accepted', 'offer_declined'
       const statusMap: { [key: string]: string } = {
         'screening': 'reviewing', // Map screening to reviewing
         'interview': 'interview_scheduled',
-        'background': 'reviewing',
+        'background': 'background_check', // Background check stage uses background_check status
         'hired': 'accepted',
         'rejected': 'rejected'
       }
@@ -315,7 +509,7 @@ export default function ApplicationTracking() {
       const apiStatus = statusMap[selectedStatus] || selectedStatus
 
       // Validate status against allowed values
-      const allowedStatuses = ['pending', 'accepted', 'rejected', 'reviewing', 'interview_scheduled', 'offer_received', 'offer_accepted', 'offer_declined']
+      const allowedStatuses = ['pending', 'accepted', 'rejected', 'reviewing', 'interview_scheduled', 'background_check', 'offer_received', 'offer_accepted', 'offer_declined']
       
       if (!allowedStatuses.includes(apiStatus)) {
         alert(`Invalid status: ${apiStatus}. Please select a valid status.`)
@@ -373,14 +567,125 @@ export default function ApplicationTracking() {
         throw new Error(data.error || 'Failed to update status')
       }
 
-      alert('Application status updated successfully!')
-      
-      // Refresh applications list
+      // If status is "background", also update the background_consent to true and verify background check documents
+      if (selectedStatus === 'background') {
+        try {
+          console.log('Updating background_consent to true for application:', selectedApplication.id)
+          const formResponse = await fetch('/api/applications/form', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              job_application_id: selectedApplication.id,
+              background_consent: true
+            })
+          })
+          
+          if (formResponse.ok) {
+            const formData = await formResponse.json()
+            if (formData.success) {
+              console.log('Background check consent updated successfully')
+            } else {
+              console.error('Form update failed:', formData.error)
+            }
+          }
+          
+          // Also verify all background_check documents for this application
+          if (selectedApplication.uploadedDocuments) {
+            const backgroundDocs = selectedApplication.uploadedDocuments.filter((doc: any) => 
+              doc.document_type === 'background_check' && doc.status === 'pending'
+            )
+            
+            if (backgroundDocs.length > 0) {
+              console.log(`Verifying ${backgroundDocs.length} background check document(s)...`)
+              
+              // Verify all background check documents in parallel
+              const verifyPromises = backgroundDocs.map(async (bgDoc: any) => {
+                try {
+                  const verifyResponse = await fetch('/api/applications/documents/verify', {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                      document_id: bgDoc.id,
+                      status: 'verified',
+                      notes: 'Background check completed - status changed to background check stage'
+                    })
+                  })
+                  
+                  if (verifyResponse.ok) {
+                    const verifyData = await verifyResponse.json()
+                    if (verifyData.success) {
+                      console.log('✅ Background check document verified:', bgDoc.id, bgDoc.file_name)
+                      return { success: true, docId: bgDoc.id }
+                    } else {
+                      console.error('❌ Verification failed:', verifyData.error)
+                      return { success: false, docId: bgDoc.id, error: verifyData.error }
+                    }
+                  } else {
+                    const errorData = await verifyResponse.json().catch(() => ({}))
+                    console.error('❌ Verification HTTP error:', verifyResponse.status, errorData)
+                    return { success: false, docId: bgDoc.id, error: `HTTP ${verifyResponse.status}` }
+                  }
+                } catch (verifyError: any) {
+                  console.error('❌ Error verifying background document:', verifyError)
+                  return { success: false, docId: bgDoc.id, error: verifyError.message }
+                }
+              })
+              
+              // Wait for all verifications to complete
+              const verifyResults = await Promise.all(verifyPromises)
+              const successful = verifyResults.filter(r => r.success).length
+              const failed = verifyResults.filter(r => !r.success).length
+              
+              if (successful > 0) {
+                console.log(`✅ Successfully verified ${successful} background check document(s)`)
+              }
+              if (failed > 0) {
+                console.warn(`⚠️ Failed to verify ${failed} background check document(s)`)
+              }
+            }
+          }
+        } catch (formError: any) {
+          console.error('Error updating background consent:', formError)
+        }
+      }
+
+      // Refresh applications list to get updated data (including background_consent and verified documents)
       await loadApplications()
       
-      // Clear selected status and close modal
+      // Update selected application if modal is still open - fetch fresh data from API
+      if (selectedApplication) {
+        try {
+          const refreshResponse = await fetch('/api/applications')
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json()
+            if (refreshData.success) {
+              const updatedApp = refreshData.applications.find((app: any) => app.id === selectedApplication.id)
+              if (updatedApp) {
+                setSelectedApplication(updatedApp)
+              }
+            }
+          }
+        } catch (refreshError) {
+          console.error('Error refreshing selected application:', refreshError)
+          // Fallback to finding from current applications list
+          const updatedApp = applications.find(app => app.id === selectedApplication.id)
+          if (updatedApp) {
+            setSelectedApplication(updatedApp)
+          }
+        }
+      }
+      
+      alert('Application status updated successfully!')
       setSelectedStatus("")
-      setSelectedApplication(null)
+      
+      // Close modal after a short delay to allow user to see the update
+      setTimeout(() => {
+        setSelectedApplication(null)
+      }, 500)
     } catch (error: any) {
       console.error('Error updating status:', error)
       alert(`Failed to update status: ${error.message || 'Unknown error'}`)
@@ -538,7 +843,7 @@ export default function ApplicationTracking() {
                 {
                   stage: "Background",
                   category: "background",
-                  statuses: ["offer_received", "offer_accepted"],
+                  statuses: ["background_check", "offer_received", "offer_accepted"],
                   color: "bg-orange-500",
                 },
                 {
@@ -576,7 +881,7 @@ export default function ApplicationTracking() {
                 { category: "new", statuses: ["pending"], title: "New Applications" },
                 { category: "screening", statuses: ["reviewing"], title: "Screening" },
                 { category: "interview", statuses: ["interview_scheduled"], title: "Interview" },
-                { category: "background", statuses: ["offer_received", "offer_accepted"], title: "Background Check" },
+                { category: "background", statuses: ["background_check", "offer_received", "offer_accepted"], title: "Background Check" },
                 { category: "hired", statuses: ["accepted"], title: "Hired" }
               ].map(({ category, statuses, title }) => (
                 <Card key={category}>
@@ -1106,6 +1411,164 @@ export default function ApplicationTracking() {
                         </div>
                       </div>
                     )}
+
+                    {/* Healthcare Compliance */}
+                    {(selectedApplication.formData.hipaa_training !== undefined || 
+                      selectedApplication.formData.conflict_interest !== undefined || 
+                      selectedApplication.formData.background_consent !== undefined) && (
+                      <div className="space-y-4">
+                        <h4 className="font-medium">Healthcare Compliance</h4>
+                        
+                        {/* HIPAA Compliance & Privacy Training */}
+                        {(selectedApplication.formData.hipaa_training !== undefined || selectedApplication.formData.hipaa_details) && (
+                          <div className="border rounded-lg p-4">
+                            <h5 className="font-medium mb-3">HIPAA Compliance & Privacy Training</h5>
+                            <div className="text-sm space-y-2">
+                              <div>
+                                <strong>Completed Training:</strong>{' '}
+                                {selectedApplication.formData.hipaa_training ? (
+                                  <Badge className="bg-green-100 text-green-800">Yes</Badge>
+                                ) : (
+                                  <Badge className="bg-gray-100 text-gray-800">No</Badge>
+                                )}
+                              </div>
+                              {selectedApplication.formData.hipaa_details && (
+                                <div>
+                                  <p><strong>Details:</strong></p>
+                                  <p className="text-gray-600 mt-1">{selectedApplication.formData.hipaa_details}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Conflict of Interest Disclosure */}
+                        {(selectedApplication.formData.conflict_interest !== undefined || 
+                          selectedApplication.formData.conflict_details ||
+                          selectedApplication.formData.relationship_conflict !== undefined) && (
+                          <div className="border rounded-lg p-4">
+                            <h5 className="font-medium mb-3">Conflict of Interest Disclosure</h5>
+                            <div className="text-sm space-y-2">
+                              <div>
+                                <strong>Has Conflict of Interest:</strong>{' '}
+                                {selectedApplication.formData.conflict_interest ? (
+                                  <Badge className="bg-yellow-100 text-yellow-800">Yes</Badge>
+                                ) : (
+                                  <Badge className="bg-green-100 text-green-800">No</Badge>
+                                )}
+                              </div>
+                              {selectedApplication.formData.conflict_details && (
+                                <div>
+                                  <p><strong>Conflict Details:</strong></p>
+                                  <p className="text-gray-600 mt-1">{selectedApplication.formData.conflict_details}</p>
+                                </div>
+                              )}
+                              {selectedApplication.formData.relationship_conflict !== undefined && (
+                                <div>
+                                  <strong>Relationship Conflict:</strong>{' '}
+                                  {selectedApplication.formData.relationship_conflict ? (
+                                    <Badge className="bg-yellow-100 text-yellow-800">Yes</Badge>
+                                  ) : (
+                                    <Badge className="bg-green-100 text-green-800">No</Badge>
+                                  )}
+                                </div>
+                              )}
+                              {selectedApplication.formData.relationship_details && (
+                                <div>
+                                  <p><strong>Relationship Details:</strong></p>
+                                  <p className="text-gray-600 mt-1">{selectedApplication.formData.relationship_details}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Background Check Authorization */}
+                        {(selectedApplication.formData.background_consent !== undefined ||
+                          selectedApplication.formData.conviction_history !== undefined ||
+                          selectedApplication.formData.registry_history !== undefined) && (
+                          <div className="border rounded-lg p-4">
+                            <h5 className="font-medium mb-3">Background Check Authorization</h5>
+                            <div className="text-sm space-y-2">
+                              <div>
+                                <strong>Authorization Consent:</strong>{' '}
+                                {selectedApplication.formData.background_consent ? (
+                                  <Badge className="bg-green-100 text-green-800">Authorized</Badge>
+                                ) : (
+                                  <Badge className="bg-red-100 text-red-800">Not Authorized</Badge>
+                                )}
+                              </div>
+                              {selectedApplication.formData.conviction_history !== undefined && (
+                                <div>
+                                  <strong>Conviction History:</strong>{' '}
+                                  {selectedApplication.formData.conviction_history ? (
+                                    <Badge className="bg-yellow-100 text-yellow-800">Yes</Badge>
+                                  ) : (
+                                    <Badge className="bg-green-100 text-green-800">No</Badge>
+                                  )}
+                                </div>
+                              )}
+                              {selectedApplication.formData.conviction_details && (
+                                <div>
+                                  <p><strong>Conviction Details:</strong></p>
+                                  <p className="text-gray-600 mt-1">{selectedApplication.formData.conviction_details}</p>
+                                </div>
+                              )}
+                              {selectedApplication.formData.registry_history !== undefined && (
+                                <div>
+                                  <strong>Registry History:</strong>{' '}
+                                  {selectedApplication.formData.registry_history ? (
+                                    <Badge className="bg-yellow-100 text-yellow-800">Yes</Badge>
+                                  ) : (
+                                    <Badge className="bg-green-100 text-green-800">No</Badge>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Healthcare Associated Prevention Program (HAPP) Statement */}
+                    {(selectedApplication.formData.infection_training !== undefined || 
+                      selectedApplication.formData.infection_details) && (
+                      <div className="border rounded-lg p-4">
+                        <h4 className="font-medium mb-3">Healthcare Associated Prevention Program (HAPP) Statement</h4>
+                        <div className="space-y-4">
+                          <div className="bg-blue-50 p-4 rounded border border-blue-200">
+                            <h5 className="font-medium text-blue-900 mb-2">HAPP Commitment Statement</h5>
+                            <p className="text-sm text-blue-800 mb-3">
+                              IrishTriplets is committed to preventing healthcare-associated infections and promoting patient
+                              safety. All employees must adhere to evidence-based infection prevention practices.
+                            </p>
+                            <ul className="text-sm text-blue-800 space-y-1">
+                              <li>• Follow proper hand hygiene protocols</li>
+                              <li>• Use personal protective equipment (PPE) appropriately</li>
+                              <li>• Adhere to isolation precautions</li>
+                              <li>• Report potential infections or safety concerns immediately</li>
+                              <li>• Participate in ongoing infection prevention training</li>
+                            </ul>
+                          </div>
+                          <div className="text-sm space-y-2">
+                            <div>
+                              <strong>Infection Prevention Training:</strong>{' '}
+                              {selectedApplication.formData.infection_training ? (
+                                <Badge className="bg-green-100 text-green-800">Completed</Badge>
+                              ) : (
+                                <Badge className="bg-gray-100 text-gray-800">Not Completed</Badge>
+                              )}
+                            </div>
+                            {selectedApplication.formData.infection_details && (
+                              <div>
+                                <p><strong>Training Details:</strong></p>
+                                <p className="text-gray-600 mt-1">{selectedApplication.formData.infection_details}</p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1115,7 +1578,7 @@ export default function ApplicationTracking() {
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                     {Object.entries(selectedApplication.documents).map(([doc, status]) => (
                       <div key={doc} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                        <span className="text-sm capitalize">{doc.replace(/_/g, ' ')}</span>
+                        <span className="text-sm font-medium">{getDocumentStatusLabel(doc)}</span>
                         {getDocumentStatus(status as string)}
                       </div>
                     ))}
@@ -1134,7 +1597,7 @@ export default function ApplicationTracking() {
                                 <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
                                 <div className="flex items-center space-x-2 mt-1">
                                   <Badge variant="outline" className="text-xs">
-                                    {doc.document_type}
+                                    {getDocumentTypeLabel(doc)}
                                   </Badge>
                                   {getDocumentStatus(doc.status)}
                                   <span className="text-xs text-gray-500">
@@ -1146,22 +1609,155 @@ export default function ApplicationTracking() {
                                 </div>
                               </div>
                             </div>
-                            {doc.file_url && (
+                            <div className="flex items-center space-x-2">
+                              {doc.status === 'pending' && (
+                                <>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => handleDocumentVerification(doc.id, 'verified')}
+                                    disabled={verifyingDocId === doc.id}
+                                    className="bg-green-50 hover:bg-green-100 text-green-700 border-green-300"
+                                  >
+                                    <CheckCircle className="h-3 w-3 mr-1" />
+                                    Verify
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      const notes = prompt('Enter rejection reason (optional):')
+                                      if (notes !== null) {
+                                        handleDocumentVerification(doc.id, 'rejected', notes || undefined)
+                                      }
+                                    }}
+                                    disabled={verifyingDocId === doc.id}
+                                    className="bg-red-50 hover:bg-red-100 text-red-700 border-red-300"
+                                  >
+                                    Reject
+                                  </Button>
+                                </>
+                              )}
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => {
-                                  if (doc.file_url.startsWith('http')) {
-                                    window.open(doc.file_url, '_blank')
-                                  } else {
-                                    alert('File URL: ' + doc.file_url)
+                                onClick={async () => {
+                                  try {
+                                    if (!doc.file_url) {
+                                      alert('File URL not available')
+                                      return
+                                    }
+
+                                    // Check if it's a base64 data URL (same method as in-service training)
+                                    if (doc.file_url.startsWith('data:')) {
+                                      console.log("Opening base64 file...")
+                                      // Create a blob URL from base64 data
+                                      const base64Data = doc.file_url.split(',')[1]
+                                      const mimeType = doc.file_url.split(',')[0].split(':')[1].split(';')[0]
+                                      
+                                      // Decode base64
+                                      const byteCharacters = atob(base64Data)
+                                      const byteNumbers = new Array(byteCharacters.length)
+                                      for (let i = 0; i < byteCharacters.length; i++) {
+                                        byteNumbers[i] = byteCharacters.charCodeAt(i)
+                                      }
+                                      const byteArray = new Uint8Array(byteNumbers)
+                                      const blob = new Blob([byteArray], { type: mimeType })
+                                      const blobUrl = URL.createObjectURL(blob)
+                                      
+                                      // Open blob URL in new tab
+                                      const newWindow = window.open(blobUrl, '_blank', 'noopener,noreferrer')
+                                      if (newWindow) {
+                                        // Clean up blob URL after a delay
+                                        setTimeout(() => URL.revokeObjectURL(blobUrl), 5000)
+                                        console.log("Base64 file opened successfully")
+                                      } else {
+                                        alert('Please allow pop-ups to view the file.')
+                                      }
+                                    } else if (doc.file_url.includes('supabase.co/storage') || doc.file_url.startsWith('http://') || doc.file_url.startsWith('https://')) {
+                                      // Supabase storage URL or regular HTTP URL
+                                      console.log("Opening URL:", doc.file_url)
+                                      const newWindow = window.open(doc.file_url, '_blank', 'noopener,noreferrer')
+                                      if (!newWindow) {
+                                        alert('Please allow pop-ups to view the file.')
+                                      }
+                                    } else {
+                                      // Old placeholder path or unknown format
+                                      alert('File was uploaded with old format and is not available. Please re-upload the file.')
+                                    }
+                                  } catch (error: any) {
+                                    console.error('Error viewing file:', error)
+                                    alert(`Error viewing file: ${error.message || 'Unknown error'}`)
                                   }
                                 }}
                               >
-                                <LinkIcon className="h-3 w-3 mr-1" />
+                                <Eye className="h-3 w-3 mr-1" />
                                 View
                               </Button>
-                            )}
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={async () => {
+                                  try {
+                                    if (!doc.file_url) {
+                                      alert('File URL not available')
+                                      return
+                                    }
+
+                                    // Check if it's a base64 data URL (same method as in-service training)
+                                    if (doc.file_url.startsWith('data:')) {
+                                      console.log("Downloading base64 file...")
+                                      // Create a blob URL from base64 data
+                                      const base64Data = doc.file_url.split(',')[1]
+                                      const mimeType = doc.file_url.split(',')[0].split(':')[1].split(';')[0]
+                                      
+                                      // Decode base64
+                                      const byteCharacters = atob(base64Data)
+                                      const byteNumbers = new Array(byteCharacters.length)
+                                      for (let i = 0; i < byteCharacters.length; i++) {
+                                        byteNumbers[i] = byteCharacters.charCodeAt(i)
+                                      }
+                                      const byteArray = new Uint8Array(byteNumbers)
+                                      const blob = new Blob([byteArray], { type: mimeType })
+                                      const blobUrl = URL.createObjectURL(blob)
+                                      
+                                      // Create download link
+                                      const a = document.createElement('a')
+                                      a.href = blobUrl
+                                      a.download = doc.file_name || 'document'
+                                      a.style.display = 'none'
+                                      document.body.appendChild(a)
+                                      a.click()
+                                      
+                                      // Clean up
+                                      setTimeout(() => {
+                                        document.body.removeChild(a)
+                                        URL.revokeObjectURL(blobUrl)
+                                      }, 100)
+                                    } else if (doc.file_url.includes('supabase.co/storage') || doc.file_url.startsWith('http://') || doc.file_url.startsWith('https://')) {
+                                      // Supabase storage URL or regular HTTP URL
+                                      const a = document.createElement('a')
+                                      a.href = doc.file_url
+                                      a.download = doc.file_name || 'document'
+                                      a.target = '_blank'
+                                      a.style.display = 'none'
+                                      document.body.appendChild(a)
+                                      a.click()
+                                      setTimeout(() => document.body.removeChild(a), 100)
+                                    } else {
+                                      // Old placeholder path or unknown format
+                                      alert('File was uploaded with old format and is not available. Please re-upload the file.')
+                                    }
+                                  } catch (error: any) {
+                                    console.error('Error downloading file:', error)
+                                    alert(`Error downloading file: ${error.message || 'Unknown error'}`)
+                                  }
+                                }}
+                              >
+                                <Download className="h-3 w-3 mr-1" />
+                                Download
+                              </Button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1232,7 +1828,8 @@ export default function ApplicationTracking() {
 
                 {/* Actions */}
                 <div className="flex justify-between pt-4 border-t">
-                  <div className="flex space-x-2">
+                  {/* Email, Call, and Message buttons - commented out until functionality is implemented */}
+                  {/* <div className="flex space-x-2">
                     <Button variant="outline" size="sm">
                       <Mail className="h-4 w-4 mr-2" />
                       Email
@@ -1245,7 +1842,7 @@ export default function ApplicationTracking() {
                       <MessageSquare className="h-4 w-4 mr-2" />
                       Message
                     </Button>
-                  </div>
+                  </div> */}
                   <div className="flex space-x-2">
                     <Select value={selectedStatus} onValueChange={setSelectedStatus}>
                       <SelectTrigger className="w-40">

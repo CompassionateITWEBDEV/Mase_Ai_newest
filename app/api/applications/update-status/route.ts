@@ -73,9 +73,9 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    if (!['pending', 'accepted', 'rejected', 'reviewing', 'interview_scheduled', 'offer_received', 'offer_accepted', 'offer_declined'].includes(status)) {
+    if (!['pending', 'accepted', 'rejected', 'reviewing', 'interview_scheduled', 'background_check', 'offer_received', 'offer_accepted', 'offer_declined'].includes(status)) {
       return NextResponse.json(
-        { error: 'Invalid status. Must be pending, accepted, rejected, reviewing, interview_scheduled, offer_received, offer_accepted, or offer_declined' },
+        { error: 'Invalid status. Must be pending, accepted, rejected, reviewing, interview_scheduled, background_check, offer_received, offer_accepted, or offer_declined' },
         { status: 400 }
       )
     }

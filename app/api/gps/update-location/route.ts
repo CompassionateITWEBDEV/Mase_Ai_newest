@@ -70,14 +70,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Update trip route points if we have an active trip
+    // Only add route points when staff is actually driving (speed > 5 mph or significant movement)
     if (activeTripId) {
-      const routePoint = {
-        lat: parseFloat(latitude),
-        lng: parseFloat(longitude),
-        timestamp: new Date().toISOString()
-      }
-
-      // Get current route points and append new one
+      // Get current route points to check distance moved
       const { data: trip } = await supabase
         .from('staff_trips')
         .select('route_points')
@@ -86,15 +81,61 @@ export async function POST(request: NextRequest) {
 
       if (trip) {
         const routePoints = (trip.route_points || []) as any[]
-        routePoints.push(routePoint)
+        const currentLat = parseFloat(latitude)
+        const currentLng = parseFloat(longitude)
+        
+        // Check if staff is actually moving
+        let isMoving = false
+        
+        // Method 1: Use speed if available (must be > 5 mph to be considered driving)
+        if (speed && speed > 5) {
+          isMoving = true
+        }
+        // Method 2: If no speed data, check if moved significant distance (> 0.01 miles = ~16 meters)
+        else if (routePoints.length > 0) {
+          const lastPoint = routePoints[routePoints.length - 1]
+          if (lastPoint.lat && lastPoint.lng) {
+            // Calculate distance using Haversine formula
+            const R = 3959 // Earth radius in miles
+            const dLat = (currentLat - lastPoint.lat) * Math.PI / 180
+            const dLon = (currentLng - lastPoint.lng) * Math.PI / 180
+            const a = 
+              Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(lastPoint.lat * Math.PI / 180) * Math.cos(currentLat * Math.PI / 180) *
+              Math.sin(dLon / 2) * Math.sin(dLon / 2)
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+            const distance = R * c
+            
+            // Only consider moving if moved more than 0.01 miles (~16 meters) since last point
+            if (distance > 0.01) {
+              isMoving = true
+            }
+          }
+        } else {
+          // First point - always add it
+          isMoving = true
+        }
+        
+        // Only add route point if actually moving (driving)
+        if (isMoving) {
+          const routePoint = {
+            lat: currentLat,
+            lng: currentLng,
+            timestamp: new Date().toISOString(),
+            speed: speed || null // Store speed for reference
+          }
+          
+          routePoints.push(routePoint)
 
-        // Keep only last 1000 points to avoid bloating
-        const trimmedPoints = routePoints.slice(-1000)
+          // Keep only last 1000 points to avoid bloating
+          const trimmedPoints = routePoints.slice(-1000)
 
-        await supabase
-          .from('staff_trips')
-          .update({ route_points: trimmedPoints })
-          .eq('id', activeTripId)
+          await supabase
+            .from('staff_trips')
+            .update({ route_points: trimmedPoints })
+            .eq('id', activeTripId)
+        }
+        // If not moving (idle), don't add route point - this prevents counting idle time as miles
       }
     }
 

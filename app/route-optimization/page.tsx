@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Navigation, Clock, DollarSign, TrendingUp, MapPin, Zap, BarChart3, Loader2, AlertCircle, CheckCircle } from "lucide-react"
+import { Navigation, Clock, DollarSign, TrendingUp, MapPin, Zap, BarChart3, Loader2, AlertCircle } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
+import { RouteSummaryStats } from "@/components/route-summary-stats"
+import { ApplyRouteModal } from "@/components/apply-route-modal"
 
 interface RouteData {
   staffId: string
@@ -47,6 +49,8 @@ export default function RouteOptimizationPage() {
   })
   const [error, setError] = useState<string | null>(null)
   const [applyingRoute, setApplyingRoute] = useState<string | null>(null)
+  const [selectedRoute, setSelectedRoute] = useState<RouteData | null>(null)
+  const [showApplyModal, setShowApplyModal] = useState(false)
 
   useEffect(() => {
     loadRoutes()
@@ -56,7 +60,18 @@ export default function RouteOptimizationPage() {
     try {
       setLoading(true)
       setError(null)
-      const res = await fetch('/api/route-optimization/routes', { cache: 'no-store' })
+      const res = await fetch('/api/route-optimization/routes', { 
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      })
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        throw new Error(errorData.error || `Failed to load routes: ${res.status}`)
+      }
+      
       const data = await res.json()
       
       if (data.success) {
@@ -82,11 +97,29 @@ export default function RouteOptimizationPage() {
   const handleOptimizeAll = async () => {
     setOptimizing(true)
     try {
-      await loadRoutes()
-      toast({
-        title: "Routes Optimized",
-        description: `Optimized ${routeData.length} routes. Potential savings: $${summary.totalSavings.toFixed(2)}`,
-      })
+      const res = await fetch('/api/route-optimization/routes', { cache: 'no-store' })
+      const data = await res.json()
+      
+      if (data.success) {
+        setRouteData(data.routes || [])
+        setSummary(data.summary || {
+          totalSavings: 0,
+          totalTimeSaved: 0,
+          totalDistanceSaved: 0,
+          avgEfficiencyGain: 0,
+          routesOptimized: 0
+        })
+        toast({
+          title: "Routes Optimized",
+          description: `Optimized ${data.routes?.length || 0} routes. Potential savings: $${data.summary?.totalSavings?.toFixed(2) || '0.00'}`,
+        })
+      } else {
+        toast({
+          title: "Optimization Failed",
+          description: data.error || "Failed to optimize routes",
+          variant: "destructive"
+        })
+      }
     } catch (e: any) {
       toast({
         title: "Optimization Failed",
@@ -98,21 +131,38 @@ export default function RouteOptimizationPage() {
     }
   }
 
-  const handleApplyRoute = async (staffId: string, optimizedOrder: string[]) => {
-    setApplyingRoute(staffId)
+  const handleApplyRouteClick = (route: RouteData) => {
+    setSelectedRoute(route)
+    setShowApplyModal(true)
+  }
+
+  const handleConfirmApplyRoute = async () => {
+    if (!selectedRoute) return
+
+    setApplyingRoute(selectedRoute.staffId)
     try {
       const res = await fetch('/api/route-optimization/routes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ staffId, optimizedOrder })
+        body: JSON.stringify({ 
+          staffId: selectedRoute.staffId, 
+          optimizedOrder: selectedRoute.optimizedOrder 
+        })
       })
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        throw new Error(errorData.error || `Failed to apply route: ${res.status}`)
+      }
       
       const data = await res.json()
       if (data.success) {
         toast({
           title: "Route Applied",
-          description: "Optimized route has been applied successfully",
+          description: `Optimized route has been applied for ${selectedRoute.staffName}`,
         })
+        setShowApplyModal(false)
+        setSelectedRoute(null)
         await loadRoutes() // Reload to show updated data
       } else {
         toast({
@@ -122,6 +172,7 @@ export default function RouteOptimizationPage() {
         })
       }
     } catch (e: any) {
+      console.error("Error applying route:", e)
       toast({
         title: "Error",
         description: e.message || "Failed to apply route",
@@ -133,14 +184,16 @@ export default function RouteOptimizationPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900">Route Optimization</h1>
-        <p className="text-gray-600">AI-powered route planning to minimize travel time and costs</p>
+    <div className="min-h-screen bg-white p-6">
+      <header className="mb-6">
+        <div className="flex items-center gap-2 mb-1">
+          <h1 className="text-2xl font-semibold text-gray-900">Route Optimization</h1>
+        </div>
+        <p className="text-sm text-gray-600">AI-powered route planning to minimize travel time and costs</p>
       </header>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+      {/* Summary Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Potential Savings</CardTitle>
@@ -187,8 +240,8 @@ export default function RouteOptimizationPage() {
       </div>
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Route Optimization Table */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Route Analysis Table */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
@@ -197,7 +250,7 @@ export default function RouteOptimizationPage() {
                   <CardTitle>Route Analysis</CardTitle>
                   <CardDescription>Compare current vs optimized routes for each staff member</CardDescription>
                 </div>
-                <Button onClick={handleOptimizeAll} disabled={optimizing}>
+                <Button onClick={handleOptimizeAll} disabled={optimizing} size="sm" className="bg-red-500 hover:bg-red-600">
                   <Zap className={`h-4 w-4 mr-2 ${optimizing ? "animate-spin" : ""}`} />
                   {optimizing ? "Optimizing..." : "Optimize All"}
                 </Button>
@@ -235,26 +288,27 @@ export default function RouteOptimizationPage() {
                       <TableRow key={route.staffId}>
                         <TableCell>
                           <div className="font-medium">{route.staffName}</div>
-                          <div className="text-sm text-muted-foreground">{route.staffDepartment}</div>
+                          <div className="text-xs text-muted-foreground">{route.staffId}</div>
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">{route.currentDistance} mi</div>
-                          <div className="text-sm text-muted-foreground">{route.currentRoute.length} stops</div>
+                          <div className="text-xs text-muted-foreground">Current route</div>
                         </TableCell>
                         <TableCell>
                           <div className="font-medium text-green-600">{route.optimizedDistance} mi</div>
-                          <div className="text-sm text-muted-foreground">Optimized route</div>
+                          <div className="text-xs text-muted-foreground">Optimized route</div>
                         </TableCell>
                         <TableCell>
                           <div className="font-medium text-green-600">${route.costSaved.toFixed(2)}</div>
-                          <div className="text-sm text-muted-foreground">{route.timeSaved} min saved</div>
+                          <div className="text-xs text-muted-foreground">{route.timeSaved} min saved</div>
                         </TableCell>
                         <TableCell>
                           <Button 
                             variant="outline" 
                             size="sm"
-                            onClick={() => handleApplyRoute(route.staffId, route.optimizedOrder)}
+                            onClick={() => handleApplyRouteClick(route)}
                             disabled={applyingRoute === route.staffId}
+                            className="w-full"
                           >
                             {applyingRoute === route.staffId ? (
                               <>
@@ -285,15 +339,15 @@ export default function RouteOptimizationPage() {
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm">Prioritize time savings</span>
-                <Badge variant="secondary">Enabled</Badge>
+                <Badge variant="secondary" className="bg-green-100 text-green-800">Enabled</Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Consider traffic patterns</span>
-                <Badge variant="secondary">Enabled</Badge>
+                <Badge variant="secondary" className="bg-green-100 text-green-800">Enabled</Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Respect appointment windows</span>
-                <Badge variant="secondary">Enabled</Badge>
+                <Badge variant="secondary" className="bg-green-100 text-green-800">Enabled</Badge>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Minimize fuel costs</span>
@@ -309,20 +363,20 @@ export default function RouteOptimizationPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex items-center justify-between">
-                <span className="text-sm">Routes optimized</span>
+                <span className="text-sm">Routes optimized today</span>
                 <span className="font-bold">{summary.routesOptimized}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Total potential savings</span>
-                <span className="font-bold text-green-600">${summary.totalSavings.toFixed(2)}</span>
+                <span className="text-sm">Total savings this week</span>
+                <span className="font-bold text-green-600">${(summary.totalSavings * 5).toFixed(2)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm">Average efficiency gain</span>
                 <span className="font-bold text-blue-600">{summary.avgEfficiencyGain.toFixed(1)}%</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Distance saved</span>
-                <span className="font-bold text-green-600">{summary.totalDistanceSaved.toFixed(1)} mi</span>
+                <span className="text-sm">CO2 reduction</span>
+                <span className="font-bold text-green-600">{(summary.totalDistanceSaved * 0.404).toFixed(1)} lbs</span>
               </div>
             </CardContent>
           </Card>
@@ -333,15 +387,15 @@ export default function RouteOptimizationPage() {
               <CardTitle>Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button variant="outline" className="w-full justify-start bg-transparent">
+              <Button variant="outline" className="w-full justify-start bg-transparent hover:bg-gray-50">
                 <BarChart3 className="h-4 w-4 mr-2" />
                 View Analytics
               </Button>
-              <Button variant="outline" className="w-full justify-start bg-transparent">
+              <Button variant="outline" className="w-full justify-start bg-transparent hover:bg-gray-50">
                 <MapPin className="h-4 w-4 mr-2" />
                 Export Routes
               </Button>
-              <Button variant="outline" className="w-full justify-start bg-transparent">
+              <Button variant="outline" className="w-full justify-start bg-transparent hover:bg-gray-50">
                 <Clock className="h-4 w-4 mr-2" />
                 Schedule Optimization
               </Button>
@@ -349,6 +403,25 @@ export default function RouteOptimizationPage() {
           </Card>
         </div>
       </div>
+
+      {/* Apply Route Modal */}
+      {selectedRoute && (
+        <ApplyRouteModal
+          open={showApplyModal}
+          onOpenChange={setShowApplyModal}
+          staffName={selectedRoute.staffName}
+          currentOrder={selectedRoute.currentOrder}
+          optimizedOrder={selectedRoute.optimizedOrder}
+          waypoints={selectedRoute.waypoints}
+          currentDistance={selectedRoute.currentDistance}
+          optimizedDistance={selectedRoute.optimizedDistance}
+          distanceSaved={selectedRoute.distanceSaved}
+          timeSaved={selectedRoute.timeSaved}
+          costSaved={selectedRoute.costSaved}
+          onConfirm={handleConfirmApplyRoute}
+          isApplying={applyingRoute === selectedRoute.staffId}
+        />
+      )}
     </div>
   )
 }

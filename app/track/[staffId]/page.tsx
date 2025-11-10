@@ -40,6 +40,8 @@ export default function StaffTrackingPage() {
   const updateIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [tripStats, setTripStats] = useState<{ distance: number; cost: number; costPerMile: number } | null>(null)
   const [staffCostPerMile, setStaffCostPerMile] = useState<number>(0.67)
+  // Store last trip duration to use as drive time for next visit
+  const [lastTripDuration, setLastTripDuration] = useState<number | null>(null)
   const { toast } = useToast()
 
   // Fetch staff cost per mile
@@ -297,7 +299,7 @@ export default function StaffTrackingPage() {
       }, 15000) // 15 seconds - more frequent updates while driving
       
       // Also send initial location update immediately
-      updateLocation()
+        updateLocation()
     } else {
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
@@ -406,9 +408,9 @@ export default function StaffTrackingPage() {
           if (location && location.accuracy && location.accuracy < 50) {
             // If we have a recent accurate location, use it
             resolve({ lat: location.lat, lng: location.lng, accuracy: location.accuracy })
-            return
-          }
-          
+      return
+    }
+
           // Get fresh location from device GPS (not IP geolocation)
           const options = {
             enableHighAccuracy: true, // Force device GPS hardware
@@ -506,7 +508,14 @@ export default function StaffTrackingPage() {
 
   // End Trip
   const endTrip = async () => {
-    if (!currentTrip) return
+    if (!currentTrip) {
+      toast({
+        title: "No Active Trip",
+        description: "Please start a trip first before ending it.",
+        variant: "destructive"
+      })
+      return
+    }
 
     // Note: Visit can continue independently after trip ends
     // Driving time and visit time are separate
@@ -514,18 +523,39 @@ export default function StaffTrackingPage() {
 
     try {
       setIsLoading(true)
+      
+      // Prepare request body with tripId and staffId as fallback
+      const requestBody: any = {
+        tripId: currentTrip.id,
+        staffId: staffId, // Add staffId as fallback
+        latitude: location?.lat?.toString() || null,
+        longitude: location?.lng?.toString() || null
+      }
+
+      console.log('Ending trip with:', requestBody)
+
       const res = await fetch('/api/gps/end-trip', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tripId: currentTrip.id,
-          latitude: location?.lat,
-          longitude: location?.lng
-        })
+        body: JSON.stringify(requestBody)
       })
 
       const data = await res.json()
+      
+      if (!res.ok) {
+        console.error('End trip error:', data)
+        toast({
+          title: "Failed to End Trip",
+          description: data.error || `Error: ${res.status} ${res.statusText}`,
+          variant: "destructive"
+        })
+        return
+      }
+
       if (data.success) {
+        // Save trip duration to use as drive time for next visit
+        setLastTripDuration(data.trip.duration || 0)
+        
         setTripStats({
           distance: data.trip.totalDistance || 0,
           cost: data.trip.totalCost || 0,
@@ -548,6 +578,7 @@ export default function StaffTrackingPage() {
         })
       }
     } catch (e: any) {
+      console.error('End trip exception:', e)
       toast({
         title: "Error",
         description: 'Failed to end trip: ' + e.message,
@@ -568,7 +599,7 @@ export default function StaffTrackingPage() {
   const startVisit = async () => {
     // Visit can be started independently - doesn't require active trip
     // Driving time and visit time are separate
-    
+
     if (!visitForm.patientName || !visitForm.patientAddress) {
       toast({
         title: "Required Fields",
@@ -589,7 +620,8 @@ export default function StaffTrackingPage() {
           patientAddress: visitForm.patientAddress,
           visitType: visitForm.visitType,
           latitude: location?.lat,
-          longitude: location?.lng
+          longitude: location?.lng,
+          driveTimeFromLastTrip: lastTripDuration // Pass the saved trip duration as drive time
         })
       })
 
@@ -597,9 +629,11 @@ export default function StaffTrackingPage() {
       if (data.success) {
         setCurrentVisit(data.visit)
         setVisitForm({ patientName: '', patientAddress: '', visitType: 'Wound Care' })
+        // Clear last trip duration after using it for visit
+        setLastTripDuration(null)
         toast({
           title: "Visit Started",
-          description: `Visit to ${data.visit.patientName} has started.`,
+          description: `Visit to ${data.visit.patientName} has started. Drive time: ${data.visit.driveTime || 0} minutes`,
         })
       } else {
         toast({
@@ -694,7 +728,7 @@ export default function StaffTrackingPage() {
                   <div className="text-sm">
                     <span className="font-medium">Lat:</span> {location.lat.toFixed(6)}
                   </div>
-                  <div className="text-sm">
+                <div className="text-sm">
                     <span className="font-medium">Lng:</span> {location.lng.toFixed(6)}
                   </div>
                   {location.accuracy && (
@@ -754,8 +788,8 @@ export default function StaffTrackingPage() {
                     </>
                   ) : (
                     <>
-                      <Play className="h-4 w-4 mr-2" />
-                      Start Trip
+                  <Play className="h-4 w-4 mr-2" />
+                  Start Trip
                     </>
                   )}
                 </Button>
@@ -820,8 +854,8 @@ export default function StaffTrackingPage() {
                           <span className="font-semibold">Total Cost:</span>
                           <span className="font-bold text-green-700">${tripStats.cost.toFixed(2)}</span>
                         </div>
-                      </div>
-                    </div>
+            </div>
+          </div>
                   )}
                   <Button 
                     variant="destructive" 
@@ -836,8 +870,8 @@ export default function StaffTrackingPage() {
                       </>
                     ) : (
                       <>
-                        <Square className="h-4 w-4 mr-2" />
-                        End Trip
+                    <Square className="h-4 w-4 mr-2" />
+                    End Trip
                       </>
                     )}
                   </Button>
@@ -849,7 +883,7 @@ export default function StaffTrackingPage() {
                       </AlertDescription>
                     </Alert>
                   )}
-                </div>
+        </div>
               )}
             </div>
           </CardContent>
@@ -911,8 +945,8 @@ export default function StaffTrackingPage() {
                     </>
                   ) : (
                     <>
-                      <Play className="h-4 w-4 mr-2" />
-                      Start Visit
+                  <Play className="h-4 w-4 mr-2" />
+                  Start Visit
                     </>
                   )}
                 </Button>
@@ -951,8 +985,8 @@ export default function StaffTrackingPage() {
                     </>
                   ) : (
                     <>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      End Visit
+                  <CheckCircle className="h-4 w-4 mr-2" />
+                  End Visit
                     </>
                   )}
                 </Button>

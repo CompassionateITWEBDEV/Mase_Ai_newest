@@ -207,7 +207,7 @@ export async function GET(request: NextRequest) {
         resume: 'pending',
         license: 'pending',
         certifications: 'pending',
-        background: form?.background_consent ? 'completed' : 'pending',
+        background: form?.background_consent === true ? 'completed' : 'pending',
         tb_test: form?.tb_test_status ? 'completed' : 'pending',
         immunization: form?.hep_b_vaccination || form?.flu_vaccination ? 'completed' : 'pending',
         cpr: 'pending',
@@ -217,30 +217,266 @@ export async function GET(request: NextRequest) {
         car_insurance: 'pending'
       }
       
+      // Check if application is in background check stage (background_check, offer_received, or offer_accepted)
+      const isBackgroundStage = app.status === 'background_check' || app.status === 'offer_received' || app.status === 'offer_accepted'
+      
       // Update document statuses based on uploaded files
+      // Process documents and match them to the correct status field
       documents.forEach((doc: any) => {
+        // Determine document status: verified > uploaded > pending
+        // If document is verified, show as verified; if uploaded but not verified, show as uploaded; otherwise pending
+        let docStatus: string
+        if (doc.status === 'verified') {
+          docStatus = 'verified'
+        } else if (doc.status === 'rejected') {
+          docStatus = 'rejected'
+        } else if (doc.file_url) {
+          docStatus = 'uploaded'
+        } else {
+          docStatus = 'pending'
+        }
+        const fileName = (doc.file_name || '').toLowerCase()
+        const notes = (doc.notes || '').toLowerCase()
+        // Extract document name from notes (format: "Uploaded: {document_name}")
+        let docNameFromNotes = notes.includes('uploaded:') 
+          ? notes.split('uploaded:')[1]?.trim() || '' 
+          : notes
+        // Normalize the document name - remove apostrophes and normalize spaces
+        docNameFromNotes = docNameFromNotes.replace(/'/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+        const combinedText = `${fileName} ${notes} ${docNameFromNotes}`.toLowerCase()
+        
+        // Check document_type first, then match by name patterns
         if (doc.document_type === 'resume') {
-          documentsStatus.resume = doc.status === 'verified' ? 'verified' : 'uploaded'
+          documentsStatus.resume = docStatus
         } else if (doc.document_type === 'license') {
-          documentsStatus.license = doc.status === 'verified' ? 'verified' : 'uploaded'
-        } else if (doc.document_type === 'certification') {
-          // Check if it's CPR or other certification based on file name
-          if (doc.file_name?.toLowerCase().includes('cpr')) {
-            documentsStatus.cpr = doc.status === 'verified' ? 'verified' : 'uploaded'
+          // Check if it's a driver's license or professional license based on notes
+          // Normalized docNameFromNotes already has apostrophes removed
+          if (combinedText.includes('driver') && combinedText.includes('license')) {
+            documentsStatus.drivers_license = docStatus
+          } else if (docNameFromNotes.includes('driver') && docNameFromNotes.includes('license')) {
+            documentsStatus.drivers_license = docStatus
           } else {
-            documentsStatus.certifications = doc.status === 'verified' ? 'verified' : 'uploaded'
+            // Professional license
+            documentsStatus.license = docStatus
+          }
+        } else if (doc.document_type === 'background_check') {
+          // Background check documents - if verified or in background stage, show as complete
+          if (doc.status === 'verified' || (isBackgroundStage && doc.file_url)) {
+            documentsStatus.background = 'completed'
+          } else if (doc.file_url) {
+            documentsStatus.background = 'uploaded'
+          }
+        } else if (doc.document_type === 'certification') {
+          // Check notes and file name to determine specific certification type
+          // Notes format: "Uploaded: resume cv", "Uploaded: degree diploma", etc.
+          if (combinedText.includes('cpr') || docNameFromNotes.includes('cpr certification') || docNameFromNotes.includes('cpr_certification') || docNameFromNotes.includes('cpr')) {
+            documentsStatus.cpr = docStatus
+            // Also update certifications status - use the higher status (verified > uploaded > pending)
+            if (documentsStatus.certifications === 'pending' || 
+                (docStatus === 'verified' && documentsStatus.certifications !== 'verified') ||
+                (docStatus === 'uploaded' && documentsStatus.certifications === 'pending')) {
+              documentsStatus.certifications = docStatus
+            }
+          } else if ((combinedText.includes('degree') && combinedText.includes('diploma')) || 
+                     docNameFromNotes.includes('degree diploma') || 
+                     docNameFromNotes.includes('degree_diploma') ||
+                     docNameFromNotes.includes('degree') ||
+                     docNameFromNotes.includes('diploma')) {
+            documentsStatus.degree_diploma = docStatus
+          } else if (combinedText.includes('tb') || combinedText.includes('tuberculosis') || 
+                     docNameFromNotes.includes('tb test') || 
+                     docNameFromNotes.includes('tb_test_results') ||
+                     docNameFromNotes.includes('tb test results') ||
+                     docNameFromNotes.includes('tb')) {
+            documentsStatus.tb_test = docStatus
+          } else {
+            // Generic certification - set certifications status
+            documentsStatus.certifications = docStatus
+            // Also check if it matches any other specific type
+            if (combinedText.includes('degree') || combinedText.includes('diploma')) {
+              documentsStatus.degree_diploma = docStatus
+            }
           }
         } else if (doc.document_type === 'other') {
-          if (doc.file_name?.toLowerCase().includes('driver') || doc.file_name?.toLowerCase().includes('license')) {
-            documentsStatus.drivers_license = doc.status === 'verified' ? 'verified' : 'uploaded'
-          } else if (doc.file_name?.toLowerCase().includes('social') || doc.file_name?.toLowerCase().includes('ssn')) {
-            documentsStatus.social_security_card = doc.status === 'verified' ? 'verified' : 'uploaded'
-          } else if (doc.file_name?.toLowerCase().includes('insurance') || doc.file_name?.toLowerCase().includes('car')) {
-            documentsStatus.car_insurance = doc.status === 'verified' ? 'verified' : 'uploaded'
-          } else if (doc.file_name?.toLowerCase().includes('degree') || doc.file_name?.toLowerCase().includes('diploma')) {
-            documentsStatus.degree_diploma = doc.status === 'verified' ? 'verified' : 'uploaded'
+          // Check notes and file name to determine specific document type
+          if ((combinedText.includes('driver') && combinedText.includes('license')) || 
+              docNameFromNotes.includes('drivers license') || 
+              docNameFromNotes.includes('drivers_license') ||
+              docNameFromNotes.includes('driver\'s license') ||
+              docNameFromNotes.includes('driver license')) {
+            documentsStatus.drivers_license = docStatus
+          } else if ((combinedText.includes('social') && combinedText.includes('security')) || 
+                     combinedText.includes('ssn') || 
+                     (docNameFromNotes.includes('social') && docNameFromNotes.includes('security'))) {
+            documentsStatus.social_security_card = docStatus
+          } else if ((combinedText.includes('insurance') && combinedText.includes('car')) || 
+                     combinedText.includes('auto insurance') || 
+                     (docNameFromNotes.includes('car') && docNameFromNotes.includes('insurance')) ||
+                     (combinedText.includes('insurance') && !combinedText.includes('health') && !combinedText.includes('life') && !combinedText.includes('medical'))) {
+            documentsStatus.car_insurance = docStatus
+          } else if (combinedText.includes('degree') || combinedText.includes('diploma')) {
+            documentsStatus.degree_diploma = docStatus
           }
         }
+      })
+      
+      // Helper function to update status if new status has higher priority
+      function updateStatusIfHigher(key: string, newStatus: string, statusMap: { [key: string]: string }, priorityMap: { [key: string]: number }) {
+        const currentStatus = statusMap[key] || 'pending'
+        const currentPriority = priorityMap[currentStatus] || 0
+        const newPriority = priorityMap[newStatus] || 0
+        if (newPriority > currentPriority) {
+          statusMap[key] = newStatus
+        }
+      }
+      
+      // Post-process: Ensure status prioritization (verified > uploaded > pending)
+      // If any document of a type is verified, the status should be verified
+      const documentStatusPriority: { [key: string]: number } = {
+        'verified': 3,
+        'uploaded': 2,
+        'completed': 3,
+        'pending': 1,
+        'rejected': 0
+      }
+      
+      // Check all documents again to find the highest status for each category
+      const statusByCategory: { [key: string]: string } = {}
+      documents.forEach((doc: any) => {
+        const fileName = (doc.file_name || '').toLowerCase()
+        const notes = (doc.notes || '').toLowerCase()
+        let docNameFromNotes = notes.includes('uploaded:') 
+          ? notes.split('uploaded:')[1]?.trim() || '' 
+          : notes
+        docNameFromNotes = docNameFromNotes.replace(/'/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+        const combinedText = `${fileName} ${notes} ${docNameFromNotes}`.toLowerCase()
+        
+        let docStatus: string
+        if (doc.status === 'verified') {
+          docStatus = 'verified'
+        } else if (doc.status === 'rejected') {
+          docStatus = 'rejected'
+        } else if (doc.file_url) {
+          docStatus = 'uploaded'
+        } else {
+          docStatus = 'pending'
+        }
+        
+        // Map document to status categories
+        // Note: isBackgroundStage is checked here for background_check documents
+        if (doc.document_type === 'resume') {
+          updateStatusIfHigher('resume', docStatus, statusByCategory, documentStatusPriority)
+        } else if (doc.document_type === 'license') {
+          if (combinedText.includes('driver') && combinedText.includes('license') || 
+              docNameFromNotes.includes('driver') && docNameFromNotes.includes('license')) {
+            updateStatusIfHigher('drivers_license', docStatus, statusByCategory, documentStatusPriority)
+          } else {
+            updateStatusIfHigher('license', docStatus, statusByCategory, documentStatusPriority)
+          }
+        } else if (doc.document_type === 'background_check') {
+          // Background check documents - update background status
+          // If verified or in background stage, show as completed
+          if (doc.status === 'verified' || (isBackgroundStage && doc.file_url)) {
+            updateStatusIfHigher('background', 'completed', statusByCategory, documentStatusPriority)
+          } else {
+            updateStatusIfHigher('background', docStatus, statusByCategory, documentStatusPriority)
+          }
+        } else if (doc.document_type === 'certification') {
+          if (combinedText.includes('cpr') || docNameFromNotes.includes('cpr')) {
+            updateStatusIfHigher('cpr', docStatus, statusByCategory, documentStatusPriority)
+            updateStatusIfHigher('certifications', docStatus, statusByCategory, documentStatusPriority)
+          } else if (combinedText.includes('degree') || combinedText.includes('diploma') || 
+                     docNameFromNotes.includes('degree') || docNameFromNotes.includes('diploma')) {
+            updateStatusIfHigher('degree_diploma', docStatus, statusByCategory, documentStatusPriority)
+            updateStatusIfHigher('certifications', docStatus, statusByCategory, documentStatusPriority)
+          } else if (combinedText.includes('tb') || docNameFromNotes.includes('tb')) {
+            updateStatusIfHigher('tb_test', docStatus, statusByCategory, documentStatusPriority)
+          } else {
+            updateStatusIfHigher('certifications', docStatus, statusByCategory, documentStatusPriority)
+          }
+        } else if (doc.document_type === 'other') {
+          if (combinedText.includes('driver') && combinedText.includes('license') || 
+              docNameFromNotes.includes('driver') && docNameFromNotes.includes('license')) {
+            updateStatusIfHigher('drivers_license', docStatus, statusByCategory, documentStatusPriority)
+          } else if (combinedText.includes('social') && combinedText.includes('security') || 
+                     combinedText.includes('ssn') || 
+                     (docNameFromNotes.includes('social') && docNameFromNotes.includes('security'))) {
+            updateStatusIfHigher('social_security_card', docStatus, statusByCategory, documentStatusPriority)
+          } else if (combinedText.includes('insurance') && combinedText.includes('car') || 
+                     combinedText.includes('auto insurance') || 
+                     (docNameFromNotes.includes('car') && docNameFromNotes.includes('insurance'))) {
+            updateStatusIfHigher('car_insurance', docStatus, statusByCategory, documentStatusPriority)
+          }
+        }
+      })
+      
+      // Update documentsStatus with highest priority statuses
+      Object.keys(statusByCategory).forEach(key => {
+        if (documentsStatus.hasOwnProperty(key)) {
+          documentsStatus[key] = statusByCategory[key]
+        }
+      })
+      
+      // If in background stage and background_consent is true, ensure background shows as completed
+      if (isBackgroundStage && form?.background_consent === true) {
+        // Check if there are any verified background_check documents
+        const hasVerifiedBackgroundDoc = documents.some((doc: any) => 
+          doc.document_type === 'background_check' && doc.status === 'verified'
+        )
+        if (hasVerifiedBackgroundDoc || documentsStatus.background === 'uploaded') {
+          documentsStatus.background = 'completed'
+        }
+      }
+      
+      // Debug logging with detailed matching information
+      console.log('Document matching results:', {
+        totalDocuments: documents.length,
+        documentsStatus,
+        isBackgroundStage,
+        documents: documents.map((d: any) => {
+          const fileName = (d.file_name || '').toLowerCase()
+          const notes = (d.notes || '').toLowerCase()
+          const docNameFromNotes = notes.includes('uploaded:') 
+            ? notes.split('uploaded:')[1]?.trim() || '' 
+            : notes
+          const combinedText = `${fileName} ${notes} ${docNameFromNotes}`.toLowerCase()
+          
+          return {
+            id: d.id,
+            type: d.document_type,
+            name: d.file_name,
+            notes: d.notes,
+            status: d.status,
+            docNameFromNotes: docNameFromNotes,
+            combinedText: combinedText.substring(0, 100), // First 100 chars for debugging
+            matchedStatus: (() => {
+              if (d.document_type === 'resume') return 'resume'
+              if (d.document_type === 'license') {
+                if ((combinedText.includes('driver') && combinedText.includes('license')) || 
+                    docNameFromNotes.includes('drivers license') || 
+                    docNameFromNotes.includes('drivers_license') ||
+                    docNameFromNotes.includes('driver\'s license') ||
+                    docNameFromNotes.includes('driver license')) {
+                  return 'drivers_license'
+                }
+                return 'license'
+              }
+              if (d.document_type === 'certification') {
+                if (combinedText.includes('cpr') || docNameFromNotes.includes('cpr')) return 'cpr'
+                if (combinedText.includes('degree') || combinedText.includes('diploma')) return 'degree_diploma'
+                if (combinedText.includes('tb')) return 'tb_test'
+                return 'certifications'
+              }
+              if (d.document_type === 'other') {
+                if ((combinedText.includes('driver') && combinedText.includes('license'))) return 'drivers_license'
+                if (combinedText.includes('social') && combinedText.includes('security')) return 'social_security_card'
+                if (combinedText.includes('insurance') && combinedText.includes('car')) return 'car_insurance'
+                return 'other'
+              }
+              return 'unknown'
+            })()
+          }
+        })
       })
       
       return {

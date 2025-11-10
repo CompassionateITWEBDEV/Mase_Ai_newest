@@ -74,14 +74,14 @@ export async function GET(request: NextRequest) {
     }
     // Note: cost_per_mile will be set from staff table below
 
-    // Get today's visits
+    // Get today's visits (both completed and in_progress) - ordered by start_time ascending to calculate drive time between visits
     const { data: todayVisits } = await supabase
       .from('staff_visits')
-      .select('id, patient_name, patient_address, start_time, end_time, duration, drive_time_to_visit, distance_to_visit, visit_type')
+      .select('id, patient_name, patient_address, start_time, end_time, duration, drive_time_to_visit, distance_to_visit, visit_type, status, visit_location')
       .eq('staff_id', staffId)
       .gte('start_time', `${today}T00:00:00`)
       .lt('start_time', `${today}T23:59:59`)
-      .order('start_time', { ascending: false })
+      .order('start_time', { ascending: true }) // Order ascending to calculate drive time between visits
 
     // Get current trip status
     const { data: activeTrip } = await supabase
@@ -144,17 +144,69 @@ export async function GET(request: NextRequest) {
       status: activeTrip ? 'on_visit' : 'active',
       todayStats: todayStatsFormatted,
       weekStats: weekStatsFormatted,
-      visits: (todayVisits || []).map(v => ({
-        id: v.id,
-        patientName: v.patient_name,
-        address: v.patient_address,
-        startTime: new Date(v.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-        endTime: v.end_time ? new Date(v.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : null,
-        duration: v.duration || 0,
-        driveTime: v.drive_time_to_visit || 0,
-        distance: parseFloat(v.distance_to_visit?.toString() || '0'),
-        visitType: v.visit_type
-      }))
+      visits: (todayVisits || []).map((v, index) => {
+        // Calculate duration if visit is still in progress
+        let visitDuration = v.duration || 0
+        if (v.status === 'in_progress' && !v.duration) {
+          const startTime = new Date(v.start_time)
+          const now = new Date()
+          visitDuration = Math.round((now.getTime() - startTime.getTime()) / 60000)
+        }
+        
+        // Use the saved drive_time_to_visit value (calculated when Start Visit button was clicked)
+        // This is the accurate drive time from trip end location to visit location
+        // DO NOT use time difference calculation as it's inaccurate (includes visit duration, breaks, etc.)
+        let driveTime = v.drive_time_to_visit || 0
+        
+        // Only calculate from previous visit location if drive_time_to_visit is 0 AND we have location data
+        // This is a fallback only, but the saved value should always be used when available
+        if (driveTime === 0 && index > 0) {
+          const previousVisit = todayVisits[index - 1]
+          if (previousVisit?.visit_location && v.visit_location) {
+            const prevLoc = previousVisit.visit_location as any
+            const currLoc = v.visit_location as any
+            const prevLat = prevLoc.lat || 0
+            const prevLng = prevLoc.lng || 0
+            const currLat = currLoc.lat || 0
+            const currLng = currLoc.lng || 0
+            
+            if (prevLat && prevLng && currLat && currLng) {
+              // Calculate distance using Haversine formula
+              const R = 3959 // Earth radius in miles
+              const dLat = (currLat - prevLat) * Math.PI / 180
+              const dLon = (currLng - prevLng) * Math.PI / 180
+              const a = 
+                Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(prevLat * Math.PI / 180) * Math.cos(currLat * Math.PI / 180) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+              const distance = R * c
+              
+              // Estimate drive time (assuming average speed of 25 mph for city driving)
+              driveTime = Math.round((distance / 25) * 60)
+            }
+          }
+        }
+        
+        // DO NOT use time difference - it's inaccurate because it includes:
+        // - Visit duration at previous location
+        // - Breaks between visits
+        // - Other activities
+        // Only use the saved drive_time_to_visit value which is calculated accurately
+        
+        return {
+          id: v.id,
+          patientName: v.patient_name,
+          address: v.patient_address,
+          startTime: new Date(v.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+          endTime: v.end_time ? new Date(v.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : (v.status === 'in_progress' ? 'In Progress' : null),
+          duration: visitDuration,
+          driveTime: driveTime, // Use saved drive_time_to_visit (calculated when Start Visit was clicked)
+          distance: parseFloat(v.distance_to_visit?.toString() || '0'),
+          visitType: v.visit_type,
+          status: v.status
+        }
+      }).reverse() // Reverse to show most recent first
     })
   } catch (error: any) {
     console.error("Error fetching performance stats:", error)

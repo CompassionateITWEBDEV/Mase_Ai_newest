@@ -117,6 +117,10 @@ export default function StaffDashboard() {
   const [certsFromDocs, setCertsFromDocs] = useState<Array<{ name: string; status: string; expires: string }>>([])
   const [isLoadingCerts, setIsLoadingCerts] = useState<boolean>(false)
 
+  // GPS tracking miles from actual trips
+  const [gpsMiles, setGpsMiles] = useState<{ today: number; week: number }>({ today: 0, week: 0 })
+  const [isLoadingMiles, setIsLoadingMiles] = useState<boolean>(false)
+
   // Enhanced pending onboarding patients with automatic eligibility checking and auth management
   const [pendingOnboardingPatients, setPendingOnboardingPatients] = useState<PendingOnboardingPatient[]>([
     {
@@ -644,6 +648,38 @@ export default function StaffDashboard() {
     }
     loadCerts()
   }, [selectedStaff?.email])
+
+  // Load GPS miles from actual tracking
+  useEffect(() => {
+    const loadGpsMiles = async () => {
+      if (!selectedStaff?.id) {
+        setGpsMiles({ today: 0, week: 0 })
+        return
+      }
+
+      try {
+        setIsLoadingMiles(true)
+        const res = await fetch(`/api/staff-performance/stats?staff_id=${encodeURIComponent(selectedStaff.id)}&period=day`, {
+          cache: 'no-store'
+        })
+        const data = await res.json()
+        
+        if (data.success) {
+          setGpsMiles({
+            today: data.todayStats?.totalMiles || 0,
+            week: data.weekStats?.totalMiles || 0
+          })
+        }
+      } catch (e) {
+        console.error('Failed to load GPS miles:', e)
+        setGpsMiles({ today: 0, week: 0 })
+      } finally {
+        setIsLoadingMiles(false)
+      }
+    }
+    
+    loadGpsMiles()
+  }, [selectedStaff?.id])
 
   // Simulate real-time eligibility checking
   useEffect(() => {
@@ -1252,7 +1288,7 @@ export default function StaffDashboard() {
 
           <TabsContent value="overview" className="space-y-6">
             {/* Quick Stats */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
               <Card>
                 <CardContent className="p-6">
                   <div className="flex items-center">
@@ -1304,6 +1340,29 @@ export default function StaffDashboard() {
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">Total Earnings</p>
                       <p className="text-2xl font-bold text-gray-900">${displayStaff.earnings.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center">
+                    <div className="p-2 bg-red-100 rounded-lg">
+                      <Navigation className="h-6 w-6 text-red-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-sm font-medium text-gray-600">GPS Miles (Today)</p>
+                      {isLoadingMiles ? (
+                        <Loader2 className="h-6 w-6 animate-spin text-gray-400 mt-1" />
+                      ) : (
+                        <p className="text-2xl font-bold text-gray-900">
+                          {gpsMiles.today.toFixed(1)} mi
+                        </p>
+                      )}
+                      <p className="text-xs text-gray-500 mt-1">
+                        {gpsMiles.week.toFixed(1)} mi this week
+                      </p>
                     </div>
                   </div>
                 </CardContent>
