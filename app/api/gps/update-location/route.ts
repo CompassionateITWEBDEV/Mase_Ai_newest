@@ -14,6 +14,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Staff ID, latitude, and longitude are required" }, { status: 400 })
     }
 
+    // Reject IP-based geolocation - require device GPS (accuracy should be < 1000m)
+    // IP geolocation typically has accuracy > 1000m (often 5000m+)
+    // Device GPS should have accuracy < 100m (usually 5-50m)
+    if (accuracy && accuracy > 1000) {
+      return NextResponse.json({ 
+        success: false,
+        error: "Location accuracy too low. Please enable device GPS (not IP geolocation). Current accuracy: " + accuracy.toFixed(0) + "m. Device GPS should be < 100m.",
+        requiresDeviceGPS: true
+      }, { status: 400 })
+    }
+
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
     })

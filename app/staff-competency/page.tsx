@@ -97,6 +97,7 @@ export default function StaffCompetencyPage() {
   const [isSeedingData, setIsSeedingData] = useState(false)
   const [staffList, setStaffList] = useState<any[]>([])
   const [isNewAssessmentOpen, setIsNewAssessmentOpen] = useState(false)
+  const [isCreatingAssessment, setIsCreatingAssessment] = useState(false)
   const [newAssessmentData, setNewAssessmentData] = useState({
     staffId: "",
     evaluationType: "annual" as "initial" | "annual" | "skills-validation" | "performance-improvement",
@@ -1135,6 +1136,230 @@ export default function StaffCompetencyPage() {
 
   const stats = getOverviewStats()
 
+  // Generate comprehensive staff competency report
+  const generateStaffCompetencyReport = (record: StaffCompetencyRecord) => {
+    const reportDate = new Date().toLocaleString()
+    const lastAssessmentDate = record.lastAssessment ? new Date(record.lastAssessment).toLocaleDateString() : "N/A"
+    const nextAssessmentDate = record.nextAssessment ? new Date(record.nextAssessment).toLocaleDateString() : "N/A"
+    
+    // Calculate statistics
+    const totalAreas = record.competencyAreas?.length || 0
+    const totalSkills = record.competencyAreas?.reduce((sum, area) => sum + (area.skills?.length || 0), 0) || 0
+    const competentSkills = record.competencyAreas?.reduce((sum, area) => {
+      return sum + (area.skills?.filter(skill => skill.status === "competent").length || 0)
+    }, 0) || 0
+    const needsImprovementSkills = record.competencyAreas?.reduce((sum, area) => {
+      return sum + (area.skills?.filter(skill => skill.status === "needs-improvement").length || 0)
+    }, 0) || 0
+    const notCompetentSkills = record.competencyAreas?.reduce((sum, area) => {
+      return sum + (area.skills?.filter(skill => skill.status === "not-competent").length || 0)
+    }, 0) || 0
+    const notAssessedSkills = record.competencyAreas?.reduce((sum, area) => {
+      return sum + (area.skills?.filter(skill => skill.status === "not-assessed" || !skill.status).length || 0)
+    }, 0) || 0
+
+    // Generate report content
+    let report = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    STAFF COMPETENCY ASSESSMENT REPORT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Generated: ${reportDate}
+Report ID: COMP-${record.id?.substring(0, 8).toUpperCase() || record.staffId?.substring(0, 8).toUpperCase() || "UNKNOWN"}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+STAFF INFORMATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Staff Name: ${record.staffName || "Unknown"}
+Staff ID: ${record.staffId || "N/A"}
+Role: ${record.staffRole || "N/A"}
+Department: ${record.department || "N/A"}
+Assessor: ${record.assessorName || "N/A"}
+
+Assessment Dates:
+  • Last Assessment: ${lastAssessmentDate}
+  • Next Assessment Due: ${nextAssessmentDate}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OVERALL COMPETENCY SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Overall Competency Score: ${record.overallCompetencyScore}%
+Status: ${record.status?.toUpperCase() || "NOT ASSESSED"}
+
+Competency Breakdown:
+  • Total Competency Areas: ${totalAreas}
+  • Total Skills: ${totalSkills}
+  • Competent Skills: ${competentSkills} (${totalSkills > 0 ? Math.round((competentSkills / totalSkills) * 100) : 0}%)
+  • Needs Improvement: ${needsImprovementSkills} (${totalSkills > 0 ? Math.round((needsImprovementSkills / totalSkills) * 100) : 0}%)
+  • Not Competent: ${notCompetentSkills} (${totalSkills > 0 ? Math.round((notCompetentSkills / totalSkills) * 100) : 0}%)
+  • Not Assessed: ${notAssessedSkills} (${totalSkills > 0 ? Math.round((notAssessedSkills / totalSkills) * 100) : 0}%)
+
+`
+
+    // Add competency areas details
+    if (record.competencyAreas && record.competencyAreas.length > 0) {
+      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMPETENCY AREAS DETAIL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+`
+
+      record.competencyAreas.forEach((area, areaIndex) => {
+        const areaScore = area.areaScore !== undefined ? area.areaScore : 0
+        const areaSkills = area.skills || []
+        const areaCompetentSkills = areaSkills.filter(skill => skill.status === "competent").length
+        const areaTotalSkills = areaSkills.length
+        
+        // Calculate area score if not available
+        let calculatedAreaScore = areaScore
+        if (calculatedAreaScore === 0 && areaTotalSkills > 0) {
+          const totalSkillScore = areaSkills.reduce((sum: number, skill: any) => {
+            const skillScore = skill.supervisorAssessment || skill.selfAssessment || 0
+            return sum + skillScore
+          }, 0)
+          calculatedAreaScore = Math.round(totalSkillScore / areaTotalSkills)
+        }
+
+        report += `${areaIndex + 1}. ${area.name || "Unnamed Area"}
+${"=".repeat(70)}
+Description: ${area.description || "No description available"}
+Weight: ${area.weight || 0}%
+Area Score: ${calculatedAreaScore}%
+Competent Skills: ${areaCompetentSkills} of ${areaTotalSkills}
+
+`
+
+        // Add skills within this area
+        if (areaSkills.length > 0) {
+          report += `  Skills Assessment:
+`
+          areaSkills.forEach((skill, skillIndex) => {
+            const skillScore = skill.supervisorAssessment || skill.selfAssessment || 0
+            const selfScore = skill.selfAssessment !== undefined ? skill.selfAssessment : "N/A"
+            const supervisorScore = skill.supervisorAssessment !== undefined ? skill.supervisorAssessment : "N/A"
+            const lastAssessed = skill.lastAssessed ? new Date(skill.lastAssessed).toLocaleDateString() : "N/A"
+            const nextDue = skill.nextDue ? new Date(skill.nextDue).toLocaleDateString() : "N/A"
+            
+            report += `  ${areaIndex + 1}.${skillIndex + 1} ${skill.name || "Unnamed Skill"}
+    Status: ${skill.status?.toUpperCase() || "NOT ASSESSED"}
+    Self Assessment: ${selfScore}${typeof selfScore === "number" ? "%" : ""}
+    Supervisor Assessment: ${supervisorScore}${typeof supervisorScore === "number" ? "%" : ""}
+    Passing Score: ${skill.passingScore || 80}%
+    Assessment Method: ${skill.assessmentMethod || "N/A"}
+    Required: ${skill.required ? "Yes" : "No"}
+    Last Assessed: ${lastAssessed}
+    Next Due: ${nextDue}
+    Description: ${skill.description || "No description available"}
+`
+            
+            if (skill.evidence && skill.evidence.length > 0) {
+              report += `    Evidence: ${skill.evidence.join(", ")}
+`
+            }
+            report += `
+`
+          })
+        } else {
+          report += `  No skills assessed in this area.
+
+`
+        }
+      })
+    } else {
+      report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMPETENCY AREAS DETAIL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+No competency areas have been assessed yet.
+
+`
+    }
+
+    // Add recommendations section
+    report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+RECOMMENDATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+`
+
+    if (record.status === "competent" || record.overallCompetencyScore >= 85) {
+      report += `✓ Staff member demonstrates competency across all assessed areas.
+✓ Continue regular assessments to maintain competency standards.
+✓ Consider advanced training opportunities for continued professional development.
+
+`
+    } else if (record.status === "needs-improvement" || (record.overallCompetencyScore >= 70 && record.overallCompetencyScore < 85)) {
+      report += `⚠ Staff member requires improvement in some competency areas.
+• Review areas with scores below 80%
+• Provide targeted training and support
+• Schedule follow-up assessment within 30-60 days
+• Document improvement plan and progress
+
+`
+    } else {
+      report += `✗ Staff member requires immediate attention and remediation.
+• Critical: Address areas with "Not Competent" status immediately
+• Develop comprehensive improvement plan
+• Provide intensive training and supervision
+• Schedule frequent reassessments (every 2-4 weeks)
+• Consider work restrictions if patient safety is at risk
+• Document all remediation efforts
+
+`
+    }
+
+    // Add footer
+    report += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REPORT FOOTER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This report was generated by the M.A.S.E Healthcare Competency Assessment System.
+All assessments are based on documented evidence and supervisor evaluations.
+
+For questions or concerns about this report, please contact:
+  • Assessor: ${record.assessorName || "N/A"}
+  • Department: ${record.department || "N/A"}
+
+Report generated on: ${reportDate}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+`
+
+    return report
+  }
+
+  // Handle view report button click
+  const handleViewReport = (record: StaffCompetencyRecord) => {
+    try {
+      const report = generateStaffCompetencyReport(record)
+      
+      // Create downloadable file
+      const blob = new Blob([report], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const staffName = record.staffName?.replace(/[^a-zA-Z0-9]/g, "_") || "Staff"
+      const reportDate = new Date().toISOString().split('T')[0]
+      a.download = `Staff_Competency_Report_${staffName}_${reportDate}.txt`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+
+      toast({
+        title: "Report Generated",
+        description: `Competency report for ${record.staffName} has been downloaded successfully.`,
+      })
+    } catch (error: any) {
+      console.error('Error generating report:', error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to generate report. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b">
@@ -1160,7 +1385,14 @@ export default function StaffCompetencyPage() {
             <div className="flex items-center space-x-3">
               <Button 
                 className="bg-blue-600 hover:bg-blue-700"
-                onClick={() => setIsNewAssessmentOpen(true)}
+                onClick={() => {
+                  // Set default evaluator name when opening dialog
+                  setNewAssessmentData({
+                    ...newAssessmentData,
+                    evaluatorName: currentUser?.name || "",
+                  })
+                  setIsNewAssessmentOpen(true)
+                }}
               >
                 <Plus className="h-4 w-4 mr-2" />
                 New Assessment
@@ -1689,7 +1921,11 @@ export default function StaffCompetencyPage() {
                           </div>
 
                           <div className="flex justify-end space-x-2 pt-2 border-t">
-                            <Button variant="outline" size="sm">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleViewReport(record)}
+                            >
                               <FileText className="h-4 w-4 mr-2" />
                               View Report
                             </Button>
@@ -2792,24 +3028,33 @@ export default function StaffCompetencyPage() {
               <Select
                 value={newAssessmentData.staffId}
                 onValueChange={(value) => setNewAssessmentData({ ...newAssessmentData, staffId: value })}
+                disabled={isCreatingAssessment}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Select staff member" />
+                  <SelectValue placeholder={staffList.length === 0 ? "Loading staff..." : "Select staff member"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {staffList.map((staff, index) => (
-                    <SelectItem key={staff.id || `staff-${index}`} value={staff.id}>
-                      {staff.name} {staff.department ? `- ${staff.department}` : ''}
-                    </SelectItem>
-                  ))}
+                  {staffList.length === 0 ? (
+                    <SelectItem value="" disabled>No staff members available</SelectItem>
+                  ) : (
+                    staffList.map((staff, index) => (
+                      <SelectItem key={staff.id || `staff-${index}`} value={staff.id}>
+                        {staff.name} {staff.department ? `- ${staff.department}` : ''} {staff.credentials ? `(${staff.credentials})` : ''}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
+              {staffList.length === 0 && (
+                <p className="text-sm text-gray-500 mt-1">Please ensure staff members are added to the system first.</p>
+              )}
             </div>
             <div>
               <Label htmlFor="evaluation-type">Evaluation Type *</Label>
               <Select
                 value={newAssessmentData.evaluationType}
                 onValueChange={(value: any) => setNewAssessmentData({ ...newAssessmentData, evaluationType: value })}
+                disabled={isCreatingAssessment}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -2821,6 +3066,12 @@ export default function StaffCompetencyPage() {
                   <SelectItem value="performance-improvement">Performance Improvement</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-xs text-gray-500 mt-1">
+                {newAssessmentData.evaluationType === "initial" && "First-time competency assessment for new staff"}
+                {newAssessmentData.evaluationType === "annual" && "Yearly competency review and evaluation"}
+                {newAssessmentData.evaluationType === "skills-validation" && "Validation of specific skills or procedures"}
+                {newAssessmentData.evaluationType === "performance-improvement" && "Assessment for staff requiring improvement"}
+              </p>
             </div>
             <div>
               <Label htmlFor="evaluator-name">Evaluator Name</Label>
@@ -2828,8 +3079,10 @@ export default function StaffCompetencyPage() {
                 id="evaluator-name"
                 value={newAssessmentData.evaluatorName}
                 onChange={(e) => setNewAssessmentData({ ...newAssessmentData, evaluatorName: e.target.value })}
-                placeholder="Enter evaluator name"
+                placeholder={currentUser?.name || "Enter evaluator name"}
+                disabled={isCreatingAssessment}
               />
+              <p className="text-xs text-gray-500 mt-1">Leave blank to use your name ({currentUser?.name || "Current User"})</p>
             </div>
             <div>
               <Label htmlFor="next-due">Next Evaluation Due Date</Label>
@@ -2838,30 +3091,72 @@ export default function StaffCompetencyPage() {
                 type="date"
                 value={newAssessmentData.nextEvaluationDue}
                 onChange={(e) => setNewAssessmentData({ ...newAssessmentData, nextEvaluationDue: e.target.value })}
+                disabled={isCreatingAssessment}
+                min={new Date().toISOString().split('T')[0]}
               />
+              <p className="text-xs text-gray-500 mt-1">Optional: Set when the next evaluation should be scheduled</p>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNewAssessmentOpen(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setIsNewAssessmentOpen(false)
+                setNewAssessmentData({
+                  staffId: "",
+                  evaluationType: "annual",
+                  nextEvaluationDue: "",
+                  evaluatorName: "",
+                })
+              }}
+              disabled={isCreatingAssessment}
+            >
               Cancel
             </Button>
             <Button
               className="bg-blue-600 hover:bg-blue-700"
+              disabled={isCreatingAssessment}
               onClick={async () => {
+                // Validation
                 if (!newAssessmentData.staffId) {
-                  toast({ title: "Error", description: "Please select a staff member", variant: "destructive" })
+                  toast({ 
+                    title: "Validation Error", 
+                    description: "Please select a staff member to create an assessment for.", 
+                    variant: "destructive" 
+                  })
                   return
                 }
 
                 const selectedStaff = staffList.find(s => s.id === newAssessmentData.staffId)
                 if (!selectedStaff) {
-                  toast({ title: "Error", description: "Selected staff not found", variant: "destructive" })
+                  toast({ 
+                    title: "Error", 
+                    description: "Selected staff member not found. Please refresh and try again.", 
+                    variant: "destructive" 
+                  })
                   return
                 }
 
+                // Validate evaluation type
+                if (!newAssessmentData.evaluationType) {
+                  toast({ 
+                    title: "Validation Error", 
+                    description: "Please select an evaluation type.", 
+                    variant: "destructive" 
+                  })
+                  return
+                }
+
+                setIsCreatingAssessment(true)
+                
                 try {
+                  toast({
+                    title: "Creating Assessment",
+                    description: `Setting up competency assessment for ${selectedStaff.name}...`,
+                  })
                   // Get default competency areas based on staff role
-                  const staffRole = selectedStaff.department || 'STAFF'
+                  // Try credentials first, then role_id, then department as fallback
+                  const staffRole = selectedStaff.credentials || selectedStaff.role_id || selectedStaff.department || 'STAFF'
                   const defaultCompetencyAreas = getCompetencyAreasForRole(staffRole)
                   
                   // Convert to API format
@@ -2927,14 +3222,22 @@ export default function StaffCompetencyPage() {
                   })
 
                   const result = await res.json()
+                  
+                  if (!res.ok) {
+                    throw new Error(result.message || `Server error: ${res.status}`)
+                  }
+                  
                   if (result.success) {
                     const areasCount = competencyAreasForAPI.length
                     const skillsCount = competencyAreasForAPI.reduce((sum, area) => sum + area.items.length, 0)
+                    
                     toast({ 
-                      title: "✅ Success", 
-                      description: `Competency assessment created with ${areasCount} competency areas and ${skillsCount} skills. Progress bars will now display!`,
+                      title: "✅ Assessment Created Successfully", 
+                      description: `Competency assessment for ${selectedStaff.name} has been created with ${areasCount} competency areas and ${skillsCount} skills.`,
                       duration: 5000
                     })
+                    
+                    // Reset form
                     setIsNewAssessmentOpen(false)
                     setNewAssessmentData({
                       staffId: "",
@@ -2942,23 +3245,49 @@ export default function StaffCompetencyPage() {
                       nextEvaluationDue: "",
                       evaluatorName: "",
                     })
-                    // Reload records
-                    const reloadRes = await fetch('/api/staff-performance/competency')
-                    const reloadData = await reloadRes.json()
-                    if (reloadData.success && reloadData.records) {
-                      const transformed = reloadData.records.map(transformRecord)
-                      setStaffCompetencyRecords(transformed)
+                    
+                    // Reload records to show the new assessment
+                    setIsLoadingRecords(true)
+                    try {
+                      const reloadRes = await fetch('/api/staff-performance/competency')
+                      const reloadData = await reloadRes.json()
+                      if (reloadData.success && reloadData.records) {
+                        const transformed = reloadData.records.map(transformRecord)
+                        setStaffCompetencyRecords(transformed)
+                      }
+                    } catch (reloadError) {
+                      console.error('Error reloading records:', reloadError)
+                      // Don't show error to user, they can manually refresh
+                    } finally {
+                      setIsLoadingRecords(false)
                     }
+                    
+                    // Switch to assessments tab to see the new assessment
+                    setActiveTab("assessments")
                   } else {
-                    toast({ title: "Error", description: result.message || "Failed to create assessment", variant: "destructive" })
+                    throw new Error(result.message || "Failed to create assessment. Please check the console for details.")
                   }
-                } catch (error) {
+                } catch (error: any) {
                   console.error('Error creating assessment:', error)
-                  toast({ title: "Error", description: "Failed to create assessment", variant: "destructive" })
+                  toast({ 
+                    title: "Failed to Create Assessment", 
+                    description: error.message || "An unexpected error occurred. Please try again or contact support if the issue persists.",
+                    variant: "destructive",
+                    duration: 6000
+                  })
+                } finally {
+                  setIsCreatingAssessment(false)
                 }
               }}
             >
-              Create Assessment
+              {isCreatingAssessment ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                "Create Assessment"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

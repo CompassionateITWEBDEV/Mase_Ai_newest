@@ -1214,6 +1214,14 @@ export default function StaffDashboard() {
               </div>
             </div>
             <div className="flex items-center space-x-3">
+              {selectedStaff?.id && (
+                <Link href={`/track/${selectedStaff.id}`}>
+                  <Button variant="outline" size="sm" className="bg-blue-50 hover:bg-blue-100 border-blue-200">
+                    <MapPin className="h-4 w-4 mr-2" />
+                    GPS Tracking
+                  </Button>
+                </Link>
+              )}
               <Button variant="outline" size="sm">
                 <Bell className="h-4 w-4 mr-2" />
                 Notifications

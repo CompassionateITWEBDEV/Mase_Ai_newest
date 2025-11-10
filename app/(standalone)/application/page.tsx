@@ -270,6 +270,8 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
 
   // Reset form to initial state
   const resetForm = () => {
+    // Clear selected files
+    setSelectedFiles({})
     setFormData({
       firstName: '',
       middleInitial: '',
@@ -550,8 +552,76 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
         const detailedResult = await detailedResponse.json()
 
         if (detailedResult.success) {
+          // Upload all selected files
+          const jobApplicationId = result.applicationId || result.id || result.application?.id
+          const applicantId = result.applicant_id || result.application?.applicant_id
+          
+          if (jobApplicationId && applicantId && Object.keys(selectedFiles).length > 0) {
+            console.log('Uploading documents:', Object.keys(selectedFiles).length, 'files')
+            
+            // Map document keys to document types
+            const documentTypeMap: { [key: string]: string } = {
+              'resume_cv': 'resume',
+              'professional_license': 'license',
+              'degree_diploma': 'certification',
+              'cpr_certification': 'certification',
+              'tb_test_results': 'certification',
+              'drivers_license': 'other',
+              'social_security_card': 'other',
+              'car_insurance': 'other'
+            }
+            
+            // Upload each file
+            const uploadPromises = Object.entries(selectedFiles).map(async ([docKey, file]) => {
+              try {
+                const documentType = documentTypeMap[docKey] || 'other'
+                
+                // Create FormData for file upload
+                const fileFormData = new FormData()
+                fileFormData.append('file', file)
+                fileFormData.append('applicant_id', applicantId)
+                fileFormData.append('job_application_id', jobApplicationId)
+                fileFormData.append('application_form_id', detailedResult.form_id || '')
+                fileFormData.append('document_type', documentType)
+                fileFormData.append('document_name', docKey.replace(/_/g, ' '))
+                fileFormData.append('file_name', file.name)
+                fileFormData.append('file_size', file.size.toString())
+
+                const documentResponse = await fetch('/api/applications/documents/upload', {
+                  method: 'POST',
+                  body: fileFormData,
+                })
+
+                const documentResult = await documentResponse.json()
+                
+                if (!documentResult.success) {
+                  console.error('Document upload failed:', docKey, documentResult.error)
+                  return { success: false, docKey, error: documentResult.error }
+                } else {
+                  console.log('Document uploaded successfully:', docKey, file.name)
+                  return { success: true, docKey, fileName: file.name }
+                }
+              } catch (error: any) {
+                console.error('Error uploading document:', docKey, error)
+                return { success: false, docKey, error: error.message }
+              }
+            })
+            
+            // Wait for all uploads to complete
+            const uploadResults = await Promise.all(uploadPromises)
+            const successfulUploads = uploadResults.filter(r => r.success).length
+            const failedUploads = uploadResults.filter(r => !r.success)
+            
+            if (failedUploads.length > 0) {
+              console.warn('Some documents failed to upload:', failedUploads)
+              alert(`Application submitted successfully! ${successfulUploads} of ${uploadResults.length} documents uploaded. Some documents may need to be uploaded separately.`)
+            } else {
+              console.log('All documents uploaded successfully')
+            }
+          }
+          
           // Data successfully saved to database - now clear the form
-          alert(`Thank you for your application! Your confirmation number is: ${result.confirmationNumber}. We will contact you within 2-3 business days.`)
+          alert(`Thank you for your application! Your confirmation number is: ${result.confirmationNumber || 'N/A'}. We will contact you within 2-3 business days.`)
           
           // Clear form fields after successful submission to prevent duplicate submission on refresh
           resetForm()

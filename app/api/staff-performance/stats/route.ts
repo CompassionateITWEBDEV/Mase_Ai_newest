@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
     if (weekStats.total_visit_time > 0 && weekStats.total_drive_time > 0) {
       weekStats.efficiency_score = Math.round((weekStats.total_visit_time / (weekStats.total_visit_time + weekStats.total_drive_time)) * 100)
     }
-    weekStats.cost_per_mile = 0.67
+    // Note: cost_per_mile will be set from staff table below
 
     // Get today's visits
     const { data: todayVisits } = await supabase
@@ -91,12 +91,17 @@ export async function GET(request: NextRequest) {
       .eq('status', 'active')
       .single()
 
-    // Get staff info
+    // Get staff info with cost per mile
     const { data: staff } = await supabase
       .from('staff')
-      .select('id, name, department')
+      .select('id, name, department, cost_per_mile')
       .eq('id', staffId)
       .single()
+
+    // Get staff's cost per mile (customizable), or use stats value, or default to 0.67
+    const staffCostPerMile = parseFloat(staff?.cost_per_mile?.toString() || '0')
+    const statsCostPerMile = todayStats ? parseFloat(todayStats.cost_per_mile?.toString() || '0') : 0
+    const defaultCostPerMile = staffCostPerMile > 0 ? staffCostPerMile : (statsCostPerMile > 0 ? statsCostPerMile : 0.67)
 
     const todayStatsFormatted = todayStats ? {
       totalDriveTime: todayStats.total_drive_time || 0,
@@ -105,7 +110,7 @@ export async function GET(request: NextRequest) {
       totalVisitTime: todayStats.total_visit_time || 0,
       avgVisitDuration: parseFloat(todayStats.avg_visit_duration?.toString() || '0'),
       efficiencyScore: todayStats.efficiency_score || 0,
-      costPerMile: parseFloat(todayStats.cost_per_mile?.toString() || '0.67'),
+      costPerMile: defaultCostPerMile,
       totalCost: parseFloat(todayStats.total_cost?.toString() || '0')
     } : {
       totalDriveTime: 0,
@@ -114,7 +119,7 @@ export async function GET(request: NextRequest) {
       totalVisitTime: 0,
       avgVisitDuration: 0,
       efficiencyScore: 0,
-      costPerMile: 0.67,
+      costPerMile: defaultCostPerMile,
       totalCost: 0
     }
 
@@ -125,7 +130,7 @@ export async function GET(request: NextRequest) {
       totalVisitTime: weekStats.total_visit_time || 0,
       avgVisitDuration: weekStats.avg_visit_duration || 0,
       efficiencyScore: weekStats.efficiency_score || 0,
-      costPerMile: weekStats.cost_per_mile || 0.67,
+      costPerMile: defaultCostPerMile, // Use same cost per mile for consistency
       totalCost: parseFloat(weekStats.total_cost?.toString() || '0')
     }
 

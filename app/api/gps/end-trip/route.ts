@@ -99,6 +99,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: updateError.message }, { status: 500 })
     }
 
+    // Get staff's cost per mile for response
+    const { data: staff } = await supabase
+      .from('staff')
+      .select('cost_per_mile')
+      .eq('id', trip.staff_id)
+      .single()
+    
+    const costPerMile = parseFloat(staff?.cost_per_mile?.toString() || '0.67')
+    const tripCost = totalDistance * costPerMile
+
     // Update performance stats
     await updatePerformanceStats(trip.staff_id, driveTimeMinutes, totalDistance)
 
@@ -109,7 +119,9 @@ export async function POST(request: NextRequest) {
         id: updatedTrip.id,
         totalDriveTime: updatedTrip.total_drive_time,
         totalDistance: updatedTrip.total_distance,
-        duration: driveTimeMinutes
+        duration: driveTimeMinutes,
+        costPerMile: costPerMile,
+        totalCost: parseFloat(tripCost.toFixed(2))
       }
     })
   } catch (error: any) {
@@ -123,6 +135,16 @@ async function updatePerformanceStats(staffId: string, driveTime: number, distan
     auth: { autoRefreshToken: false, persistSession: false }
   })
 
+  // Get staff's cost per mile (customizable per staff)
+  const { data: staff } = await supabase
+    .from('staff')
+    .select('cost_per_mile')
+    .eq('id', staffId)
+    .single()
+
+  // Use staff's custom cost per mile, or default to IRS standard $0.67
+  const costPerMile = parseFloat(staff?.cost_per_mile?.toString() || '0.67')
+
   const today = new Date().toISOString().split('T')[0]
   
   // Get or create today's stats
@@ -134,13 +156,17 @@ async function updatePerformanceStats(staffId: string, driveTime: number, distan
     .eq('period', 'day')
     .single()
 
+  const newTotalMiles = parseFloat(existing?.total_miles?.toString() || '0') + distance
+  const newTotalCost = newTotalMiles * costPerMile
+
   if (existing) {
     await supabase
       .from('staff_performance_stats')
       .update({
         total_drive_time: (existing.total_drive_time || 0) + driveTime,
-        total_miles: (parseFloat(existing.total_miles?.toString() || '0') + distance).toFixed(2),
-        total_cost: ((parseFloat(existing.total_miles?.toString() || '0') + distance) * 0.67).toFixed(2),
+        total_miles: newTotalMiles.toFixed(2),
+        total_cost: newTotalCost.toFixed(2),
+        cost_per_mile: costPerMile, // Update with current rate
         updated_at: new Date().toISOString()
       })
       .eq('id', existing.id)
@@ -153,8 +179,8 @@ async function updatePerformanceStats(staffId: string, driveTime: number, distan
         period: 'day',
         total_drive_time: driveTime,
         total_miles: distance.toFixed(2),
-        total_cost: (distance * 0.67).toFixed(2),
-        cost_per_mile: 0.67
+        total_cost: (distance * costPerMile).toFixed(2),
+        cost_per_mile: costPerMile
       })
   }
 }

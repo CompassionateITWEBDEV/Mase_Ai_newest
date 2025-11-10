@@ -1112,14 +1112,61 @@ export default function ApplicationTracking() {
                 {/* Documents Status */}
                 <div>
                   <h4 className="font-medium mb-3">Document Status</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
                     {Object.entries(selectedApplication.documents).map(([doc, status]) => (
                       <div key={doc} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                        <span className="text-sm capitalize">{doc}</span>
+                        <span className="text-sm capitalize">{doc.replace(/_/g, ' ')}</span>
                         {getDocumentStatus(status as string)}
                       </div>
                     ))}
                   </div>
+                  
+                  {/* Uploaded Documents List */}
+                  {selectedApplication.uploadedDocuments && selectedApplication.uploadedDocuments.length > 0 && (
+                    <div className="mt-4">
+                      <h5 className="font-medium mb-2 text-sm">Uploaded Files</h5>
+                      <div className="space-y-2">
+                        {selectedApplication.uploadedDocuments.map((doc: any) => (
+                          <div key={doc.id} className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            <div className="flex items-center space-x-3 flex-1">
+                              <FileText className="h-4 w-4 text-blue-600" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900 truncate">{doc.file_name}</p>
+                                <div className="flex items-center space-x-2 mt-1">
+                                  <Badge variant="outline" className="text-xs">
+                                    {doc.document_type}
+                                  </Badge>
+                                  {getDocumentStatus(doc.status)}
+                                  <span className="text-xs text-gray-500">
+                                    {doc.file_size ? `${(doc.file_size / (1024 * 1024)).toFixed(2)} MB` : ''}
+                                  </span>
+                                  <span className="text-xs text-gray-500">
+                                    {new Date(doc.uploaded_date).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            {doc.file_url && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  if (doc.file_url.startsWith('http')) {
+                                    window.open(doc.file_url, '_blank')
+                                  } else {
+                                    alert('File URL: ' + doc.file_url)
+                                  }
+                                }}
+                              >
+                                <LinkIcon className="h-3 w-3 mr-1" />
+                                View
+                              </Button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Timeline */}

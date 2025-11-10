@@ -164,10 +164,84 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Fetch application form documents separately
+    let documentsData: any = {}
+    if (applicationIds.length > 0) {
+      const { data: documents, error: documentsError } = await supabase
+        .from('application_form_documents')
+        .select(`
+          id,
+          application_form_id,
+          job_application_id,
+          applicant_id,
+          document_type,
+          file_name,
+          file_size,
+          file_url,
+          uploaded_date,
+          status,
+          verified_date,
+          notes
+        `)
+        .in('job_application_id', applicationIds)
+        .order('uploaded_date', { ascending: false })
+
+      if (!documentsError && documents) {
+        documents.forEach(doc => {
+          if (!documentsData[doc.job_application_id]) {
+            documentsData[doc.job_application_id] = []
+          }
+          documentsData[doc.job_application_id].push(doc)
+        })
+      }
+    }
+
     // Transform the data to match the expected format
     const transformedApplications = applications.map(app => {
       const form = formsData[app.id]?.[0] // Get the first (and should be only) form
       const applicant = applicantsData[app.applicant_id]
+      const documents = documentsData[app.id] || []
+      
+      // Build documents status object from actual uploaded documents
+      const documentsStatus: any = {
+        resume: 'pending',
+        license: 'pending',
+        certifications: 'pending',
+        background: form?.background_consent ? 'completed' : 'pending',
+        tb_test: form?.tb_test_status ? 'completed' : 'pending',
+        immunization: form?.hep_b_vaccination || form?.flu_vaccination ? 'completed' : 'pending',
+        cpr: 'pending',
+        drivers_license: 'pending',
+        degree_diploma: 'pending',
+        social_security_card: 'pending',
+        car_insurance: 'pending'
+      }
+      
+      // Update document statuses based on uploaded files
+      documents.forEach((doc: any) => {
+        if (doc.document_type === 'resume') {
+          documentsStatus.resume = doc.status === 'verified' ? 'verified' : 'uploaded'
+        } else if (doc.document_type === 'license') {
+          documentsStatus.license = doc.status === 'verified' ? 'verified' : 'uploaded'
+        } else if (doc.document_type === 'certification') {
+          // Check if it's CPR or other certification based on file name
+          if (doc.file_name?.toLowerCase().includes('cpr')) {
+            documentsStatus.cpr = doc.status === 'verified' ? 'verified' : 'uploaded'
+          } else {
+            documentsStatus.certifications = doc.status === 'verified' ? 'verified' : 'uploaded'
+          }
+        } else if (doc.document_type === 'other') {
+          if (doc.file_name?.toLowerCase().includes('driver') || doc.file_name?.toLowerCase().includes('license')) {
+            documentsStatus.drivers_license = doc.status === 'verified' ? 'verified' : 'uploaded'
+          } else if (doc.file_name?.toLowerCase().includes('social') || doc.file_name?.toLowerCase().includes('ssn')) {
+            documentsStatus.social_security_card = doc.status === 'verified' ? 'verified' : 'uploaded'
+          } else if (doc.file_name?.toLowerCase().includes('insurance') || doc.file_name?.toLowerCase().includes('car')) {
+            documentsStatus.car_insurance = doc.status === 'verified' ? 'verified' : 'uploaded'
+          } else if (doc.file_name?.toLowerCase().includes('degree') || doc.file_name?.toLowerCase().includes('diploma')) {
+            documentsStatus.degree_diploma = doc.status === 'verified' ? 'verified' : 'uploaded'
+          }
+        }
+      })
       
       return {
         id: app.id,
@@ -179,16 +253,8 @@ export async function GET(request: NextRequest) {
         appliedDate: new Date(app.applied_date).toLocaleDateString(),
         experience: form?.years_experience || 'Not specified',
         education: form?.degree || 'Not specified',
-        documents: {
-          resume: form ? 'uploaded' : 'pending',
-          license: form?.license ? 'uploaded' : 'pending',
-          certifications: form?.other_certs ? 'uploaded' : 'pending',
-          background: form?.background_consent ? 'completed' : 'pending',
-          tb_test: form?.tb_test_status ? 'completed' : 'pending',
-          immunization: form?.hep_b_vaccination || form?.flu_vaccination ? 'completed' : 'pending',
-          cpr: form?.cpr ? 'uploaded' : 'pending',
-          drivers_license: 'pending'
-        },
+        documents: documentsStatus,
+        uploadedDocuments: documents, // Include full document list
         timeline: [
           {
             action: 'Application submitted',

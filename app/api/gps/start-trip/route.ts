@@ -8,10 +8,14 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
-    const { staffId, latitude, longitude, address } = await request.json()
+    const { staffId, latitude, longitude, address, accuracy } = await request.json()
 
     if (!staffId) {
       return NextResponse.json({ error: "Staff ID is required" }, { status: 400 })
+    }
+
+    if (!latitude || !longitude) {
+      return NextResponse.json({ error: "Latitude and longitude are required to start a trip" }, { status: 400 })
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
@@ -34,10 +38,13 @@ export async function POST(request: NextRequest) {
       }, { status: 400 })
     }
 
-    // Create new trip
-    const startLocation = latitude && longitude 
-      ? { lat: parseFloat(latitude), lng: parseFloat(longitude), address: address || null }
-      : null
+    // Create new trip with accurate location
+    const startLocation = { 
+      lat: parseFloat(latitude), 
+      lng: parseFloat(longitude), 
+      address: address || null,
+      timestamp: new Date().toISOString()
+    }
 
     const { data: trip, error } = await supabase
       .from('staff_trips')
@@ -45,7 +52,7 @@ export async function POST(request: NextRequest) {
         staff_id: staffId,
         start_location: startLocation,
         status: 'active',
-        route_points: startLocation ? [startLocation] : []
+        route_points: [startLocation]
       })
       .select()
       .single()
@@ -55,6 +62,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
+    // Immediately save location update to staff_location_updates
+    const { data: locationUpdate, error: locationError } = await supabase
+      .from('staff_location_updates')
+      .insert({
+        staff_id: staffId,
+        trip_id: trip.id,
+        latitude: parseFloat(latitude),
+        longitude: parseFloat(longitude),
+        accuracy: accuracy ? parseFloat(accuracy) : null
+      })
+      .select()
+      .single()
+
+    if (locationError) {
+      console.error('Error saving initial location update:', locationError)
+      // Don't fail the trip creation, just log the error
+    }
+
     return NextResponse.json({
       success: true,
       message: "Trip started successfully",
@@ -62,8 +87,10 @@ export async function POST(request: NextRequest) {
         id: trip.id,
         staffId: trip.staff_id,
         startTime: trip.start_time,
-        status: trip.status
-      }
+        status: trip.status,
+        startLocation: startLocation
+      },
+      locationSaved: !!locationUpdate
     })
   } catch (error: any) {
     console.error("Error starting trip:", error)
