@@ -567,116 +567,55 @@ export default function ApplicationTracking() {
         throw new Error(data.error || 'Failed to update status')
       }
 
-      // If status is "background", also update the background_consent to true and verify background check documents
+      // Optimistically update local state immediately for faster UI response
+      const updatedApp = {
+        ...selectedApplication,
+        status: apiStatus
+      }
+      setSelectedApplication(updatedApp)
+      
+      // Update applications list locally
+      setApplications(prev => prev.map(app => 
+        app.id === selectedApplication.id 
+          ? { ...app, status: apiStatus }
+          : app
+      ))
+
+      // Run background operations asynchronously (don't wait for them)
       if (selectedStatus === 'background') {
-        try {
-          console.log('Updating background_consent to true for application:', selectedApplication.id)
-          const formResponse = await fetch('/api/applications/form', {
+        // Run in background - don't block the UI
+        Promise.all([
+          // Update background consent
+          fetch('/api/applications/form', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               job_application_id: selectedApplication.id,
               background_consent: true
             })
-          })
+          }).catch(err => console.error('Background consent update error:', err)),
           
-          if (formResponse.ok) {
-            const formData = await formResponse.json()
-            if (formData.success) {
-              console.log('Background check consent updated successfully')
-            } else {
-              console.error('Form update failed:', formData.error)
-            }
-          }
-          
-          // Also verify all background_check documents for this application
-          if (selectedApplication.uploadedDocuments) {
-            const backgroundDocs = selectedApplication.uploadedDocuments.filter((doc: any) => 
-              doc.document_type === 'background_check' && doc.status === 'pending'
+          // Verify background check documents in parallel
+          ...(selectedApplication.uploadedDocuments || [])
+            .filter((doc: any) => doc.document_type === 'background_check' && doc.status === 'pending')
+            .map((bgDoc: any) =>
+              fetch('/api/applications/documents/verify', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  document_id: bgDoc.id,
+                  status: 'verified',
+                  notes: 'Background check completed - status changed to background check stage'
+                })
+              }).catch(err => console.error('Document verification error:', err))
             )
-            
-            if (backgroundDocs.length > 0) {
-              console.log(`Verifying ${backgroundDocs.length} background check document(s)...`)
-              
-              // Verify all background check documents in parallel
-              const verifyPromises = backgroundDocs.map(async (bgDoc: any) => {
-                try {
-                  const verifyResponse = await fetch('/api/applications/documents/verify', {
-                    method: 'PUT',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                      document_id: bgDoc.id,
-                      status: 'verified',
-                      notes: 'Background check completed - status changed to background check stage'
-                    })
-                  })
-                  
-                  if (verifyResponse.ok) {
-                    const verifyData = await verifyResponse.json()
-                    if (verifyData.success) {
-                      console.log('✅ Background check document verified:', bgDoc.id, bgDoc.file_name)
-                      return { success: true, docId: bgDoc.id }
-                    } else {
-                      console.error('❌ Verification failed:', verifyData.error)
-                      return { success: false, docId: bgDoc.id, error: verifyData.error }
-                    }
-                  } else {
-                    const errorData = await verifyResponse.json().catch(() => ({}))
-                    console.error('❌ Verification HTTP error:', verifyResponse.status, errorData)
-                    return { success: false, docId: bgDoc.id, error: `HTTP ${verifyResponse.status}` }
-                  }
-                } catch (verifyError: any) {
-                  console.error('❌ Error verifying background document:', verifyError)
-                  return { success: false, docId: bgDoc.id, error: verifyError.message }
-                }
-              })
-              
-              // Wait for all verifications to complete
-              const verifyResults = await Promise.all(verifyPromises)
-              const successful = verifyResults.filter(r => r.success).length
-              const failed = verifyResults.filter(r => !r.success).length
-              
-              if (successful > 0) {
-                console.log(`✅ Successfully verified ${successful} background check document(s)`)
-              }
-              if (failed > 0) {
-                console.warn(`⚠️ Failed to verify ${failed} background check document(s)`)
-              }
-            }
-          }
-        } catch (formError: any) {
-          console.error('Error updating background consent:', formError)
-        }
-      }
-
-      // Refresh applications list to get updated data (including background_consent and verified documents)
-      await loadApplications()
-      
-      // Update selected application if modal is still open - fetch fresh data from API
-      if (selectedApplication) {
-        try {
-          const refreshResponse = await fetch('/api/applications')
-          if (refreshResponse.ok) {
-            const refreshData = await refreshResponse.json()
-            if (refreshData.success) {
-              const updatedApp = refreshData.applications.find((app: any) => app.id === selectedApplication.id)
-              if (updatedApp) {
-                setSelectedApplication(updatedApp)
-              }
-            }
-          }
-        } catch (refreshError) {
-          console.error('Error refreshing selected application:', refreshError)
-          // Fallback to finding from current applications list
-          const updatedApp = applications.find(app => app.id === selectedApplication.id)
-          if (updatedApp) {
-            setSelectedApplication(updatedApp)
-          }
-        }
+        ]).then(() => {
+          // Refresh in background after operations complete
+          loadApplications().catch(err => console.error('Error refreshing applications:', err))
+        }).catch(err => console.error('Background operations error:', err))
+      } else {
+        // For non-background status updates, refresh in background
+        loadApplications().catch(err => console.error('Error refreshing applications:', err))
       }
       
       alert('Application status updated successfully!')
@@ -1046,33 +985,55 @@ export default function ApplicationTracking() {
                           const acceptedApps = applications.filter((app) => app.status === "accepted")
                           if (acceptedApps.length === 0) return "0"
                           
-                          const now = new Date()
-                          const totalDays = acceptedApps.reduce((sum, app) => {
-                            // Try to get the raw date from applicationData first, then fallback to parsing appliedDate
-                            let appliedDate: Date
-                            if (app.applicationData?.applied_date) {
-                              appliedDate = new Date(app.applicationData.applied_date)
-                            } else {
-                              // Parse the formatted date string (MM/DD/YYYY)
-                              const dateStr = app.appliedDate
-                              if (dateStr && typeof dateStr === 'string') {
-                                const [month, day, year] = dateStr.split('/')
-                                appliedDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
-                              } else {
-                                return sum // Skip if no date available
+                          const validDays = acceptedApps
+                            .map((app) => {
+                              // Get applied date
+                              let appliedDate: Date | null = null
+                              if (app.applicationData?.applied_date) {
+                                appliedDate = new Date(app.applicationData.applied_date)
+                              } else if (app.appliedDate && typeof app.appliedDate === 'string') {
+                                // Parse the formatted date string (MM/DD/YYYY)
+                                const [month, day, year] = app.appliedDate.split('/')
+                                if (month && day && year) {
+                                  appliedDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day))
+                                }
                               }
-                            }
-                            
-                            // Check if date is valid
-                            if (isNaN(appliedDate.getTime())) {
-                              return sum // Skip invalid dates
-                            }
-                            
-                            const daysDiff = Math.floor((now.getTime() - appliedDate.getTime()) / (1000 * 60 * 60 * 24))
-                            return sum + Math.max(0, daysDiff) // Ensure non-negative
-                          }, 0)
+                              
+                              if (!appliedDate || isNaN(appliedDate.getTime())) {
+                                return null // Skip if no valid applied date
+                              }
+                              
+                              // Get accepted date (when status was changed to accepted)
+                              // Use updated_at as the accepted date (it should be updated when status changes to accepted)
+                              let acceptedDate: Date | null = null
+                              if (app.applicationData?.updated_at) {
+                                acceptedDate = new Date(app.applicationData.updated_at)
+                                // Validate that updated_at is after applied_date (sanity check)
+                                if (acceptedDate < appliedDate) {
+                                  // If updated_at is before applied_date, something is wrong - skip this record
+                                  console.warn('Invalid date range for application:', app.id, 'updated_at is before applied_date')
+                                  return null
+                                }
+                              } else {
+                                // If no updated_at, we can't calculate accurately - skip this record
+                                return null
+                              }
+                              
+                              // Validate accepted date
+                              if (!acceptedDate || isNaN(acceptedDate.getTime())) {
+                                return null // Skip invalid dates
+                              }
+                              
+                              // Calculate days difference (from applied to accepted)
+                              const daysDiff = Math.floor((acceptedDate.getTime() - appliedDate.getTime()) / (1000 * 60 * 60 * 24))
+                              return Math.max(0, daysDiff) // Ensure non-negative
+                            })
+                            .filter((days): days is number => days !== null) // Remove null values
                           
-                          const avgDays = acceptedApps.length > 0 ? Math.round(totalDays / acceptedApps.length) : 0
+                          if (validDays.length === 0) return "0"
+                          
+                          const totalDays = validDays.reduce((sum, days) => sum + days, 0)
+                          const avgDays = Math.round(totalDays / validDays.length)
                           return avgDays.toString()
                         })()}
                       </p>
@@ -1214,7 +1175,7 @@ export default function ApplicationTracking() {
               <DialogHeader>
                 <DialogTitle className="flex items-center justify-between">
                   <span>
-                    {selectedApplication.name} - {selectedApplication.id}
+                    {selectedApplication.name}
                   </span>
                   <Badge className={getStatusColor(selectedApplication.status)}>
                     {selectedApplication.status.charAt(0).toUpperCase() + selectedApplication.status.slice(1)}

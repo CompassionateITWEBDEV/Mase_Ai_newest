@@ -229,9 +229,11 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
   const handleFileChange = (docKey: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (file) {
-      // Validate file size (max 10MB)
-      if (file.size > 10 * 1024 * 1024) {
-        alert(`File size exceeds 10MB limit. Please choose a smaller file.`)
+      // Validate file size (max 50MB - increased to support large PDFs)
+      const maxFileSize = 50 * 1024 * 1024 // 50MB
+      if (file.size > maxFileSize) {
+        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2)
+        alert(`File size (${fileSizeMB}MB) exceeds 50MB limit. Please choose a smaller file.`)
         // Reset the input
         event.target.value = ''
         return
@@ -445,7 +447,7 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
     if (formData.registry_history === undefined || formData.registry_history === null) {
       errors.push('Registry history question must be answered')
     }
-    if (!formData.background_consent) errors.push('Background check consent is required')
+    // Background check consent is optional - no validation needed
 
     // Step 6: Health & Safety
     if (!formData.tb_test_status?.trim()) errors.push('TB test status is required')
@@ -531,7 +533,6 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
       }
 
       const result = await response.json()
-      console.log('📝 Application API response:', result)
 
       if (result.success) {
         // Now submit detailed form data - use formData state instead of FormData
@@ -581,12 +582,6 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
         // Add job_application_id
         formObject.job_application_id = result.applicationId || result.id || 'temp-id'
 
-        // Log background_consent value before submission
-        console.log('📋 Submitting form data with background_consent:', {
-          background_consent: formObject.background_consent,
-          type: typeof formObject.background_consent,
-          allFormData: formObject
-        })
 
         // Submit detailed form data
         const detailedResponse = await fetch('/api/applications/form', {
@@ -600,29 +595,21 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
         const detailedResult = await detailedResponse.json()
 
         if (detailedResult.success) {
-          // Upload all selected files
-          const jobApplicationId = result.applicationId || result.id || result.application?.id
-          // Fix: API returns applicantId (camelCase), not applicant_id (snake_case)
-          const applicantId = result.applicantId || result.applicant_id || result.application?.applicant_id || result.application?.applicantId
+          // Show success message immediately - form data is saved
+          alert(`Thank you for your application! Your confirmation number is: ${result.confirmationNumber || 'N/A'}. We will contact you within 2-3 business days.`)
           
-          console.log('📋 Form submission check:', {
-            jobApplicationId,
-            applicantId,
-            formId: detailedResult.form_id,
-            resultKeys: Object.keys(result),
-            resultObject: result,
-            selectedFilesCount: Object.keys(selectedFiles).length,
-            selectedFilesKeys: Object.keys(selectedFiles),
-            detailedResultKeys: Object.keys(detailedResult),
-            detailedResult: detailedResult
-          })
+          // Clear form fields immediately after successful submission
+          resetForm()
+          
+          // Upload all selected files in background (non-blocking)
+          const jobApplicationId = result.applicationId || result.id || result.application?.id
+          const applicantId = result.applicantId || result.applicant_id || result.application?.applicant_id || result.application?.applicantId
           
           // Check if we have all required IDs and files to upload
           const hasRequiredIds = jobApplicationId && applicantId
           const hasFiles = Object.keys(selectedFiles).length > 0
           
           if (hasRequiredIds && hasFiles) {
-            console.log('📤 Starting document upload:', Object.keys(selectedFiles).length, 'files')
             
             // Map document keys to document types based on the actual input field labels
             // Note: Keys are normalized: apostrophes removed, non-alphanumeric replaced with underscore
@@ -643,9 +630,8 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
             // Validate all document keys are in the map
             const unmappedKeys = Object.keys(selectedFiles).filter(key => !documentTypeMap[key])
             if (unmappedKeys.length > 0) {
-              console.error('❌ Unmapped document keys found:', unmappedKeys)
-              console.error('Available keys in map:', Object.keys(documentTypeMap))
-              alert(`Error: Some documents could not be mapped to a document type. Keys: ${unmappedKeys.join(', ')}. Please contact support.`)
+              console.error('Unmapped document keys found:', unmappedKeys)
+              // Don't block - just log error and continue
             }
             
             // Upload each file
@@ -656,23 +642,9 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                 
                 // Validate that document type is set - should never be undefined if mapping is correct
                 if (!documentType) {
-                  console.error('❌ CRITICAL: Document key not found in map:', docKey, 'File:', file.name)
-                  console.error('Available keys:', Object.keys(documentTypeMap))
-                  console.error('Selected files keys:', Object.keys(selectedFiles))
-                  alert(`Error: Document type mapping not found for "${docKey}". Please contact support.`)
+                  console.error('Document key not found in map:', docKey)
                   return { success: false, docKey, error: `Document type mapping not found for: ${docKey}` }
                 }
-                
-                // Warn if document is being saved as 'other' - this should only happen for specific document types
-                if (documentType === 'other') {
-                  const shouldBeOther = ['social_security_card', 'car_insurance'].includes(docKey)
-                  if (!shouldBeOther) {
-                    console.warn(`⚠️ Document "${docKey}" is being saved as 'other' but might need a more specific type`)
-                  }
-                }
-                
-                // Log the mapping for debugging
-                console.log(`📄 Mapping document: "${docKey}" → document_type: "${documentType}" (file: ${file.name})`)
                 
                 // Create FormData for file upload
                 const fileFormData = new FormData()
@@ -695,27 +667,9 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                 const documentName = originalDocNames[docKey] || docKey.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
                 
                 fileFormData.append('document_type', documentType)
-                fileFormData.append('document_name', documentName) // Use original field name, not normalized key
+                fileFormData.append('document_name', documentName)
                 fileFormData.append('file_name', file.name)
                 fileFormData.append('file_size', file.size.toString())
-
-                console.log('📤 Uploading file:', {
-                  docKey,
-                  originalFieldName: documentName,
-                  fileName: file.name,
-                  documentType,
-                  fileSize: file.size,
-                  applicantId,
-                  jobApplicationId,
-                  applicationFormId: detailedResult.form_id
-                })
-                
-                // Validate mapping accuracy
-                if (!documentType || documentType === 'other') {
-                  console.warn(`⚠️ Document "${documentName}" (key: ${docKey}) is mapped to "${documentType}"`)
-                } else {
-                  console.log(`✅ Document "${documentName}" correctly mapped to type: "${documentType}"`)
-                }
                 
                 const documentResponse = await fetch('/api/applications/documents/upload', {
                   method: 'POST',
@@ -724,7 +678,6 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
 
                 if (!documentResponse.ok) {
                   const errorText = await documentResponse.text()
-                  console.error('Document upload failed - HTTP error:', documentResponse.status, errorText)
                   try {
                     const errorJson = JSON.parse(errorText)
                     return { success: false, docKey, error: errorJson.error || errorText }
@@ -736,10 +689,8 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                 const documentResult = await documentResponse.json()
                 
                 if (!documentResult.success) {
-                  console.error('Document upload failed:', docKey, documentResult.error)
                   return { success: false, docKey, error: documentResult.error }
                 } else {
-                  console.log('✅ Document uploaded successfully:', docKey, file.name, documentResult)
                   return { success: true, docKey, fileName: file.name }
                 }
               } catch (error: any) {
@@ -748,54 +699,23 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
               }
             })
             
-            // Wait for all uploads to complete
-            const uploadResults = await Promise.all(uploadPromises)
-            const successfulUploads = uploadResults.filter(r => r.success).length
-            const failedUploads = uploadResults.filter(r => !r.success)
-            
-            console.log('📊 Upload results:', {
-              total: uploadResults.length,
-              successful: successfulUploads,
-              failed: failedUploads.length,
-              results: uploadResults
+            // Upload files in background (non-blocking) - don't wait for completion
+            Promise.all(uploadPromises).then(uploadResults => {
+              const successfulUploads = uploadResults.filter(r => r.success).length
+              const failedUploads = uploadResults.filter(r => !r.success)
+              
+              if (failedUploads.length > 0) {
+                const errorMessages = failedUploads.map(f => `${f.docKey}: ${f.error}`).join('\n')
+                console.warn('Some documents failed to upload:', errorMessages)
+                // Optionally show a non-blocking notification
+              }
+            }).catch(err => {
+              console.error('Error during file uploads:', err)
             })
-            
-            if (failedUploads.length > 0) {
-              console.error('❌ Some documents failed to upload:', failedUploads)
-              const errorMessages = failedUploads.map(f => `${f.docKey}: ${f.error}`).join('\n')
-              alert(`Application submitted successfully! ${successfulUploads} of ${uploadResults.length} documents uploaded.\n\nFailed uploads:\n${errorMessages}`)
-            } else {
-              console.log('✅ All documents uploaded successfully!')
-            }
-          } else {
-            const missingData = []
-            if (!jobApplicationId) missingData.push('jobApplicationId')
-            if (!applicantId) missingData.push('applicantId')
-            if (!hasFiles) missingData.push('selectedFiles')
-            
-            console.error('❌ Cannot upload files - missing required data:', {
-              hasJobApplicationId: !!jobApplicationId,
-              jobApplicationId,
-              hasApplicantId: !!applicantId,
-              applicantId,
-              hasFiles: Object.keys(selectedFiles).length > 0,
-              filesCount: Object.keys(selectedFiles).length,
-              missingData,
-              resultObject: result,
-              detailedResult: detailedResult
-            })
-            
-            if (hasFiles) {
-              const fileCount = Object.keys(selectedFiles).length
-              alert(`Warning: ${fileCount} file(s) were selected but could not be uploaded due to missing ${missingData.join(', ')}. Please contact support with confirmation number: ${result.confirmationNumber || 'N/A'}`)
-            }
+          } else if (hasFiles && !hasRequiredIds) {
+            // Files selected but missing IDs - log warning but don't block
+            console.warn('Files selected but missing required IDs for upload')
           }
-          
-          // Data successfully saved to database - now clear the form
-          alert(`Thank you for your application! Your confirmation number is: ${result.confirmationNumber || 'N/A'}. We will contact you within 2-3 business days.`)
-          
-          // Clear form fields after successful submission to prevent duplicate submission on refresh
-          resetForm()
         } else {
           console.error('Detailed form submission failed:', detailedResult)
           alert('Application submitted but detailed form data failed to save. Please contact support.')
@@ -1583,12 +1503,11 @@ export default function JobApplication({ prefilledData, jobId }: JobApplicationP
                           const isAuthorized = checked === true
                           handleInputChange('background_consent', isAuthorized)
                           console.log('Background consent changed:', { checked, isAuthorized, currentValue: formData.background_consent })
-                        }} 
-                        required 
+                        }}
                       />
                       <Label htmlFor="background-consent" className="text-sm">
                         I authorize IrishTriplets to conduct a comprehensive background check including criminal
-                        history, employment verification, and professional references *
+                        history, employment verification, and professional references
                       </Label>
                     </div>
                   </div>

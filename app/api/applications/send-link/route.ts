@@ -21,11 +21,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 
-      (typeof window !== 'undefined' 
-        ? window.location.origin 
-        : 'http://localhost:3000')
-    const applicationLink = `${baseUrl}/application`
+    // Use hardcoded Vercel URL for application link
+    const applicationLink = 'https://mase-ai-newest.vercel.app/application'
 
     const name = candidateName || 'Candidate'
     const firstName = name.split(' ')[0]

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 
+// Increase limits for large file uploads
+export const maxDuration = 300 // 5 minutes for large file uploads
+export const runtime = 'nodejs'
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -24,12 +28,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate file size (10MB max)
-    if (file.size > 10 * 1024 * 1024) {
+    // Validate file size (50MB max - increased to support large PDFs)
+    const maxFileSize = 50 * 1024 * 1024 // 50MB
+    if (file.size > maxFileSize) {
       return NextResponse.json(
         { 
           success: false,
-          error: 'File size must be less than 10MB' 
+          error: `File size must be less than 50MB. Current file size: ${(file.size / (1024 * 1024)).toFixed(2)}MB` 
         },
         { status: 400 }
       )

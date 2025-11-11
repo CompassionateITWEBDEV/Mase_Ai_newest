@@ -17,3 +17,4 @@ CHECK (status IN ('pending', 'verified', 'rejected'));
 
 -- Done! The constraint is now fixed.
 
+

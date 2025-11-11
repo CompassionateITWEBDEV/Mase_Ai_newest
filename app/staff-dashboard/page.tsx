@@ -37,6 +37,7 @@ import {
   Shield,
   Loader2,
   Target,
+  Navigation2,
 } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -347,7 +348,13 @@ export default function StaffDashboard() {
                 notes: sh.notes || '',
               }
             })
-            .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            .sort((a: any, b: any) => {
+              const dateA = a.date ? new Date(a.date).getTime() : 0
+              const dateB = b.date ? new Date(b.date).getTime() : 0
+              if (isNaN(dateA)) return 1
+              if (isNaN(dateB)) return -1
+              return dateA - dateB
+            })
           setUpcomingShifts(mapped)
         }
         // load pending cancel requests for this staff
@@ -544,7 +551,15 @@ export default function StaffDashboard() {
                 name: training.title || training.training || "Unknown Training",
                 progress: 100,
                 completed: true,
-                dueDate: training.completionDate ? `Completed ${new Date(training.completionDate).toLocaleDateString()}` : "Completed",
+                dueDate: training.completionDate ? (() => {
+                  try {
+                    const date = new Date(training.completionDate)
+                    if (isNaN(date.getTime())) return "Completed"
+                    return `Completed ${date.toLocaleDateString()}`
+                  } catch {
+                    return "Completed"
+                  }
+                })() : "Completed",
                 completionDate: training.completionDate || training.completed_at,
                 trainingId: training.trainingId || training.id,
                 status: "completed",
@@ -635,7 +650,15 @@ export default function StaffDashboard() {
               const baseName = (d.file_name || d.document_type || '').replace(/\.[^/.]+$/, '')
               const name = d.document_type === 'license' ? (baseName || 'License') : (baseName || 'Certification')
               const status = d.status === 'verified' ? 'Active' : (d.status === 'pending' ? 'Pending' : 'Needs Review')
-              const expires = d.expiration_date ? new Date(d.expiration_date).toISOString().split('T')[0] : '—'
+              const expires = d.expiration_date ? (() => {
+                try {
+                  const date = new Date(d.expiration_date)
+                  if (isNaN(date.getTime())) return '—'
+                  return date.toISOString().split('T')[0]
+                } catch {
+                  return '—'
+                }
+              })() : '—'
               return { name, status, expires }
             })
           setCertsFromDocs(mapped)
@@ -731,7 +754,13 @@ export default function StaffDashboard() {
                 notes: sh.notes || '',
               }
             })
-            .sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+            .sort((a: any, b: any) => {
+              const dateA = a.date ? new Date(a.date).getTime() : 0
+              const dateB = b.date ? new Date(b.date).getTime() : 0
+              if (isNaN(dateA)) return 1
+              if (isNaN(dateB)) return -1
+              return dateA - dateB
+            })
           setUpcomingShifts(mapped)
         }
         // load pending cancel requests for this staff
@@ -1349,7 +1378,7 @@ export default function StaffDashboard() {
                 <CardContent className="p-6">
                   <div className="flex items-center">
                     <div className="p-2 bg-red-100 rounded-lg">
-                      <Navigation className="h-6 w-6 text-red-600" />
+                      <Navigation2 className="h-6 w-6 text-red-600" />
                     </div>
                     <div className="ml-4">
                       <p className="text-sm font-medium text-gray-600">GPS Miles (Today)</p>
@@ -1400,12 +1429,20 @@ export default function StaffDashboard() {
                           </div>
                           <div>
                             <p className="font-medium">
-                              {shift.date ? new Date(shift.date).toLocaleDateString('en-US', {
+                              {shift.date ? (() => {
+                            try {
+                              const date = new Date(shift.date)
+                              if (isNaN(date.getTime())) return 'Date TBD'
+                              return date.toLocaleDateString('en-US', {
                                 weekday: 'long',
                                 year: 'numeric',
                                 month: 'long',
                                 day: 'numeric'
-                              }) : 'Date TBD'}
+                              })
+                            } catch {
+                              return 'Date TBD'
+                            }
+                          })() : 'Date TBD'}
                             </p>
                             <p className="text-sm text-gray-600">{shift.time || `${shift.start_time || ''} - ${shift.end_time || ''}`}</p>
                           </div>
@@ -1799,7 +1836,15 @@ export default function StaffDashboard() {
                     {displayStaff.supplyTransactions.slice(0, 10).map((transaction) => (
                       <TableRow key={transaction.id}>
                         <TableCell className="text-sm">
-                          {new Date(transaction.checkedOutAt).toLocaleDateString()}
+                          {(() => {
+                            try {
+                              const date = new Date(transaction.checkedOutAt)
+                              if (isNaN(date.getTime())) return 'N/A'
+                              return date.toLocaleDateString()
+                            } catch {
+                              return 'N/A'
+                            }
+                          })()}
                         </TableCell>
                         <TableCell>
                           <div>
@@ -1865,12 +1910,20 @@ export default function StaffDashboard() {
                           </div>
                           <div>
                             <p className="font-medium">
-                              {shift.date ? new Date(shift.date).toLocaleDateString('en-US', {
+                              {shift.date ? (() => {
+                            try {
+                              const date = new Date(shift.date)
+                              if (isNaN(date.getTime())) return 'Date TBD'
+                              return date.toLocaleDateString('en-US', {
                                 weekday: 'long',
                                 year: 'numeric',
                                 month: 'long',
                                 day: 'numeric'
-                              }) : 'Date TBD'}
+                              })
+                            } catch {
+                              return 'Date TBD'
+                            }
+                          })() : 'Date TBD'}
                             </p>
                             <p className="text-sm text-gray-600">{shift.time || `${shift.start_time || ''} - ${shift.end_time || ''}`}</p>
                           </div>

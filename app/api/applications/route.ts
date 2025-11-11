@@ -507,6 +507,7 @@ export async function GET(request: NextRequest) {
           job_title: app.job_title,
           status: app.status,
           applied_date: app.applied_date,
+          updated_at: app.updated_at, // Include updated_at for calculating days to hire
           interview_date: app.interview_date,
           interview_time: app.interview_time,
           interview_location: app.interview_location,
