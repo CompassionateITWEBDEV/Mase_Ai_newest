@@ -795,19 +795,19 @@ export default function StaffTrackingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 pb-4 lg:pb-8 ml-0 lg:ml-0">
       {/* Professional Header */}
       <div className="bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-3">
-                <div className="p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
-                  <Navigation className="h-6 w-6 text-white" />
-                </div>
-                GPS Tracking Dashboard
-              </h1>
-              <p className="text-sm text-gray-600 mt-1 ml-14">Real-time location tracking with high-precision GPS technology</p>
+                <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-2 sm:gap-3">
+                  <div className="p-1.5 sm:p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+                    <Navigation className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
+                  </div>
+                  GPS Tracking Dashboard
+                </h1>
+                <p className="text-xs sm:text-sm text-gray-600 mt-1 ml-0 sm:ml-14">Real-time location tracking with high-precision GPS technology</p>
             </div>
             {isTracking && (
               <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
@@ -819,20 +819,20 @@ export default function StaffTrackingPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6">
         {/* Map Section - Professional Layout */}
         <Card className="shadow-xl border-0 overflow-hidden">
-          <CardHeader className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="text-2xl font-bold text-white flex items-center gap-3 mb-2">
-                  <MapPin className="h-6 w-6" />
-                  Live Location Map
-                </CardTitle>
-                <CardDescription className="text-blue-100 text-base">
-                  Interactive real-time GPS tracking with route visualization
-                </CardDescription>
-              </div>
+            <CardHeader className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white p-4 sm:p-6">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 sm:gap-3 mb-2">
+                    <MapPin className="h-5 w-5 sm:h-6 sm:w-6" />
+                    Live Location Map
+                  </CardTitle>
+                  <CardDescription className="text-blue-100 text-sm sm:text-base">
+                    Interactive real-time GPS tracking with route visualization
+                  </CardDescription>
+                </div>
               {location && (
                 <Button 
                   size="sm" 
@@ -847,9 +847,9 @@ export default function StaffTrackingPage() {
               )}
             </div>
           </CardHeader>
-          <CardContent className="p-0">
-            {location ? (
-              <div className="h-[450px] relative">
+            <CardContent className="p-0">
+              {location ? (
+                <div className="h-[300px] sm:h-[400px] lg:h-[450px] relative">
                 <TrackMapView
                   currentLocation={{
                     ...location,
@@ -900,9 +900,9 @@ export default function StaffTrackingPage() {
           </CardContent>
         </Card>
 
-        {/* Real-time Metrics Grid */}
-        {isTracking && location && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {/* Real-time Metrics Grid */}
+          {isTracking && location && (
+            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
             <Card className="border-0 shadow-lg bg-gradient-to-br from-green-50 to-emerald-50 hover:shadow-xl transition-shadow">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
@@ -972,7 +972,7 @@ export default function StaffTrackingPage() {
         )}
 
         {/* Trip Management Section */}
-        <div className="grid md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
           <Card className="shadow-xl border-0">
             <CardHeader className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6">
               <CardTitle className="text-xl font-bold text-white flex items-center gap-3">

@@ -6,6 +6,22 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.
 
 export const dynamic = 'force-dynamic'
 
+// Optimization Settings Interface
+interface OptimizationSettings {
+  prioritizeTimeSavings: boolean
+  considerTrafficPatterns: boolean
+  respectAppointmentWindows: boolean
+  minimizeFuelCosts: boolean
+}
+
+// Default settings
+const defaultSettings: OptimizationSettings = {
+  prioritizeTimeSavings: true,
+  considerTrafficPatterns: true,
+  respectAppointmentWindows: true,
+  minimizeFuelCosts: false
+}
+
 // Haversine formula to calculate distance between two coordinates (in miles)
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 3959 // Earth radius in miles
@@ -17,6 +33,48 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
     Math.sin(dLon / 2) * Math.sin(dLon / 2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
   return R * c
+}
+
+// Calculate time between two points (in minutes) - assumes average speed of 25 mph
+function calculateTime(lat1: number, lon1: number, lat2: number, lon2: number, settings: OptimizationSettings, currentTime?: Date): number {
+  const distance = calculateDistance(lat1, lon1, lat2, lon2)
+  let baseSpeed = 25 // mph - average speed
+  
+  // Traffic pattern simulation based on time of day
+  if (settings.considerTrafficPatterns && currentTime) {
+    const hour = currentTime.getHours()
+    // Rush hours: 7-9 AM and 5-7 PM have slower speeds
+    if ((hour >= 7 && hour < 9) || (hour >= 17 && hour < 19)) {
+      baseSpeed = 15 // Rush hour speed
+    } else if (hour >= 9 && hour < 17) {
+      baseSpeed = 30 // Mid-day speed
+    } else {
+      baseSpeed = 35 // Off-peak speed
+    }
+  }
+  
+  const timeInHours = distance / baseSpeed
+  return timeInHours * 60 // Convert to minutes
+}
+
+// Calculate cost between two points (in dollars)
+function calculateCost(lat1: number, lon1: number, lat2: number, lon2: number, costPerMile: number): number {
+  const distance = calculateDistance(lat1, lon1, lat2, lon2)
+  return distance * costPerMile
+}
+
+// Calculate route cost (weighted by cost per mile)
+function calculateRouteCost(waypoints: Array<{ lat: number, lng: number }>, costPerMile: number): number {
+  if (waypoints.length < 2) return 0
+  let totalCost = 0
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    totalCost += calculateCost(
+      waypoints[i].lat, waypoints[i].lng,
+      waypoints[i + 1].lat, waypoints[i + 1].lng,
+      costPerMile
+    )
+  }
+  return totalCost
 }
 
 // AI-Powered Address Validation and Geocoding
@@ -109,47 +167,135 @@ async function getCoordinates(address: string): Promise<{ lat: number, lng: numb
 }
 
 // Nearest Neighbor algorithm for route optimization (simple TSP approximation)
-function optimizeRouteOrder(waypoints: Array<{ id: string, name: string, lat: number, lng: number, scheduledTime?: string }>): string[] {
+function optimizeRouteOrder(
+  waypoints: Array<{ id: string, name: string, lat: number, lng: number, scheduledTime?: string }>,
+  settings: OptimizationSettings,
+  costPerMile: number = 0.67,
+  currentTime?: Date
+): string[] {
   if (waypoints.length <= 1) return waypoints.map(w => w.id)
   
-  // Start with the first waypoint
+  // Respect appointment windows: Sort by scheduled_time first
+  let sortedWaypoints = [...waypoints]
+  if (settings.respectAppointmentWindows) {
+    sortedWaypoints = sortedWaypoints.sort((a, b) => {
+      if (!a.scheduledTime && !b.scheduledTime) return 0
+      if (!a.scheduledTime) return 1
+      if (!b.scheduledTime) return -1
+      return new Date(a.scheduledTime).getTime() - new Date(b.scheduledTime).getTime()
+    })
+  }
+  
+  // Start with the first waypoint (or earliest scheduled if respecting windows)
   const optimized: string[] = []
-  const remaining = [...waypoints]
+  const remaining = [...sortedWaypoints]
   let current = remaining.shift()!
   optimized.push(current.id)
   
-  // Greedy: always go to nearest unvisited waypoint
+  // Greedy: always go to best unvisited waypoint based on settings
   while (remaining.length > 0) {
-    let nearestIndex = 0
-    let nearestDistance = Infinity
+    let bestIndex = 0
+    let bestScore = Infinity
     
     for (let i = 0; i < remaining.length; i++) {
-      const distance = calculateDistance(
-        current.lat, current.lng,
-        remaining[i].lat, remaining[i].lng
-      )
-      if (distance < nearestDistance) {
-        nearestDistance = distance
-        nearestIndex = i
+      let score: number
+      
+      if (settings.minimizeFuelCosts) {
+        // Minimize cost
+        score = calculateCost(
+          current.lat, current.lng,
+          remaining[i].lat, remaining[i].lng,
+          costPerMile
+        )
+      } else if (settings.prioritizeTimeSavings) {
+        // Minimize time
+        score = calculateTime(
+          current.lat, current.lng,
+          remaining[i].lat, remaining[i].lng,
+          settings,
+          currentTime
+        )
+      } else {
+        // Minimize distance (default)
+        score = calculateDistance(
+          current.lat, current.lng,
+          remaining[i].lat, remaining[i].lng
+        )
+      }
+      
+      // Penalty for missing appointment windows
+      if (settings.respectAppointmentWindows && remaining[i].scheduledTime && currentTime) {
+        const scheduledTime = new Date(remaining[i].scheduledTime)
+        const estimatedArrival = new Date(currentTime.getTime() + score * 60000) // score is in minutes
+        const timeDiff = Math.abs(estimatedArrival.getTime() - scheduledTime.getTime()) / 60000 // minutes
+        if (timeDiff > 30) {
+          score += timeDiff * 0.1 // Penalty for being far from scheduled time
+        }
+      }
+      
+      if (score < bestScore) {
+        bestScore = score
+        bestIndex = i
       }
     }
     
-    current = remaining.splice(nearestIndex, 1)[0]
+    current = remaining.splice(bestIndex, 1)[0]
     optimized.push(current.id)
+    
+    // Update current time for next iteration
+    if (settings.prioritizeTimeSavings && currentTime) {
+      const timeToNext = calculateTime(
+        current.lat, current.lng,
+        current.lat, current.lng, // Same point, just get base time
+        settings,
+        currentTime
+      )
+      currentTime = new Date(currentTime.getTime() + (bestScore + 15) * 60000) // Add travel time + 15 min visit time
+    }
   }
   
   return optimized
 }
 
 // 2-opt algorithm for route improvement (more advanced than Nearest Neighbor)
-function optimizeRoute2Opt(waypoints: Array<{ id: string, name: string, lat: number, lng: number, scheduledTime?: string }>): string[] {
+function optimizeRoute2Opt(
+  waypoints: Array<{ id: string, name: string, lat: number, lng: number, scheduledTime?: string }>,
+  settings: OptimizationSettings,
+  costPerMile: number = 0.67,
+  currentTime?: Date
+): string[] {
   if (waypoints.length <= 2) return waypoints.map(w => w.id)
   
   // Start with Nearest Neighbor solution
-  let route = optimizeRouteOrder(waypoints)
+  let route = optimizeRouteOrder(waypoints, settings, costPerMile, currentTime)
   let improved = true
   const maxIterations = 100
   let iterations = 0
+  
+  const waypointMap = new Map(waypoints.map(w => [w.id, w]))
+  const getWaypoint = (id: string) => waypointMap.get(id)!
+  
+  // Calculate route score based on settings
+  const calculateRouteScore = (r: string[]): number => {
+    let total = 0
+    let time = currentTime ? new Date(currentTime) : new Date()
+    
+    for (let i = 0; i < r.length - 1; i++) {
+      const w1 = getWaypoint(r[i])
+      const w2 = getWaypoint(r[i + 1])
+      
+      if (settings.minimizeFuelCosts) {
+        total += calculateCost(w1.lat, w1.lng, w2.lat, w2.lng, costPerMile)
+      } else if (settings.prioritizeTimeSavings) {
+        const timeToNext = calculateTime(w1.lat, w1.lng, w2.lat, w2.lng, settings, time)
+        total += timeToNext
+        time = new Date(time.getTime() + (timeToNext + 15) * 60000) // Add travel + visit time
+      } else {
+        total += calculateDistance(w1.lat, w1.lng, w2.lat, w2.lng)
+      }
+    }
+    return total
+  }
   
   while (improved && iterations < maxIterations) {
     improved = false
@@ -159,31 +305,21 @@ function optimizeRoute2Opt(waypoints: Array<{ id: string, name: string, lat: num
       for (let j = i + 1; j < route.length; j++) {
         if (j - i === 1) continue // Skip adjacent edges
         
-        // Calculate current distance
-        const waypointMap = new Map(waypoints.map(w => [w.id, w]))
-        const getWaypoint = (id: string) => waypointMap.get(id)!
+        // Calculate current score
+        const currentScore = calculateRouteScore(route)
         
-        const currentDist = 
-          calculateDistance(getWaypoint(route[i - 1]).lat, getWaypoint(route[i - 1]).lng,
-                           getWaypoint(route[i]).lat, getWaypoint(route[i]).lng) +
-          calculateDistance(getWaypoint(route[j]).lat, getWaypoint(route[j]).lng,
-                           getWaypoint(route[j + 1] || route[0]).lat, getWaypoint(route[j + 1] || route[0]).lng)
+        // Create new route with 2-opt swap
+        const newRoute = [
+          ...route.slice(0, i),
+          ...route.slice(i, j + 1).reverse(),
+          ...route.slice(j + 1)
+        ]
         
-        // Calculate new distance after 2-opt swap
-        const newDist = 
-          calculateDistance(getWaypoint(route[i - 1]).lat, getWaypoint(route[i - 1]).lng,
-                           getWaypoint(route[j]).lat, getWaypoint(route[j]).lng) +
-          calculateDistance(getWaypoint(route[i]).lat, getWaypoint(route[i]).lng,
-                           getWaypoint(route[j + 1] || route[0]).lat, getWaypoint(route[j + 1] || route[0]).lng)
+        const newScore = calculateRouteScore(newRoute)
         
         // If improvement, reverse segment
-        if (newDist < currentDist) {
-          // Reverse segment from i to j
-          route = [
-            ...route.slice(0, i),
-            ...route.slice(i, j + 1).reverse(),
-            ...route.slice(j + 1)
-          ]
+        if (newScore < currentScore) {
+          route = newRoute
           improved = true
         }
       }
@@ -194,25 +330,42 @@ function optimizeRoute2Opt(waypoints: Array<{ id: string, name: string, lat: num
 }
 
 // Simulated Annealing algorithm (advanced optimization)
-function optimizeRouteSimulatedAnnealing(waypoints: Array<{ id: string, name: string, lat: number, lng: number, scheduledTime?: string }>): string[] {
+function optimizeRouteSimulatedAnnealing(
+  waypoints: Array<{ id: string, name: string, lat: number, lng: number, scheduledTime?: string }>,
+  settings: OptimizationSettings,
+  costPerMile: number = 0.67,
+  currentTime?: Date
+): string[] {
   if (waypoints.length <= 2) return waypoints.map(w => w.id)
   
   // Start with Nearest Neighbor
-  let route = optimizeRouteOrder(waypoints)
+  let route = optimizeRouteOrder(waypoints, settings, costPerMile, currentTime)
   const waypointMap = new Map(waypoints.map(w => [w.id, w]))
   const getWaypoint = (id: string) => waypointMap.get(id)!
   
-  const calculateRouteDistance = (r: string[]) => {
+  // Calculate route score based on settings
+  const calculateRouteScore = (r: string[]): number => {
     let total = 0
+    let time = currentTime ? new Date(currentTime) : new Date()
+    
     for (let i = 0; i < r.length - 1; i++) {
       const w1 = getWaypoint(r[i])
       const w2 = getWaypoint(r[i + 1])
-      total += calculateDistance(w1.lat, w1.lng, w2.lat, w2.lng)
+      
+      if (settings.minimizeFuelCosts) {
+        total += calculateCost(w1.lat, w1.lng, w2.lat, w2.lng, costPerMile)
+      } else if (settings.prioritizeTimeSavings) {
+        const timeToNext = calculateTime(w1.lat, w1.lng, w2.lat, w2.lng, settings, time)
+        total += timeToNext
+        time = new Date(time.getTime() + (timeToNext + 15) * 60000) // Add travel + visit time
+      } else {
+        total += calculateDistance(w1.lat, w1.lng, w2.lat, w2.lng)
+      }
     }
     return total
   }
   
-  let currentDistance = calculateRouteDistance(route)
+  let currentScore = calculateRouteScore(route)
   let temperature = 1000
   const coolingRate = 0.995
   const minTemperature = 1
@@ -226,13 +379,13 @@ function optimizeRouteSimulatedAnnealing(waypoints: Array<{ id: string, name: st
     if (i !== j) {
       [newRoute[i], newRoute[j]] = [newRoute[j], newRoute[i]]
       
-      const newDistance = calculateRouteDistance(newRoute)
-      const delta = newDistance - currentDistance
+      const newScore = calculateRouteScore(newRoute)
+      const delta = newScore - currentScore
       
       // Accept if better, or accept with probability if worse (simulated annealing)
       if (delta < 0 || Math.random() < Math.exp(-delta / temperature)) {
         route = newRoute
-        currentDistance = newDistance
+        currentScore = newScore
       }
     }
     
@@ -261,6 +414,16 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0]
     const staffId = searchParams.get('staff_id')
+    
+    // Get optimization settings from query params or use defaults
+    const settings: OptimizationSettings = {
+      prioritizeTimeSavings: searchParams.get('prioritizeTimeSavings') !== 'false',
+      considerTrafficPatterns: searchParams.get('considerTrafficPatterns') !== 'false',
+      respectAppointmentWindows: searchParams.get('respectAppointmentWindows') !== 'false',
+      minimizeFuelCosts: searchParams.get('minimizeFuelCosts') === 'true'
+    }
+    
+    const currentTime = new Date() // Current time for traffic pattern calculations
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { autoRefreshToken: false, persistSession: false }
@@ -546,21 +709,24 @@ export async function GET(request: NextRequest) {
 
         // AI-Powered Route Optimization: Run all three algorithms and compare results
         console.log(`🔍 Running AI optimization for ${staff.name} with ${waypoints.length} waypoints`)
+        console.log(`   Settings:`, settings)
         
-        // Run Nearest Neighbor algorithm
-        const nnOrder = optimizeRouteOrder(waypoints)
+        const costPerMile = parseFloat(staff.cost_per_mile?.toString() || '0.67')
+        
+        // Run Nearest Neighbor algorithm with settings
+        const nnOrder = optimizeRouteOrder(waypoints, settings, costPerMile, currentTime)
         const nnWaypoints = nnOrder.map(id => waypoints.find(w => w.id === id)!).filter(Boolean)
         const nnDist = calculateRouteDistance(nnWaypoints.map(w => ({ lat: w.lat, lng: w.lng })))
         console.log(`  ✓ Nearest Neighbor: ${nnDist.toFixed(2)} mi`)
         
-        // Run 2-Opt improvement algorithm
-        const twoOptOrder = optimizeRoute2Opt(waypoints)
+        // Run 2-Opt improvement algorithm with settings
+        const twoOptOrder = optimizeRoute2Opt(waypoints, settings, costPerMile, currentTime)
         const twoOptWaypoints = twoOptOrder.map(id => waypoints.find(w => w.id === id)!).filter(Boolean)
         const twoOptDist = calculateRouteDistance(twoOptWaypoints.map(w => ({ lat: w.lat, lng: w.lng })))
         console.log(`  ✓ 2-Opt Improvement: ${twoOptDist.toFixed(2)} mi`)
         
-        // Run Simulated Annealing algorithm
-        const saOrder = optimizeRouteSimulatedAnnealing(waypoints)
+        // Run Simulated Annealing algorithm with settings
+        const saOrder = optimizeRouteSimulatedAnnealing(waypoints, settings, costPerMile, currentTime)
         const saWaypoints = saOrder.map(id => waypoints.find(w => w.id === id)!).filter(Boolean)
         const saDist = calculateRouteDistance(saWaypoints.map(w => ({ lat: w.lat, lng: w.lng })))
         console.log(`  ✓ Simulated Annealing: ${saDist.toFixed(2)} mi`)
@@ -608,9 +774,46 @@ export async function GET(request: NextRequest) {
         const improvementPercent = currentDistance > 0 
           ? ((distanceSaved / currentDistance) * 100).toFixed(1)
           : '0.0'
-        const costPerMile = parseFloat(staff.cost_per_mile?.toString() || '0.67')
         const costSaved = distanceSaved * costPerMile
-        const timeSaved = Math.round((distanceSaved / 25) * 60) // Assuming 25 mph average
+        
+        // Calculate time saved based on settings
+        let timeSaved: number
+        if (settings.prioritizeTimeSavings) {
+          // Calculate actual time saved using traffic-aware calculations
+          // Sum up time for current route
+          let currentTimeTotal = 0
+          let time = new Date(currentTime)
+          for (let i = 0; i < sortedBySchedule.length - 1; i++) {
+            const timeToNext = calculateTime(
+              sortedBySchedule[i].lat, sortedBySchedule[i].lng,
+              sortedBySchedule[i + 1].lat, sortedBySchedule[i + 1].lng,
+              settings,
+              time
+            )
+            currentTimeTotal += timeToNext
+            time = new Date(time.getTime() + (timeToNext + 15) * 60000) // Add travel + 15 min visit time
+          }
+          
+          // Sum up time for optimized route
+          let optimizedTimeTotal = 0
+          time = new Date(currentTime)
+          for (let i = 0; i < optimizedWaypoints.length - 1; i++) {
+            const timeToNext = calculateTime(
+              optimizedWaypoints[i].lat, optimizedWaypoints[i].lng,
+              optimizedWaypoints[i + 1].lat, optimizedWaypoints[i + 1].lng,
+              settings,
+              time
+            )
+            optimizedTimeTotal += timeToNext
+            time = new Date(time.getTime() + (timeToNext + 15) * 60000) // Add travel + 15 min visit time
+          }
+          
+          timeSaved = Math.round(currentTimeTotal - optimizedTimeTotal)
+        } else {
+          // Fallback to distance-based calculation
+          const avgSpeed = settings.considerTrafficPatterns ? 25 : 25
+          timeSaved = Math.round((distanceSaved / avgSpeed) * 60)
+        }
 
         return {
           staffId: staff.id,
@@ -692,7 +895,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { staffId, optimizedOrder } = await request.json()
+    const { staffId, optimizedOrder, scheduledTimes } = await request.json()
 
     if (!staffId || !optimizedOrder || !Array.isArray(optimizedOrder)) {
       return NextResponse.json({ error: "Staff ID and optimized order are required" }, { status: 400 })
@@ -702,23 +905,36 @@ export async function POST(request: NextRequest) {
       auth: { autoRefreshToken: false, persistSession: false }
     })
 
-    // Update visit order by updating scheduled_time based on optimized order
-    // We'll set scheduled_time to sequential times based on the new order
-    const today = new Date()
-    today.setHours(8, 0, 0, 0) // Start at 8 AM
+    // If scheduledTimes is provided, use those (from schedule optimization)
+    if (scheduledTimes && Array.isArray(scheduledTimes)) {
+      for (const item of scheduledTimes) {
+        await supabase
+          .from('staff_visits')
+          .update({
+            scheduled_time: item.scheduledTime
+          })
+          .eq('id', item.visitId)
+          .eq('staff_id', staffId)
+      }
+    } else {
+      // Fallback: Update visit order by updating scheduled_time based on optimized order
+      // We'll set scheduled_time to sequential times based on the new order
+      const today = new Date()
+      today.setHours(8, 0, 0, 0) // Start at 8 AM
 
-    for (let i = 0; i < optimizedOrder.length; i++) {
-      const visitId = optimizedOrder[i]
-      const scheduledTime = new Date(today)
-      scheduledTime.setMinutes(scheduledTime.getMinutes() + (i * 30)) // 30 minutes between visits
+      for (let i = 0; i < optimizedOrder.length; i++) {
+        const visitId = optimizedOrder[i]
+        const scheduledTime = new Date(today)
+        scheduledTime.setMinutes(scheduledTime.getMinutes() + (i * 30)) // 30 minutes between visits
 
-      await supabase
-        .from('staff_visits')
-        .update({
-          scheduled_time: scheduledTime.toISOString()
-        })
-        .eq('id', visitId)
-        .eq('staff_id', staffId)
+        await supabase
+          .from('staff_visits')
+          .update({
+            scheduled_time: scheduledTime.toISOString()
+          })
+          .eq('id', visitId)
+          .eq('staff_id', staffId)
+      }
     }
 
     return NextResponse.json({

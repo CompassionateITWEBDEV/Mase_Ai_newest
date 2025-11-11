@@ -116,10 +116,10 @@ export default function StaffGpsTracker({ staffFleet, filter }: StaffGpsTrackerP
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
       {/* Map View */}
-      <div className="lg:col-span-2">
-        <Card className="h-[600px]">
+      <div className="lg:col-span-2 order-2 lg:order-1">
+        <Card className="h-[400px] sm:h-[500px] lg:h-[600px]">
           <CardContent className="p-0 h-full relative">
             <LiveStaffMap
               staffFleet={filteredFleet}
@@ -131,7 +131,7 @@ export default function StaffGpsTracker({ staffFleet, filter }: StaffGpsTrackerP
       </div>
 
       {/* Staff Details & List */}
-      <div className="space-y-4">
+      <div className="space-y-4 order-1 lg:order-2">
         {selectedStaff && (
           <Card>
             <CardHeader>

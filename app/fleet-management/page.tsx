@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Map, Clock, DollarSign, Users, TrendingUp, ListFilter, RefreshCw, Route, Car, Timer, Loader2, AlertCircle, Navigation, Phone, MessageSquare, Eye } from "lucide-react"
+import { Map, Clock, DollarSign, Users, TrendingUp, ListFilter, RefreshCw, Route, Car, Timer, Loader2, AlertCircle, Phone, MessageSquare, Eye } from "lucide-react"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { useToast } from "@/hooks/use-toast"
 import StaffGpsTracker from "@/components/staff-gps-tracker"
@@ -37,6 +37,17 @@ interface StaffFleetMember {
   }>
   drivingCost: number
   phoneNumber?: string
+  routeOptimization?: {
+    currentDistance: number
+    optimizedDistance: number
+    distanceSaved: number
+    timeSaved: number
+    costSaved: number
+    improvementPercent: number
+    isOptimized: boolean
+    optimizedOrder: string[]
+    currentOrder: string[]
+  }
 }
 
 export default function FleetManagementDashboard() {
@@ -45,7 +56,51 @@ export default function FleetManagementDashboard() {
   const [isLoading, setIsLoading] = useState(true)
   const [staffFleet, setStaffFleet] = useState<StaffFleetMember[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [routeOptimizationData, setRouteOptimizationData] = useState<any[]>([])
+  const [optimizingRoute, setOptimizingRoute] = useState<string | null>(null)
+  const [applyingRoute, setApplyingRoute] = useState<string | null>(null)
   const { toast } = useToast()
+
+  // Load route optimization data
+  const loadRouteOptimizationData = async () => {
+    try {
+      const res = await fetch('/api/route-optimization/routes?prioritizeTimeSavings=true&considerTrafficPatterns=true&respectAppointmentWindows=true&minimizeFuelCosts=false', {
+        cache: 'no-store'
+      })
+      
+      if (res.ok) {
+        const data = await res.json()
+        if (data.success && data.routes) {
+          setRouteOptimizationData(data.routes)
+          
+          // Merge route optimization data with staff fleet
+          setStaffFleet(prev => prev.map(staff => {
+            const routeData = data.routes.find((r: any) => r.staffId === staff.id)
+            if (routeData) {
+              return {
+                ...staff,
+                routeOptimization: {
+                  currentDistance: routeData.currentDistance,
+                  optimizedDistance: routeData.optimizedDistance,
+                  distanceSaved: routeData.distanceSaved,
+                  timeSaved: routeData.timeSaved,
+                  costSaved: routeData.costSaved,
+                  improvementPercent: routeData.improvementPercent,
+                  isOptimized: routeData.improvementPercent > 0,
+                  optimizedOrder: routeData.optimizedOrder,
+                  currentOrder: routeData.currentOrder
+                }
+              }
+            }
+            return staff
+          }))
+        }
+      }
+    } catch (err) {
+      console.error('Error loading route optimization data:', err)
+      // Don't show error to user - route optimization is optional
+    }
+  }
 
   // Load real staff fleet data
   useEffect(() => {
@@ -53,6 +108,7 @@ export default function FleetManagementDashboard() {
     
     const loadData = async () => {
       await loadFleetData()
+      await loadRouteOptimizationData()
     }
     
     loadData()
@@ -61,6 +117,7 @@ export default function FleetManagementDashboard() {
     const interval = setInterval(() => {
       if (isMounted) {
         loadFleetData(false) // Don't show loading spinner on auto-refresh
+        loadRouteOptimizationData() // Also refresh route optimization data
       }
     }, 30000) // 30 seconds
     
@@ -150,6 +207,65 @@ export default function FleetManagementDashboard() {
             const inProgressVisit = visits.find((v: any) => v.status === 'in_progress')
             const hasActiveTrip = locationData.success && locationData.hasActiveTrip
 
+            // Get location FIRST - Priority: visit_location (if on visit) > currentLocation > GPS location
+            // Calculate location BEFORE using it in ETA calculation
+            let staffLocation: { lat: number; lng: number } | null = null
+            
+            // Priority 1: If on visit, use visit_location from the API response (locationData.currentVisit.visitLocation)
+            if (locationData.currentVisit?.visitLocation) {
+              try {
+                const visitLoc = locationData.currentVisit.visitLocation as any
+                const visitLat = visitLoc.lat || (Array.isArray(visitLoc) ? visitLoc[0] : null)
+                const visitLng = visitLoc.lng || (Array.isArray(visitLoc) ? visitLoc[1] : null)
+                
+                if (visitLat && visitLng && !isNaN(visitLat) && !isNaN(visitLng)) {
+                  staffLocation = {
+                    lat: parseFloat(visitLat.toString()),
+                    lng: parseFloat(visitLng.toString())
+                  }
+                  console.log(`📍 Using visit_location from API for ${staff.name}: ${staffLocation.lat}, ${staffLocation.lng}`)
+                }
+              } catch (e) {
+                console.warn(`Error parsing visit_location from API for ${staff.name}:`, e)
+              }
+            }
+            
+            // Priority 2: If on visit but no visitLocation in API, check inProgressVisit
+            if (!staffLocation && inProgressVisit && (inProgressVisit as any).visit_location) {
+              try {
+                const visitLoc = (inProgressVisit as any).visit_location as any
+                const visitLat = visitLoc.lat || (Array.isArray(visitLoc) ? visitLoc[0] : null)
+                const visitLng = visitLoc.lng || (Array.isArray(visitLoc) ? visitLoc[1] : null)
+                
+                if (visitLat && visitLng && !isNaN(visitLat) && !isNaN(visitLng)) {
+                  staffLocation = {
+                    lat: parseFloat(visitLat.toString()),
+                    lng: parseFloat(visitLng.toString())
+                  }
+                  console.log(`📍 Using visit_location from inProgressVisit for ${staff.name}: ${staffLocation.lat}, ${staffLocation.lng}`)
+                }
+              } catch (e) {
+                console.warn(`Error parsing visit_location from inProgressVisit for ${staff.name}:`, e)
+              }
+            }
+            
+            // Priority 3: Use currentLocation from GPS updates (always available, even during visits)
+            if (!staffLocation && locationData.success && locationData.currentLocation) {
+              const loc = locationData.currentLocation
+              // For "On Visit" status, always use location if available (even if slightly old)
+              const isRecent = loc.isRecent !== false || locationData.hasActiveTrip || (loc.ageMinutes !== null && loc.ageMinutes <= 60)
+              // Don't use IP geolocation (low accuracy)
+              const isAccurate = !loc.isIPGeolocation && (loc.accuracy === null || loc.accuracy <= 2000)
+              
+              if (isRecent && isAccurate && loc.latitude && loc.longitude) {
+                staffLocation = {
+                  lat: loc.latitude,
+                  lng: loc.longitude
+                }
+                console.log(`📍 Using currentLocation for ${staff.name}: ${staffLocation.lat}, ${staffLocation.lng}`)
+              }
+            }
+
             // Get GPS data
             const hasLocation = locationData.success && locationData.currentLocation
             const locationAge = hasLocation && locationData.currentLocation.ageMinutes !== null 
@@ -166,14 +282,14 @@ export default function FleetManagementDashboard() {
               if (inProgressVisit || locationData.status === 'on_visit') {
                 status = "On Visit"
               }
-              // PRIORITY 2: Check if staff is driving (must have speed > 5 mph)
-              else if (currentSpeed > 5) {
-                // Staff is moving - definitely En Route
+              // PRIORITY 2: Check if staff has ANY speed detected - they are En Route
+              else if (currentSpeed > 0) {
+                // Staff is moving - definitely En Route (any speed means they're driving)
                 status = "En Route"
               }
-              // PRIORITY 3: Check if staff has active trip but is stationary
+              // PRIORITY 3: Check if staff has active trip but is stationary (no speed)
               else if (hasActiveTrip || locationData.status === 'active') {
-                // Has active trip but speed is low/zero - Idle (stationary but on duty)
+                // Has active trip but NO speed - Idle (stationary but on duty)
                 status = "Idle"
               }
               // PRIORITY 4: No active trip and no speed - Offline
@@ -182,13 +298,19 @@ export default function FleetManagementDashboard() {
               }
             } else if (locationData.success && locationData.status) {
               // We have status but no recent location - use status with caution
+              // Check if we have speed data even if location is not recent
+              const speedFromLocation = locationData.currentLocation?.speed || 0
+              
               if (inProgressVisit || locationData.status === 'on_visit') {
                 status = "On Visit"
-              } else if (locationData.status === 'driving') {
-                // API says driving - trust it
+              } 
+              // If there's ANY speed detected, they are En Route
+              else if (speedFromLocation > 0 || locationData.status === 'driving') {
+                // Staff has speed - they are En Route
                 status = "En Route"
-              } else if (hasActiveTrip || locationData.status === 'active') {
-                // Has active trip but no recent location - assume Idle
+              } 
+              else if (hasActiveTrip || locationData.status === 'active') {
+                // Has active trip but NO speed - assume Idle
                 status = "Idle"
               } else {
                 status = "Offline"
@@ -212,16 +334,74 @@ export default function FleetManagementDashboard() {
               status = "Offline"
             }
 
-            // Find next scheduled visit (not started yet) - visits are already sorted by startTime
-            const nextVisit = visits.find((v: any) => v.status !== 'in_progress' && !v.endTime && v.startTime)
+            // Find next scheduled visit (not started yet) - prioritize in_progress, then scheduled, then any future visit
+            const nextVisit = visits.find((v: any) => {
+              // First priority: in_progress visits
+              if (v.status === 'in_progress') return true
+              // Second priority: scheduled visits (not completed, not cancelled)
+              if (v.status !== 'completed' && v.status !== 'cancelled' && !v.endTime) return true
+              return false
+            })
 
             if (inProgressVisit) {
               nextPatient = inProgressVisit.patientName || "Current Patient"
               etaToNext = "In Progress"
             } else if (nextVisit) {
-              nextPatient = nextVisit.patientName || "N/A"
-              // Parse startTime (it's already formatted as time string from API)
-              if (nextVisit.startTime) {
+              nextPatient = nextVisit.patientName || "Unknown Patient"
+              
+              // Calculate ETA based on distance and current location
+              let calculatedETA = "N/A"
+              
+              // Try to get next visit location from address or visit_location
+              const nextVisitLocation = (nextVisit as any).visit_location || 
+                                       (nextVisit as any).location ||
+                                       null
+              
+              // Get current location (use staffLocation which is calculated above)
+              const currentLoc = locationData.success && locationData.currentLocation 
+                ? { lat: locationData.currentLocation.latitude, lng: locationData.currentLocation.longitude }
+                : (staffLocation || null)
+              
+              // If we have both locations, calculate distance and ETA
+              if (currentLoc && nextVisitLocation) {
+                try {
+                  const nextLat = nextVisitLocation.lat || (Array.isArray(nextVisitLocation) ? nextVisitLocation[0] : null)
+                  const nextLng = nextVisitLocation.lng || (Array.isArray(nextVisitLocation) ? nextVisitLocation[1] : null)
+                  
+                  if (nextLat && nextLng && currentLoc.lat && currentLoc.lng) {
+                    // Calculate distance using Haversine formula
+                    const R = 3959 // Earth radius in miles
+                    const dLat = (nextLat - currentLoc.lat) * Math.PI / 180
+                    const dLon = (nextLng - currentLoc.lng) * Math.PI / 180
+                    const a = 
+                      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(currentLoc.lat * Math.PI / 180) * Math.cos(nextLat * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2)
+                    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+                    const distance = R * c
+                    
+                    // Calculate ETA based on current speed or average speed (25 mph)
+                    const avgSpeed = currentSpeed > 0 ? currentSpeed : 25 // Use current speed if available, else 25 mph
+                    const timeInMinutes = Math.round((distance / avgSpeed) * 60)
+                    
+                    if (timeInMinutes < 60) {
+                      calculatedETA = `${timeInMinutes} min`
+                    } else {
+                      const hours = Math.floor(timeInMinutes / 60)
+                      const minutes = timeInMinutes % 60
+                      calculatedETA = `${hours}h ${minutes}m`
+                    }
+                  }
+                } catch (e) {
+                  console.warn('Error calculating ETA:', e)
+                }
+              }
+              
+              // If calculated ETA is available, use it; otherwise try to use scheduled time
+              if (calculatedETA !== "N/A") {
+                etaToNext = calculatedETA
+              } else if (nextVisit.startTime) {
+                // Fallback to scheduled time if available
                 try {
                   // Try to parse if it's a time string like "2:30 PM"
                   const timeMatch = nextVisit.startTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
@@ -235,8 +415,31 @@ export default function FleetManagementDashboard() {
                     }
                   }
                 } catch (e) {
-                  etaToNext = nextVisit.startTime
+                  etaToNext = nextVisit.startTime || "N/A"
                 }
+              } else {
+                // If no location data and no scheduled time, check if there's an address to geocode
+                const nextAddress = nextVisit.address || (nextVisit as any).patientAddress
+                if (nextAddress && nextAddress !== "N/A" && currentLoc) {
+                  // Could geocode here, but for now show "Calculating..."
+                  etaToNext = "Calculating..."
+                }
+              }
+            } else {
+              // No next visit found - check if there are any future visits
+              const futureVisits = visits.filter((v: any) => 
+                v.status !== 'completed' && 
+                v.status !== 'cancelled' && 
+                v.status !== 'in_progress'
+              )
+              
+              if (futureVisits.length > 0) {
+                const firstFuture = futureVisits[0]
+                nextPatient = firstFuture.patientName || "Scheduled Visit"
+                etaToNext = firstFuture.startTime || "Scheduled"
+              } else {
+                nextPatient = "No upcoming visits"
+                etaToNext = "N/A"
               }
             }
 
@@ -256,64 +459,6 @@ export default function FleetManagementDashboard() {
               address: v.address || "N/A",
               status: v.status || 'in_progress'
             }))
-
-            // Get location - Priority: visit_location (if on visit) > currentLocation > GPS location
-            let location = null
-            
-            // Priority 1: If on visit, use visit_location from the API response (locationData.currentVisit.visitLocation)
-            if (status === "On Visit" && locationData.currentVisit?.visitLocation) {
-              try {
-                const visitLoc = locationData.currentVisit.visitLocation as any
-                const visitLat = visitLoc.lat || (Array.isArray(visitLoc) ? visitLoc[0] : null)
-                const visitLng = visitLoc.lng || (Array.isArray(visitLoc) ? visitLoc[1] : null)
-                
-                if (visitLat && visitLng && !isNaN(visitLat) && !isNaN(visitLng)) {
-                  location = {
-                    lat: parseFloat(visitLat.toString()),
-                    lng: parseFloat(visitLng.toString())
-                  }
-                  console.log(`📍 Using visit_location from API for ${staff.name} (On Visit): ${location.lat}, ${location.lng}`)
-                }
-              } catch (e) {
-                console.warn(`Error parsing visit_location from API for ${staff.name}:`, e)
-              }
-            }
-            
-            // Priority 2: If on visit but no visitLocation in API, check inProgressVisit
-            if (!location && status === "On Visit" && inProgressVisit && (inProgressVisit as any).visit_location) {
-              try {
-                const visitLoc = (inProgressVisit as any).visit_location as any
-                const visitLat = visitLoc.lat || (Array.isArray(visitLoc) ? visitLoc[0] : null)
-                const visitLng = visitLoc.lng || (Array.isArray(visitLoc) ? visitLoc[1] : null)
-                
-                if (visitLat && visitLng && !isNaN(visitLat) && !isNaN(visitLng)) {
-                  location = {
-                    lat: parseFloat(visitLat.toString()),
-                    lng: parseFloat(visitLng.toString())
-                  }
-                  console.log(`📍 Using visit_location from inProgressVisit for ${staff.name} (On Visit): ${location.lat}, ${location.lng}`)
-                }
-              } catch (e) {
-                console.warn(`Error parsing visit_location from inProgressVisit for ${staff.name}:`, e)
-              }
-            }
-            
-            // Priority 3: Use currentLocation from GPS updates (always available, even during visits)
-            if (!location && locationData.success && locationData.currentLocation) {
-              const loc = locationData.currentLocation
-              // For "On Visit" status, always use location if available (even if slightly old)
-              const isRecent = loc.isRecent !== false || locationData.hasActiveTrip || status === "On Visit" || (loc.ageMinutes !== null && loc.ageMinutes <= 60)
-              // Don't use IP geolocation (low accuracy)
-              const isAccurate = !loc.isIPGeolocation && (loc.accuracy === null || loc.accuracy <= 2000)
-              
-              if (isRecent && isAccurate && loc.latitude && loc.longitude) {
-                location = {
-                  lat: loc.latitude,
-                  lng: loc.longitude
-                }
-                console.log(`📍 Using currentLocation for ${staff.name}${status === "On Visit" ? " (On Visit)" : ""}: ${location.lat}, ${location.lng}`)
-              }
-            }
 
             // Extract phone number - check multiple possible field names
             const extractedPhone = (
@@ -338,7 +483,7 @@ export default function FleetManagementDashboard() {
               numberOfVisits: todayStats.totalVisits || 0,
               averageVisitDuration: todayStats.avgVisitDuration || 0,
               efficiencyScore,
-              location,
+              location: staffLocation,
               visitDetails,
               drivingCost: todayStats.totalCost || 0,
               phoneNumber
@@ -389,8 +534,109 @@ export default function FleetManagementDashboard() {
     }
   }
 
-  const handleRefresh = () => {
-    loadFleetData()
+  const handleRefresh = async () => {
+    await loadFleetData()
+    await loadRouteOptimizationData()
+  }
+
+  // Quick optimize route for a specific staff
+  const handleQuickOptimize = async (staffId: string, staffName: string) => {
+    try {
+      setOptimizingRoute(staffId)
+      
+      // Call route optimization API for this specific staff
+      const res = await fetch(`/api/route-optimization/routes?staff_id=${staffId}&prioritizeTimeSavings=true&considerTrafficPatterns=true&respectAppointmentWindows=true`, {
+        cache: 'no-store'
+      })
+      
+      if (!res.ok) {
+        throw new Error('Failed to optimize route')
+      }
+      
+      const data = await res.json()
+      if (data.success && data.routes && data.routes.length > 0) {
+        const routeData = data.routes[0]
+        
+        // Update staff fleet with optimization data
+        setStaffFleet(prev => prev.map(staff => {
+          if (staff.id === staffId) {
+            return {
+              ...staff,
+              routeOptimization: {
+                currentDistance: routeData.currentDistance,
+                optimizedDistance: routeData.optimizedDistance,
+                distanceSaved: routeData.distanceSaved,
+                timeSaved: routeData.timeSaved,
+                costSaved: routeData.costSaved,
+                improvementPercent: routeData.improvementPercent,
+                isOptimized: routeData.improvementPercent > 0,
+                optimizedOrder: routeData.optimizedOrder,
+                currentOrder: routeData.currentOrder
+              }
+            }
+          }
+          return staff
+        }))
+        
+        toast({
+          title: "Route Optimized",
+          description: `${staffName}: Save ${routeData.distanceSaved.toFixed(1)} mi, ${routeData.timeSaved} min, $${routeData.costSaved.toFixed(2)}`,
+        })
+      }
+    } catch (err: any) {
+      console.error('Error optimizing route:', err)
+      toast({
+        title: "Optimization Failed",
+        description: err.message || "Failed to optimize route",
+        variant: "destructive"
+      })
+    } finally {
+      setOptimizingRoute(null)
+    }
+  }
+
+  // Apply optimized route to database
+  const handleApplyOptimizedRoute = async (staffId: string, staffName: string) => {
+    try {
+      setApplyingRoute(staffId)
+      
+      const staff = staffFleet.find(s => s.id === staffId)
+      if (!staff || !staff.routeOptimization) {
+        throw new Error('No optimized route available')
+      }
+      
+      const res = await fetch('/api/route-optimization/routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId: staffId,
+          optimizedOrder: staff.routeOptimization.optimizedOrder
+        })
+      })
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        throw new Error(errorData.error || 'Failed to apply route')
+      }
+      
+      toast({
+        title: "Route Applied",
+        description: `Optimized route has been applied for ${staffName}`,
+      })
+      
+      // Refresh data to show updated route
+      await loadFleetData(false)
+      await loadRouteOptimizationData()
+    } catch (err: any) {
+      console.error('Error applying route:', err)
+      toast({
+        title: "Failed to Apply Route",
+        description: err.message || "Failed to apply optimized route",
+        variant: "destructive"
+      })
+    } finally {
+      setApplyingRoute(null)
+    }
   }
 
   const summaryStats = useMemo(() => {
@@ -398,6 +644,7 @@ export default function FleetManagementDashboard() {
     const enRoute = staffFleet.filter((s) => s.status === "En Route").length
     const onVisit = staffFleet.filter((s) => s.status === "On Visit").length
     const idle = staffFleet.filter((s) => s.status === "Idle").length
+    const offline = staffFleet.filter((s) => s.status === "Offline").length
     const totalDistance = staffFleet.reduce((sum, s) => sum + s.totalDistanceToday, 0)
     const totalDriveTime = staffFleet.reduce((sum, s) => sum + s.totalDriveTimeToday, 0)
     const totalVisitTime = staffFleet.reduce((sum, s) => sum + s.totalVisitTimeToday, 0)
@@ -406,18 +653,58 @@ export default function FleetManagementDashboard() {
       ? staffFleet.reduce((sum, s) => sum + s.efficiencyScore, 0) / totalStaff
       : 0
     const totalDrivingCost = staffFleet.reduce((sum, s) => sum + s.drivingCost, 0)
+    
+    // Calculate average cost per mile from actual staff data
+    const staffWithDistance = staffFleet.filter(s => s.totalDistanceToday > 0)
+    const avgCostPerMile = staffWithDistance.length > 0
+      ? staffWithDistance.reduce((sum, s) => {
+          const costPerMile = s.drivingCost > 0 && s.totalDistanceToday > 0
+            ? s.drivingCost / s.totalDistanceToday
+            : 0.67 // Default if no data
+          return sum + costPerMile
+        }, 0) / staffWithDistance.length
+      : 0.67 // Default IRS rate
+    
+    // Calculate average visit duration
+    const staffWithVisits = staffFleet.filter(s => s.numberOfVisits > 0)
+    const avgVisitDuration = staffWithVisits.length > 0
+      ? staffWithVisits.reduce((sum, s) => sum + (s.averageVisitDuration || 0), 0) / staffWithVisits.length
+      : 0
+    
+    // Calculate total active time (drive + visit)
+    const totalActiveTime = totalDriveTime + totalVisitTime
+    
+    // Calculate productivity metrics
+    const productivityRatio = totalActiveTime > 0
+      ? (totalVisitTime / totalActiveTime) * 100
+      : 0
+    
+    const visitsPerHour = totalActiveTime > 0
+      ? (totalVisits / totalActiveTime) * 60
+      : 0
+    
+    const milesPerVisit = totalVisits > 0
+      ? totalDistance / totalVisits
+      : 0
 
     return {
       totalStaff,
       enRoute,
       onVisit,
       idle,
+      offline,
       totalDistance,
       totalDriveTime,
       totalVisitTime,
       totalVisits,
       avgEfficiency,
       totalDrivingCost,
+      avgCostPerMile,
+      avgVisitDuration,
+      totalActiveTime,
+      productivityRatio,
+      visitsPerHour,
+      milesPerVisit,
     }
   }, [staffFleet])
 
@@ -432,7 +719,7 @@ export default function FleetManagementDashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-8 flex items-center justify-center">
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
           <p className="text-gray-600">Loading fleet data...</p>
@@ -442,25 +729,17 @@ export default function FleetManagementDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <header className="mb-8">
-        <div className="flex items-center justify-between">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8 pb-4 sm:pb-6 lg:pb-8 ml-0 lg:ml-0">
+      <header className="mb-4 sm:mb-6 lg:mb-8">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Fleet Management & Route Optimization</h1>
-            <p className="text-gray-600">Real-time GPS tracking and performance analytics for field staff.</p>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Fleet Management & Route Optimization</h1>
+            <p className="text-sm sm:text-base text-gray-600 mt-1">Real-time GPS tracking and performance analytics for field staff.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
             <Badge variant="outline" className="text-xs">
               Auto-refresh: 30s
             </Badge>
-            <Button 
-              variant="outline" 
-              onClick={() => window.location.href = '/route-optimization'}
-              className="bg-green-50 hover:bg-green-100 text-green-700 border-green-200"
-            >
-              <Navigation className="h-4 w-4 mr-2" />
-              Route Optimization
-            </Button>
             <Button onClick={handleRefresh} disabled={isLoading}>
               <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
               Refresh Data
@@ -477,7 +756,7 @@ export default function FleetManagementDashboard() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4 lg:gap-6 mb-4 sm:mb-6 lg:mb-8">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Driving Cost</CardTitle>
@@ -530,11 +809,40 @@ export default function FleetManagementDashboard() {
             <p className="text-xs text-muted-foreground">{summaryStats.idle} idle</p>
           </CardContent>
         </Card>
+        
+        {/* Route Optimization Summary Card */}
+        <Card className="bg-gradient-to-br from-green-50 to-emerald-50 border-green-200">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Route Optimization</CardTitle>
+            <Route className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-700">
+              {routeOptimizationData.filter((r: any) => r.improvementPercent > 0).length}/{routeOptimizationData.length}
+            </div>
+            <p className="text-xs text-green-600">
+              {routeOptimizationData.length > 0 
+                ? `${routeOptimizationData.filter((r: any) => r.improvementPercent > 5).length} routes can be optimized`
+                : 'No routes available'}
+            </p>
+            {routeOptimizationData.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-2 w-full text-xs border-green-300 text-green-700 hover:bg-green-100"
+                onClick={() => window.location.href = '/route-optimization'}
+              >
+                <Route className="h-3 w-3 mr-1" />
+                Optimize All
+              </Button>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Main Content Tabs */}
-      <Tabs defaultValue="map" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+      <Tabs defaultValue="map" className="space-y-4 sm:space-y-6">
+        <TabsList className="grid w-full grid-cols-3 text-xs sm:text-sm">
           <TabsTrigger value="map">Live Map</TabsTrigger>
           <TabsTrigger value="performance">Staff Performance</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
@@ -594,22 +902,24 @@ export default function FleetManagementDashboard() {
                     <p className="text-gray-600">No staff data available.</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Staff Member</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Visits</TableHead>
-                          <TableHead>Drive Time</TableHead>
-                          <TableHead>Visit Time</TableHead>
-                          <TableHead>Miles</TableHead>
-                          <TableHead>Cost</TableHead>
-                          <TableHead>Efficiency</TableHead>
-                          <TableHead className="text-right">Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
+                  <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+                    <Table className="min-w-full">
+                    <TableHeader>
+                      <TableRow>
+                          <TableHead className="min-w-[150px]">Staff Member</TableHead>
+                          <TableHead className="min-w-[100px]">Status</TableHead>
+                          <TableHead className="min-w-[120px] hidden sm:table-cell">Next Patient</TableHead>
+                          <TableHead className="min-w-[80px] hidden md:table-cell">ETA</TableHead>
+                          <TableHead className="min-w-[80px]">Visits</TableHead>
+                          <TableHead className="min-w-[100px] hidden lg:table-cell">Drive Time</TableHead>
+                          <TableHead className="min-w-[100px] hidden lg:table-cell">Visit Time</TableHead>
+                          <TableHead className="min-w-[80px] hidden md:table-cell">Miles</TableHead>
+                          <TableHead className="min-w-[80px] hidden lg:table-cell">Cost</TableHead>
+                          <TableHead className="min-w-[100px] hidden sm:table-cell">Efficiency</TableHead>
+                          <TableHead className="text-right min-w-[120px]">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
                         {staffFleet.map((staff) => {
                           // Helper function to format phone number for WhatsApp
                           const formatPhoneForWhatsApp = (phone: string): string => {
@@ -731,18 +1041,18 @@ export default function FleetManagementDashboard() {
                           }
 
                           return (
-                            <TableRow
-                              key={staff.id}
+                        <TableRow
+                          key={staff.id}
                               className="hover:bg-gray-50 cursor-pointer"
-                              onClick={() => setSelectedStaff(staff.id)}
-                            >
-                              <TableCell>
-                                <div>
-                                  <div className="font-medium">{staff.name}</div>
-                                  <div className="text-sm text-gray-500">{staff.role}</div>
-                                </div>
-                              </TableCell>
-                              <TableCell>
+                          onClick={() => setSelectedStaff(staff.id)}
+                        >
+                          <TableCell>
+                            <div>
+                              <div className="font-medium">{staff.name}</div>
+                              <div className="text-sm text-gray-500">{staff.role}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
                                 <Badge
                                   variant="outline"
                                   className={
@@ -755,32 +1065,86 @@ export default function FleetManagementDashboard() {
                                   {staff.status}
                                 </Badge>
                               </TableCell>
-                              <TableCell>
+                              <TableCell className="hidden sm:table-cell">
+                                <div className="text-sm">
+                                  <div className="font-medium text-gray-900">{staff.nextPatient}</div>
+                                </div>
+                              </TableCell>
+                              <TableCell className="hidden md:table-cell">
+                                <div className="text-sm">
+                                  <div className="text-gray-600">{staff.etaToNext}</div>
+                                </div>
+                          </TableCell>
+                          <TableCell>
                                 <Badge variant="outline">{staff.numberOfVisits}</Badge>
                               </TableCell>
-                              <TableCell>
-                                {Math.floor(staff.totalDriveTimeToday / 60)}h {staff.totalDriveTimeToday % 60}m
-                              </TableCell>
-                              <TableCell>
-                                {Math.floor(staff.totalVisitTimeToday / 60)}h {staff.totalVisitTimeToday % 60}m
-                              </TableCell>
-                              <TableCell>{staff.totalDistanceToday.toFixed(1)} mi</TableCell>
-                              <TableCell>${staff.drivingCost.toFixed(2)}</TableCell>
-                              <TableCell>
-                                <Badge
-                                  variant={
-                                    staff.efficiencyScore >= 90
-                                      ? "default"
-                                      : staff.efficiencyScore >= 80
-                                        ? "secondary"
-                                        : "destructive"
-                                  }
-                                >
-                                  {staff.efficiencyScore}%
-                                </Badge>
-                              </TableCell>
+                              <TableCell className="hidden lg:table-cell">
+                            {Math.floor(staff.totalDriveTimeToday / 60)}h {staff.totalDriveTimeToday % 60}m
+                          </TableCell>
+                              <TableCell className="hidden lg:table-cell">
+                            {Math.floor(staff.totalVisitTimeToday / 60)}h {staff.totalVisitTimeToday % 60}m
+                          </TableCell>
+                              <TableCell className="hidden md:table-cell">{staff.totalDistanceToday.toFixed(1)} mi</TableCell>
+                              <TableCell className="hidden lg:table-cell">${staff.drivingCost.toFixed(2)}</TableCell>
+                              <TableCell className="hidden sm:table-cell">
+                            <Badge
+                              variant={
+                                staff.efficiencyScore >= 90
+                                  ? "default"
+                                  : staff.efficiencyScore >= 80
+                                    ? "secondary"
+                                    : "destructive"
+                              }
+                            >
+                              {staff.efficiencyScore}%
+                            </Badge>
+                          </TableCell>
                               <TableCell>
                                 <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                                  {/* Route Optimization Status Badge */}
+                                  {staff.routeOptimization && (
+                                    <div className="mr-2">
+                                      {staff.routeOptimization.improvementPercent > 5 ? (
+                                        <Badge 
+                                          variant="outline" 
+                                          className="text-xs border-yellow-500 text-yellow-700 bg-yellow-50"
+                                          title={`Can save ${staff.routeOptimization.distanceSaved.toFixed(1)} mi, ${staff.routeOptimization.timeSaved} min, $${staff.routeOptimization.costSaved.toFixed(2)}`}
+                                        >
+                                          <Route className="h-3 w-3 mr-1" />
+                                          {staff.routeOptimization.improvementPercent.toFixed(0)}% better
+                                        </Badge>
+                                      ) : staff.routeOptimization.improvementPercent > 0 ? (
+                                        <Badge 
+                                          variant="outline" 
+                                          className="text-xs border-green-500 text-green-700 bg-green-50"
+                                          title="Route is optimized"
+                                        >
+                                          <Route className="h-3 w-3 mr-1" />
+                                          Optimized
+                                        </Badge>
+                                      ) : null}
+                                    </div>
+                                  )}
+                                  
+                                  {/* Quick Optimize Button */}
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      handleQuickOptimize(staff.id, staff.name)
+                                    }}
+                                    className="h-8 w-8 hover:bg-purple-50 hover:text-purple-600"
+                                    title="Quick Optimize Route"
+                                    disabled={optimizingRoute === staff.id}
+                                  >
+                                    {optimizingRoute === staff.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Route className="h-4 w-4" />
+                                    )}
+                                  </Button>
+                                  
                                   <Button
                                     variant="ghost"
                                     size="icon"
@@ -812,11 +1176,11 @@ export default function FleetManagementDashboard() {
                                   </Button>
                                 </div>
                               </TableCell>
-                            </TableRow>
+                        </TableRow>
                           )
                         })}
-                      </TableBody>
-                    </Table>
+                    </TableBody>
+                  </Table>
                   </div>
                 )}
               </CardContent>
@@ -825,21 +1189,128 @@ export default function FleetManagementDashboard() {
             {selectedStaffData && (
               <Card>
                 <CardHeader>
-                  <CardTitle>{selectedStaffData.name}</CardTitle>
-                  <CardDescription>Detailed visit breakdown</CardDescription>
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg sm:text-xl">{selectedStaffData.name}</CardTitle>
+                      <CardDescription className="text-xs sm:text-sm">
+                        {selectedStaffData.role} • {selectedStaffData.visitDetails.length} visits today
+                      </CardDescription>
+                    </div>
+                    <Badge 
+                      className={
+                        selectedStaffData.status === "En Route" ? "border-blue-500 text-blue-700 bg-blue-50" :
+                        selectedStaffData.status === "On Visit" ? "border-green-500 text-green-700 bg-green-50" :
+                        selectedStaffData.status === "Idle" ? "border-yellow-500 text-yellow-700 bg-yellow-50" :
+                        "border-gray-500 text-gray-700 bg-gray-50"
+                      }
+                    >
+                      {selectedStaffData.status}
+                    </Badge>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4 text-sm">
+                    {/* Route Optimization Section */}
+                    {selectedStaffData.routeOptimization && (
+                      <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-2">
+                            <Route className="h-5 w-5 text-purple-600" />
+                            <h3 className="text-sm font-semibold text-gray-900">Route Optimization</h3>
+                          </div>
+                          {selectedStaffData.routeOptimization.improvementPercent > 0 && (
+                            <Badge className="bg-green-500 text-white">
+                              {selectedStaffData.routeOptimization.improvementPercent.toFixed(1)}% Better
+                            </Badge>
+                          )}
+                        </div>
+                        
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                          <div className="text-xs">
+                            <div className="text-gray-600">Current Distance</div>
+                            <div className="font-bold text-gray-900">{selectedStaffData.routeOptimization.currentDistance.toFixed(1)} mi</div>
+                          </div>
+                          <div className="text-xs">
+                            <div className="text-gray-600">Optimized Distance</div>
+                            <div className="font-bold text-green-600">{selectedStaffData.routeOptimization.optimizedDistance.toFixed(1)} mi</div>
+                          </div>
+                          <div className="text-xs">
+                            <div className="text-gray-600">Time Saved</div>
+                            <div className="font-bold text-blue-600">{selectedStaffData.routeOptimization.timeSaved} min</div>
+                          </div>
+                          <div className="text-xs">
+                            <div className="text-gray-600">Cost Saved</div>
+                            <div className="font-bold text-green-600">${selectedStaffData.routeOptimization.costSaved.toFixed(2)}</div>
+                          </div>
+                        </div>
+                        
+                        {selectedStaffData.routeOptimization.improvementPercent > 0 && (
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleApplyOptimizedRoute(selectedStaffData.id, selectedStaffData.name)}
+                              disabled={applyingRoute === selectedStaffData.id}
+                              className="bg-green-600 hover:bg-green-700 text-white flex-1"
+                            >
+                              {applyingRoute === selectedStaffData.id ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                                  Applying...
+                                </>
+                              ) : (
+                                <>
+                                  <Route className="h-3 w-3 mr-2" />
+                                  Apply Optimized Route
+                                </>
+                              )}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => window.location.href = `/route-optimization?staff=${selectedStaffData.id}`}
+                              className="flex-1"
+                            >
+                              View Details
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+                      <div className="p-3 bg-blue-50 rounded-lg">
+                        <div className="text-xs sm:text-sm text-gray-600">Total Visits</div>
+                        <div className="text-xl sm:text-2xl font-bold">{selectedStaffData.numberOfVisits}</div>
+                      </div>
+                      <div className="p-3 bg-green-50 rounded-lg">
+                        <div className="text-xs sm:text-sm text-gray-600">Efficiency</div>
+                        <div className="text-xl sm:text-2xl font-bold">{selectedStaffData.efficiencyScore}%</div>
+                      </div>
+                      <div className="p-3 bg-purple-50 rounded-lg col-span-2 sm:col-span-1">
+                        <div className="text-xs sm:text-sm text-gray-600">Distance</div>
+                        <div className="text-xl sm:text-2xl font-bold">{selectedStaffData.totalDistanceToday.toFixed(1)} mi</div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 sm:gap-4 pt-2 border-t">
                       <div>
-                        <span className="text-gray-500">Status:</span>
-                        <Badge className="ml-2" variant="outline">
-                          {selectedStaffData.status}
-                        </Badge>
+                        <div className="text-xs sm:text-sm text-gray-600 mb-1">Drive Time</div>
+                        <div className="text-sm sm:text-base font-semibold">
+                          {Math.floor(selectedStaffData.totalDriveTimeToday / 60)}h {selectedStaffData.totalDriveTimeToday % 60}m
+                        </div>
                       </div>
                       <div>
-                        <span className="text-gray-500">Avg Visit:</span>
-                        <span className="ml-2 font-medium">{selectedStaffData.averageVisitDuration.toFixed(0)} min</span>
+                        <div className="text-xs sm:text-sm text-gray-600 mb-1">Visit Time</div>
+                        <div className="text-sm sm:text-base font-semibold">
+                          {Math.floor(selectedStaffData.totalVisitTimeToday / 60)}h {selectedStaffData.totalVisitTimeToday % 60}m
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs sm:text-sm text-gray-600 mb-1">Avg Visit Duration</div>
+                        <div className="text-sm sm:text-base font-semibold">{Math.round(selectedStaffData.averageVisitDuration)} min</div>
+                      </div>
+                      <div>
+                        <div className="text-xs sm:text-sm text-gray-600 mb-1">Driving Cost</div>
+                        <div className="text-sm sm:text-base font-semibold text-green-600">${selectedStaffData.drivingCost.toFixed(2)}</div>
                       </div>
                     </div>
 
@@ -864,7 +1335,7 @@ export default function FleetManagementDashboard() {
                                       return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">In Progress</Badge>
                                     }
                                   })()}
-                                  <Badge variant="secondary">{visit.duration} min</Badge>
+                                <Badge variant="secondary">{visit.duration} min</Badge>
                                 </div>
                               </div>
                               <div className="text-xs text-gray-500">
@@ -886,7 +1357,8 @@ export default function FleetManagementDashboard() {
         </TabsContent>
 
         <TabsContent value="analytics">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="space-y-4 sm:space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
@@ -909,8 +1381,12 @@ export default function FleetManagementDashboard() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-sm">Cost per Mile</span>
-                    <span className="font-bold">$0.67</span>
+                    <span className="text-sm">Avg Cost per Mile</span>
+                    <span className="font-bold">${summaryStats.avgCostPerMile.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Total Cost Today</span>
+                    <span className="font-bold text-green-600">${summaryStats.totalDrivingCost.toFixed(2)}</span>
                   </div>
                 </div>
               </CardContent>
@@ -939,15 +1415,17 @@ export default function FleetManagementDashboard() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Productivity Ratio</span>
+                    <span className="font-bold">{summaryStats.productivityRatio.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Total Active Time</span>
                     <span className="font-bold">
-                      {summaryStats.totalDriveTime + summaryStats.totalVisitTime > 0
-                        ? (
-                            (summaryStats.totalVisitTime / (summaryStats.totalVisitTime + summaryStats.totalDriveTime)) *
-                            100
-                          ).toFixed(1)
-                        : "0.0"}
-                      %
+                      {Math.floor(summaryStats.totalActiveTime / 60)}h {summaryStats.totalActiveTime % 60}m
                     </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Avg Visit Duration</span>
+                    <span className="font-bold">{Math.round(summaryStats.avgVisitDuration)} min</span>
                   </div>
                 </div>
               </CardContent>
@@ -968,26 +1446,101 @@ export default function FleetManagementDashboard() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Visits per Hour</span>
-                    <span className="font-bold">
-                      {summaryStats.totalDriveTime + summaryStats.totalVisitTime > 0
-                        ? (
-                            (summaryStats.totalVisits / (summaryStats.totalDriveTime + summaryStats.totalVisitTime)) *
-                            60
-                          ).toFixed(1)
-                        : "0.0"}
-                    </span>
+                    <span className="font-bold">{summaryStats.visitsPerHour.toFixed(1)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Miles per Visit</span>
+                    <span className="font-bold">{summaryStats.milesPerVisit.toFixed(1)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Total Staff Status</span>
                     <span className="font-bold">
-                      {summaryStats.totalVisits > 0
-                        ? (summaryStats.totalDistance / summaryStats.totalVisits).toFixed(1)
-                        : "0.0"}
+                      {summaryStats.enRoute} En Route, {summaryStats.onVisit} On Visit, {summaryStats.idle} Idle
                     </span>
                   </div>
                 </div>
               </CardContent>
             </Card>
+            </div>
+            
+            {/* Additional Analytics Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center text-lg sm:text-xl">
+                    <Users className="h-5 w-5 mr-2" />
+                    Staff Status Breakdown
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 bg-blue-500 rounded-full"></div>
+                        <span className="text-sm font-medium">En Route</span>
+                      </div>
+                      <span className="font-bold">{summaryStats.enRoute}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 bg-green-500 rounded-full"></div>
+                        <span className="text-sm font-medium">On Visit</span>
+                      </div>
+                      <span className="font-bold">{summaryStats.onVisit}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 bg-yellow-500 rounded-full"></div>
+                        <span className="text-sm font-medium">Idle</span>
+                      </div>
+                      <span className="font-bold">{summaryStats.idle}</span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 bg-gray-500 rounded-full"></div>
+                        <span className="text-sm font-medium">Offline</span>
+                      </div>
+                      <span className="font-bold">{summaryStats.offline}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center text-lg sm:text-xl">
+                    <DollarSign className="h-5 w-5 mr-2" />
+                    Cost Analysis
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center p-3 bg-green-50 rounded-lg">
+                      <span className="text-sm font-medium">Total Cost Today</span>
+                      <span className="text-xl font-bold text-green-600">${summaryStats.totalDrivingCost.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg">
+                      <span className="text-sm font-medium">Cost per Mile (Avg)</span>
+                      <span className="text-lg font-bold">${summaryStats.avgCostPerMile.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-purple-50 rounded-lg">
+                      <span className="text-sm font-medium">Cost per Visit</span>
+                      <span className="text-lg font-bold">
+                        ${summaryStats.totalVisits > 0 
+                          ? (summaryStats.totalDrivingCost / summaryStats.totalVisits).toFixed(2)
+                          : "0.00"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center p-3 bg-orange-50 rounded-lg">
+                      <span className="text-sm font-medium">Projected Daily Cost</span>
+                      <span className="text-lg font-bold">
+                        ${(summaryStats.totalDrivingCost * 1.2).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </TabsContent>
       </Tabs>

@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Navigation, Clock, DollarSign, TrendingUp, MapPin, Zap, BarChart3, Loader2, AlertCircle, RefreshCw, Map, Eye, EyeOff } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Navigation, Clock, DollarSign, TrendingUp, MapPin, Zap, BarChart3, Loader2, AlertCircle, RefreshCw, Map, Eye, EyeOff, Calendar } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
 import { RouteSummaryStats } from "@/components/route-summary-stats"
 import { ApplyRouteModal } from "@/components/apply-route-modal"
@@ -58,18 +59,33 @@ export default function RouteOptimizationPage() {
   const [showApplyModal, setShowApplyModal] = useState(false)
   const [expandedRoute, setExpandedRoute] = useState<string | null>(null)
   const [showMap, setShowMap] = useState(true)
-
-  useEffect(() => {
-    loadRoutes()
-  }, [])
+  const [showScheduleModal, setShowScheduleModal] = useState(false)
+  const [scheduleData, setScheduleData] = useState<any>(null)
+  const [optimizingSchedule, setOptimizingSchedule] = useState(false)
+  
+  // Optimization Settings State
+  const [optimizationSettings, setOptimizationSettings] = useState({
+    prioritizeTimeSavings: true,
+    considerTrafficPatterns: true,
+    respectAppointmentWindows: true,
+    minimizeFuelCosts: false
+  })
 
   const loadRoutes = async () => {
     try {
       setLoading(true)
       setError(null)
       
-      console.log('Loading routes from API...')
-      const res = await fetch('/api/route-optimization/routes', { 
+      console.log('Loading routes from API...', optimizationSettings)
+      
+      // Build query params with optimization settings
+      const params = new URLSearchParams()
+      params.append('prioritizeTimeSavings', optimizationSettings.prioritizeTimeSavings.toString())
+      params.append('considerTrafficPatterns', optimizationSettings.considerTrafficPatterns.toString())
+      params.append('respectAppointmentWindows', optimizationSettings.respectAppointmentWindows.toString())
+      params.append('minimizeFuelCosts', optimizationSettings.minimizeFuelCosts.toString())
+      
+      const res = await fetch(`/api/route-optimization/routes?${params.toString()}`, { 
         cache: 'no-store',
         headers: {
           'Content-Type': 'application/json'
@@ -146,11 +162,22 @@ export default function RouteOptimizationPage() {
     }
   }
 
+  useEffect(() => {
+    loadRoutes()
+  }, [optimizationSettings]) // Reload when settings change
+
   const handleOptimizeAll = async () => {
     setOptimizing(true)
     setError(null)
     try {
-      const res = await fetch('/api/route-optimization/routes', { 
+      // Build query params with optimization settings
+      const params = new URLSearchParams()
+      params.append('prioritizeTimeSavings', optimizationSettings.prioritizeTimeSavings.toString())
+      params.append('considerTrafficPatterns', optimizationSettings.considerTrafficPatterns.toString())
+      params.append('respectAppointmentWindows', optimizationSettings.respectAppointmentWindows.toString())
+      params.append('minimizeFuelCosts', optimizationSettings.minimizeFuelCosts.toString())
+      
+      const res = await fetch(`/api/route-optimization/routes?${params.toString()}`, { 
         cache: 'no-store',
         headers: {
           'Content-Type': 'application/json'
@@ -175,8 +202,8 @@ export default function RouteOptimizationPage() {
         })
         
         if (data.routes && data.routes.length > 0) {
-          toast({
-            title: "Routes Optimized",
+        toast({
+          title: "Routes Optimized",
             description: `Optimized ${data.routes.length} routes. Potential savings: $${data.summary?.totalSavings?.toFixed(2) || '0.00'}`,
           })
         } else {
@@ -259,23 +286,124 @@ export default function RouteOptimizationPage() {
     }
   }
 
+  const handleScheduleOptimization = async () => {
+    if (routeData.length === 0) {
+      toast({
+        title: "No Routes Available",
+        description: "Please optimize routes first before scheduling",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setOptimizingSchedule(true)
+    setError(null)
+    
+    try {
+      // Optimize schedule for all staff with routes
+      const schedulePromises = routeData.map(async (route) => {
+        const res = await fetch('/api/route-optimization/schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            staffId: route.staffId,
+            optimizedOrder: route.optimizedOrder,
+            considerTraffic: optimizationSettings.considerTrafficPatterns
+          })
+        })
+        
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+          throw new Error(errorData.error || `Failed to optimize schedule for ${route.staffName}`)
+        }
+        
+        return res.json()
+      })
+
+      const schedules = await Promise.all(schedulePromises)
+      
+      // Combine all schedules
+      const allSchedules = schedules.map((schedule, index) => ({
+        staffId: routeData[index].staffId,
+        staffName: routeData[index].staffName,
+        schedule: schedule.schedule,
+        metrics: schedule.metrics
+      }))
+
+      setScheduleData(allSchedules)
+      setShowScheduleModal(true)
+      
+      toast({
+        title: "Schedule Optimized",
+        description: `Optimized schedules generated for ${allSchedules.length} staff members`,
+      })
+    } catch (e: any) {
+      console.error("Error optimizing schedule:", e)
+      toast({
+        title: "Error",
+        description: e.message || "Failed to optimize schedule",
+        variant: "destructive"
+      })
+    } finally {
+      setOptimizingSchedule(false)
+    }
+  }
+
+  const handleApplySchedule = async (staffId: string, schedule: any[]) => {
+    try {
+      // Update scheduled_time for each visit
+      const updates = schedule.map(item => ({
+        visitId: item.visitId,
+        scheduledTime: item.suggestedTime
+      }))
+
+      const res = await fetch('/api/route-optimization/routes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId,
+          optimizedOrder: schedule.map(s => s.visitId),
+          scheduledTimes: updates
+        })
+      })
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        throw new Error(errorData.error || `Failed to apply schedule: ${res.status}`)
+      }
+
+      toast({
+        title: "Schedule Applied",
+        description: "Optimized schedule has been applied successfully",
+      })
+      
+      setShowScheduleModal(false)
+      await loadRoutes() // Reload to show updated data
+    } catch (e: any) {
+      console.error("Error applying schedule:", e)
+      toast({
+        title: "Error",
+        description: e.message || "Failed to apply schedule",
+        variant: "destructive"
+      })
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-white p-6">
-      <header className="mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-2xl font-semibold text-gray-900">Route Optimization</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <p className="text-sm text-gray-600">AI-powered multi-algorithm route optimization with interactive maps</p>
-          <Badge className="bg-gradient-to-r from-purple-500 to-blue-500 text-white">
+    <div className="min-h-screen bg-white p-4 sm:p-6 pb-4 sm:pb-6 lg:pb-8 ml-0 lg:ml-0">
+      <header className="mb-4 sm:mb-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 mb-2 sm:mb-1">
+          <h1 className="text-xl sm:text-2xl font-semibold text-gray-900">Route Optimization</h1>
+          <Badge className="bg-gradient-to-r from-purple-500 to-blue-500 text-white text-xs sm:text-sm w-fit">
             <Zap className="h-3 w-3 mr-1" />
             Advanced AI
           </Badge>
         </div>
+        <p className="text-xs sm:text-sm text-gray-600">AI-powered multi-algorithm route optimization with interactive maps</p>
       </header>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Potential Savings</CardTitle>
@@ -322,20 +450,41 @@ export default function RouteOptimizationPage() {
       </div>
 
       {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Route Analysis Table */}
         <div className="lg:col-span-2">
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-0">
                 <div>
-                  <CardTitle>Route Analysis</CardTitle>
-                  <CardDescription>Compare current vs optimized routes for each staff member</CardDescription>
+                  <CardTitle className="text-lg sm:text-xl">Route Analysis</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">Compare current vs optimized routes for each staff member</CardDescription>
                 </div>
-                <Button onClick={handleOptimizeAll} disabled={optimizing} size="sm" className="bg-red-500 hover:bg-red-600">
+                <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                <Button onClick={handleOptimizeAll} disabled={optimizing} size="sm" className="bg-red-500 hover:bg-red-600 w-full sm:w-auto">
                   <Zap className={`h-4 w-4 mr-2 ${optimizing ? "animate-spin" : ""}`} />
                   {optimizing ? "Optimizing..." : "Optimize All"}
                 </Button>
+                <Button 
+                  onClick={handleScheduleOptimization} 
+                  disabled={optimizingSchedule || routeData.length === 0 || optimizing}
+                  size="sm" 
+                  className="bg-blue-500 hover:bg-blue-600 w-full sm:w-auto"
+                  title={routeData.length === 0 ? "Please optimize routes first" : "Optimize appointment schedules"}
+                >
+                  {optimizingSchedule ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Optimizing Schedule...
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="h-4 w-4 mr-2" />
+                      Schedule Optimization
+                    </>
+                  )}
+                </Button>
+              </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -407,7 +556,7 @@ export default function RouteOptimizationPage() {
                         {showMap ? "Hide Maps" : "Show Maps"}
                       </Button>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs mb-2">
                       <div className="flex items-center gap-2 p-2 bg-white rounded border-2 border-green-200">
                         <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
                         <span className="font-medium">Nearest Neighbor</span>
@@ -469,25 +618,25 @@ export default function RouteOptimizationPage() {
                               >
                                 {expandedRoute === route.staffId ? "Collapse" : "Expand"}
                               </Button>
-                              <Button 
+                          <Button 
                                 variant="default" 
-                                size="sm"
-                                onClick={() => handleApplyRouteClick(route)}
-                                disabled={applyingRoute === route.staffId}
+                            size="sm"
+                            onClick={() => handleApplyRouteClick(route)}
+                            disabled={applyingRoute === route.staffId}
                                 className="bg-green-600 hover:bg-green-700"
-                              >
-                                {applyingRoute === route.staffId ? (
-                                  <>
-                                    <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-                                    Applying...
-                                  </>
-                                ) : (
+                          >
+                            {applyingRoute === route.staffId ? (
+                              <>
+                                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                                Applying...
+                              </>
+                            ) : (
                                   <>
                                     <MapPin className="h-3 w-3 mr-1" />
                                     Apply Route
                                   </>
-                                )}
-                              </Button>
+                            )}
+                          </Button>
                             </div>
                           </div>
                         </CardHeader>
@@ -514,7 +663,7 @@ export default function RouteOptimizationPage() {
                           {expandedRoute === route.staffId && (
                             <div className="mt-4 space-y-4 border-t pt-4">
                               {showMap && route.waypoints && route.waypoints.length > 0 && (
-                                <div className="h-[400px] rounded-lg overflow-hidden border-2 border-gray-200 shadow-md">
+                                <div className="h-[300px] sm:h-[350px] lg:h-[400px] rounded-lg overflow-hidden border-2 border-gray-200 shadow-md">
                                   <RouteOptimizationMap
                                     waypoints={route.waypoints}
                                     currentOrder={route.currentOrder || []}
@@ -526,7 +675,7 @@ export default function RouteOptimizationPage() {
                                 </div>
                               )}
                               {showMap && (!route.waypoints || route.waypoints.length === 0) && (
-                                <div className="h-[400px] rounded-lg border-2 border-gray-200 flex items-center justify-center bg-gray-50">
+                                <div className="h-[300px] sm:h-[350px] lg:h-[400px] rounded-lg border-2 border-gray-200 flex items-center justify-center bg-gray-50">
                                   <div className="text-center text-gray-500">
                                     <MapPin className="h-12 w-12 mx-auto mb-2 opacity-50" />
                                     <p>No waypoints available for map display</p>
@@ -657,46 +806,104 @@ export default function RouteOptimizationPage() {
           {/* Optimization Settings */}
           <Card>
             <CardHeader>
-              <CardTitle>Optimization Settings</CardTitle>
+              <CardTitle className="text-lg sm:text-xl">Optimization Settings</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">Configure route optimization preferences</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-3">
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium">Optimization Algorithms</span>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                {/* Prioritize time savings - IMPLEMENTED: Algorithm selects shortest route which minimizes time */}
+                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+                  <span className="text-sm font-medium text-gray-900">Prioritize time savings</span>
+                  <button
+                    onClick={() => setOptimizationSettings(prev => ({ ...prev, prioritizeTimeSavings: !prev.prioritizeTimeSavings }))}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                      optimizationSettings.prioritizeTimeSavings
+                        ? 'bg-blue-500 text-white hover:bg-blue-600'
+                        : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                    }`}
+                  >
+                    {optimizationSettings.prioritizeTimeSavings ? 'Enabled' : 'Disabled'}
+                  </button>
+                </div>
+                
+                {/* Consider traffic patterns - NOT YET IMPLEMENTED: Would require traffic API integration */}
+                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+                  <span className="text-sm font-medium text-gray-900">Consider traffic patterns</span>
+                  <button
+                    onClick={() => setOptimizationSettings(prev => ({ ...prev, considerTrafficPatterns: !prev.considerTrafficPatterns }))}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                      optimizationSettings.considerTrafficPatterns
+                        ? 'bg-blue-500 text-white hover:bg-blue-600'
+                        : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                    }`}
+                  >
+                    {optimizationSettings.considerTrafficPatterns ? 'Enabled' : 'Disabled'}
+                  </button>
+                </div>
+                
+                {/* Respect appointment windows - IMPLEMENTED: Visits sorted by scheduled_time */}
+                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+                  <span className="text-sm font-medium text-gray-900">Respect appointment windows</span>
+                  <button
+                    onClick={() => setOptimizationSettings(prev => ({ ...prev, respectAppointmentWindows: !prev.respectAppointmentWindows }))}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                      optimizationSettings.respectAppointmentWindows
+                        ? 'bg-blue-500 text-white hover:bg-blue-600'
+                        : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                    }`}
+                  >
+                    {optimizationSettings.respectAppointmentWindows ? 'Enabled' : 'Disabled'}
+                  </button>
+                </div>
+                
+                {/* Minimize fuel costs - PARTIALLY IMPLEMENTED: Uses cost_per_mile but doesn't prioritize it */}
+                <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg border border-blue-100">
+                  <span className="text-sm font-medium text-gray-900">Minimize fuel costs</span>
+                  <button
+                    onClick={() => setOptimizationSettings(prev => ({ ...prev, minimizeFuelCosts: !prev.minimizeFuelCosts }))}
+                    className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                      optimizationSettings.minimizeFuelCosts
+                        ? 'bg-blue-500 text-white hover:bg-blue-600'
+                        : 'bg-gray-200 text-gray-500 hover:bg-gray-300'
+                    }`}
+                  >
+                    {optimizationSettings.minimizeFuelCosts ? 'Enabled' : 'Disabled'}
+                  </button>
+                </div>
+              </div>
+              
+              <div className="pt-3 border-t">
+                <div className="space-y-2 text-xs text-gray-600">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="bg-green-100 text-green-800">✓ Nearest Neighbor</Badge>
                   </div>
-                  <div className="space-y-2 text-xs text-gray-600">
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">✓ Nearest Neighbor</Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-800">✓ 2-Opt Improvement</Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="bg-purple-100 text-purple-800">✓ Simulated Annealing</Badge>
-                    </div>
-                    <div className="text-xs text-gray-500 mt-2">
-                      Best result selected automatically
-                    </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="bg-blue-100 text-blue-800">✓ 2-Opt Improvement</Badge>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="bg-purple-100 text-purple-800">✓ Simulated Annealing</Badge>
+                  </div>
+                  <div className="text-xs text-gray-500 mt-2">
+                    Best result selected automatically
                   </div>
                 </div>
-                <div className="border-t pt-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-medium">Features</span>
-                  </div>
-                  <div className="space-y-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Interactive Maps</span>
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">Active</Badge>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Real-time Updates</span>
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">Active</Badge>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-gray-600">Route Comparison</span>
-                      <Badge variant="secondary" className="bg-green-100 text-green-800">Active</Badge>
-                    </div>
+              </div>
+              <div className="border-t pt-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium">Features</span>
+                </div>
+                <div className="space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                    <span className="text-gray-600">Interactive Maps</span>
+                    <Badge variant="secondary" className="bg-green-100 text-green-800">Active</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                    <span className="text-gray-600">Real-time Updates</span>
+                    <Badge variant="secondary" className="bg-green-100 text-green-800">Active</Badge>
+              </div>
+              <div className="flex items-center justify-between">
+                    <span className="text-gray-600">Route Comparison</span>
+                    <Badge variant="secondary" className="bg-green-100 text-green-800">Active</Badge>
                   </div>
                 </div>
               </div>
@@ -742,10 +949,6 @@ export default function RouteOptimizationPage() {
                 <MapPin className="h-4 w-4 mr-2" />
                 Export Routes
               </Button>
-              <Button variant="outline" className="w-full justify-start bg-transparent hover:bg-gray-50">
-                <Clock className="h-4 w-4 mr-2" />
-                Schedule Optimization
-              </Button>
             </CardContent>
           </Card>
         </div>
@@ -756,19 +959,276 @@ export default function RouteOptimizationPage() {
         <ApplyRouteModal
           open={showApplyModal}
           onOpenChange={setShowApplyModal}
-          staffName={selectedRoute.staffName}
-          currentOrder={selectedRoute.currentOrder}
-          optimizedOrder={selectedRoute.optimizedOrder}
-          waypoints={selectedRoute.waypoints}
-          currentDistance={selectedRoute.currentDistance}
-          optimizedDistance={selectedRoute.optimizedDistance}
-          distanceSaved={selectedRoute.distanceSaved}
-          timeSaved={selectedRoute.timeSaved}
-          costSaved={selectedRoute.costSaved}
+          staffName={selectedRoute?.staffName || ''}
+          currentOrder={selectedRoute?.currentOrder || []}
+          optimizedOrder={selectedRoute?.optimizedOrder || []}
+          waypoints={selectedRoute?.waypoints || []}
+          currentDistance={selectedRoute?.currentDistance || 0}
+          optimizedDistance={selectedRoute?.optimizedDistance || 0}
+          distanceSaved={selectedRoute?.distanceSaved || 0}
+          timeSaved={selectedRoute?.timeSaved || 0}
+          costSaved={selectedRoute?.costSaved || 0}
           onConfirm={handleConfirmApplyRoute}
-          isApplying={applyingRoute === selectedRoute.staffId}
+          isApplying={applyingRoute === selectedRoute?.staffId}
         />
       )}
+
+      {/* Schedule Optimization Modal */}
+      <Dialog open={showScheduleModal} onOpenChange={setShowScheduleModal}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Calendar className="h-5 w-5" />
+              Optimized Schedule
+            </DialogTitle>
+            <DialogDescription>
+              Review and apply optimized appointment times based on travel time and working hours
+            </DialogDescription>
+          </DialogHeader>
+          
+          {scheduleData && scheduleData.length > 0 ? (
+            <div className="space-y-6 mt-4">
+              {scheduleData.map((staffSchedule: any) => (
+                <Card key={staffSchedule.staffId}>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">{staffSchedule.staffName}</CardTitle>
+                      <Badge variant="secondary">
+                        {staffSchedule.metrics.workingHours.start} - {staffSchedule.metrics.workingHours.end}
+                      </Badge>
+                    </div>
+                    <CardDescription>
+                      {staffSchedule.metrics.totalVisits} visits • {staffSchedule.metrics.utilizationRate} utilization • {staffSchedule.metrics.efficiency?.score || 'N/A'} efficiency
+                      {staffSchedule.metrics.conflicts && (
+                        <span className="text-red-600 ml-2">⚠️ {staffSchedule.metrics.conflicts.length} conflict(s)</span>
+                      )}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Patient</TableHead>
+                            <TableHead>Currently Scheduled</TableHead>
+                            <TableHead>AI Suggested Time</TableHead>
+                            <TableHead>Travel</TableHead>
+                            <TableHead>Duration</TableHead>
+                            <TableHead>Status</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {staffSchedule.schedule.map((item: any, idx: number) => {
+                            const currentlyScheduled = item.currentTime 
+                              ? new Date(item.currentTime).toLocaleString('en-US', { 
+                                  month: 'short', 
+                                  day: 'numeric', 
+                                  hour: 'numeric', 
+                                  minute: '2-digit',
+                                  hour12: true 
+                                })
+                              : 'Not scheduled'
+                            const suggestedTime = new Date(item.suggestedTime).toLocaleString('en-US', { 
+                              month: 'short', 
+                              day: 'numeric', 
+                              hour: 'numeric', 
+                              minute: '2-digit',
+                              hour12: true 
+                            })
+                            
+                            return (
+                              <TableRow key={item.visitId}>
+                                <TableCell className="font-medium">{item.patientName}</TableCell>
+                                <TableCell className={item.currentTime ? 'text-gray-600' : 'text-gray-400 italic'}>
+                                  {currentlyScheduled}
+                                </TableCell>
+                                <TableCell className="font-semibold text-blue-600">
+                                  {suggestedTime}
+                                </TableCell>
+                                <TableCell>{item.travelTime} min</TableCell>
+                                <TableCell>{item.visitDuration} min</TableCell>
+                                <TableCell>
+                                  <div className="space-y-1">
+                                    <Badge 
+                                      variant={item.efficiency === "Optimal" ? "default" : 
+                                              item.efficiency === "Gap Detected" ? "secondary" : 
+                                              "destructive"}
+                                      className={
+                                        item.efficiency === "Optimal" ? "bg-green-500" :
+                                        item.efficiency === "Gap Detected" ? "bg-yellow-500" :
+                                        "bg-red-500"
+                                      }
+                                    >
+                                      {item.efficiency}
+                                    </Badge>
+                                    {item.aiPriority && (
+                                      <div className="text-xs mt-1">
+                                        <span className="text-gray-500">AI Priority: </span>
+                                        <Badge 
+                                          variant={item.aiPriority === "high" ? "destructive" : 
+                                                  item.aiPriority === "medium" ? "secondary" : 
+                                                  "outline"}
+                                          className="text-xs"
+                                        >
+                                          {item.aiPriority}
+                                        </Badge>
+                                      </div>
+                                    )}
+                                    {item.aiEfficiencyScore !== undefined && (
+                                      <div className="text-xs text-blue-600 mt-1">
+                                        AI Score: {item.aiEfficiencyScore}%
+                                      </div>
+                                    )}
+                                    {item.aiReasoning && (
+                                      <div className="text-xs text-gray-500 mt-1 italic" title={item.aiReasoning}>
+                                        💡 {item.aiReasoning.substring(0, 50)}...
+                                      </div>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            )
+                          })}
+                        </TableBody>
+                      </Table>
+                      
+                      {/* Existing Tasks/Workload */}
+                      {staffSchedule.metrics?.existingTasks && staffSchedule.metrics.existingTasks.length > 0 && (
+                        <div className="mt-4 p-3 rounded-lg border bg-purple-50 border-purple-200">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-lg">📋</span>
+                            <span className="text-sm font-semibold text-purple-700">Complete Workload (Existing Tasks)</span>
+                            <Badge className="bg-purple-500 text-white">
+                              {staffSchedule.metrics.existingTasks.length} task(s)
+                            </Badge>
+                          </div>
+                          <div className="mt-2 text-xs space-y-1">
+                            {staffSchedule.metrics.existingTasks.map((task: any, idx: number) => {
+                              const start = new Date(task.startTime)
+                              const end = new Date(task.endTime)
+                              return (
+                                <div key={idx} className="text-purple-600 flex items-center gap-2">
+                                  <span className="font-semibold">{start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                                  <span>-</span>
+                                  <span>{end.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}</span>
+                                  <span className="text-purple-700 font-medium">{task.title}</span>
+                                  <Badge variant="outline" className="text-xs">
+                                    {task.type === 'training' ? '🎓 Training' : '🏥 Visit'}
+                                  </Badge>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div className="mt-2 text-xs text-purple-600 italic">
+                            💡 AI optimized patient visits around these existing commitments
+                          </div>
+                        </div>
+                      )}
+
+                      {/* AI Optimization Status */}
+                      {staffSchedule.metrics?.aiOptimization && (
+                        <div className={`mt-4 p-3 rounded-lg border ${
+                          staffSchedule.metrics.aiOptimization.enabled 
+                            ? 'bg-blue-50 border-blue-200' 
+                            : 'bg-gray-50 border-gray-200'
+                        }`}>
+                          <div className="flex items-center gap-2 mb-2">
+                            {staffSchedule.metrics.aiOptimization.enabled ? (
+                              <>
+                                <span className="text-lg">🤖</span>
+                                <span className="text-sm font-semibold text-blue-700">AI-Powered Optimization Active</span>
+                                {staffSchedule.metrics.aiOptimization.efficiencyGain > 0 && (
+                                  <Badge className="bg-green-500 text-white">
+                                    +{staffSchedule.metrics.aiOptimization.efficiencyGain.toFixed(1)}% efficiency
+                                  </Badge>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-sm text-gray-600">⚠️ {staffSchedule.metrics.aiOptimization.message}</span>
+                              </>
+                            )}
+                          </div>
+                          {staffSchedule.metrics.aiOptimization.recommendations && 
+                           staffSchedule.metrics.aiOptimization.recommendations.length > 0 && (
+                            <div className="mt-2 text-xs">
+                              <div className="font-semibold text-blue-700 mb-1">AI Recommendations:</div>
+                              {staffSchedule.metrics.aiOptimization.recommendations.map((rec: string, idx: number) => (
+                                <div key={idx} className="text-blue-600 mb-1">• {rec}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Efficiency Summary */}
+                      {staffSchedule.metrics && (
+                        <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                          <h4 className="text-sm font-semibold text-gray-700 mb-2">Schedule Efficiency Summary</h4>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                            <div>
+                              <span className="text-gray-600">Total Travel:</span>
+                              <div className="font-bold">{staffSchedule.metrics.totalTravelTime || 0} min</div>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">Total Visit Time:</span>
+                              <div className="font-bold">{staffSchedule.metrics.totalVisitTime || 0} min</div>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">Utilization:</span>
+                              <div className="font-bold text-blue-600">{staffSchedule.metrics.utilizationRate || '0%'}</div>
+                            </div>
+                            <div>
+                              <span className="text-gray-600">Efficiency:</span>
+                              <div className={`font-bold ${
+                                staffSchedule.metrics.efficiency?.score === 'Excellent' ? 'text-green-600' :
+                                staffSchedule.metrics.efficiency?.score === 'Good' ? 'text-blue-600' :
+                                'text-yellow-600'
+                              }`}>
+                                {staffSchedule.metrics.efficiency?.score || 'N/A'}
+                              </div>
+                            </div>
+                          </div>
+                          {staffSchedule.metrics.conflicts && staffSchedule.metrics.conflicts.length > 0 && (
+                            <div className="mt-3 p-2 bg-red-50 border border-red-200 rounded text-xs">
+                              <div className="font-semibold text-red-700 mb-1">⚠️ Conflicts Detected:</div>
+                              {staffSchedule.metrics.conflicts.map((conflict: string, idx: number) => (
+                                <div key={idx} className="text-red-600">• {conflict}</div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      
+                      <div className="flex justify-end pt-4">
+                        <Button
+                          onClick={() => handleApplySchedule(staffSchedule.staffId, staffSchedule.schedule)}
+                          className="bg-green-600 hover:bg-green-700"
+                          disabled={staffSchedule.metrics?.conflicts && staffSchedule.metrics.conflicts.length > 0}
+                        >
+                          <Calendar className="h-4 w-4 mr-2" />
+                          Apply Schedule
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground">
+              <AlertCircle className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+              <p>No schedule data available</p>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowScheduleModal(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

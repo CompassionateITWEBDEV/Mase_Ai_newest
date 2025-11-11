@@ -77,7 +77,7 @@ export async function GET(request: NextRequest) {
     // Get today's visits (both completed and in_progress) - ordered by start_time ascending to calculate drive time between visits
     const { data: todayVisits } = await supabase
       .from('staff_visits')
-      .select('id, patient_name, patient_address, start_time, end_time, duration, drive_time_to_visit, distance_to_visit, visit_type, status, visit_location')
+      .select('id, patient_name, patient_address, start_time, end_time, duration, drive_time_to_visit, distance_to_visit, visit_type, status, visit_location, scheduled_time')
       .eq('staff_id', staffId)
       .gte('start_time', `${today}T00:00:00`)
       .lt('start_time', `${today}T23:59:59`)
@@ -204,7 +204,9 @@ export async function GET(request: NextRequest) {
           driveTime: driveTime, // Use saved drive_time_to_visit (calculated when Start Visit was clicked)
           distance: parseFloat(v.distance_to_visit?.toString() || '0'),
           visitType: v.visit_type,
-          status: v.status
+          status: v.status,
+          visit_location: v.visit_location, // Include visit location for ETA calculation
+          scheduled_time: v.scheduled_time ? new Date(v.scheduled_time).toISOString() : null
         }
       }).reverse() // Reverse to show most recent first
     })

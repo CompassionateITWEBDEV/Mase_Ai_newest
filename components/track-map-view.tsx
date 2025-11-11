@@ -134,15 +134,16 @@ export default function TrackMapView({ currentLocation, routePoints = [], isTrac
       const marker = L.marker([currentLocation.lat, currentLocation.lng], { icon })
         .addTo(map)
 
-      // Add accuracy circle if available
+      // Add accuracy circle if available (very minimal - just border, no fill to avoid blocking map)
       if (currentLocation.accuracy) {
         const accuracyCircle = L.circle([currentLocation.lat, currentLocation.lng], {
           radius: currentLocation.accuracy,
           fillColor: isTracking ? '#10b981' : '#3b82f6',
-          fillOpacity: 0.2,
+          fillOpacity: 0, // No fill - completely transparent
           color: isTracking ? '#10b981' : '#3b82f6',
-          weight: 2,
-          opacity: 0.5
+          weight: 1,
+          opacity: 0.2, // Very transparent border only
+          dashArray: '5, 5' // Dashed line to make it less prominent
         }).addTo(map)
 
         markerRef.current = L.layerGroup([marker, accuracyCircle])
