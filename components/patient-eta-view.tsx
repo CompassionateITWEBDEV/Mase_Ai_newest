@@ -183,11 +183,38 @@ export default function PatientETAView({ staffId, patientId }: PatientETAViewPro
 
             {/* Action Buttons */}
             <div className="flex space-x-2">
-              <Button variant="outline" className="flex-1 bg-transparent" size="sm">
+              <Button 
+                variant="outline" 
+                className="flex-1 bg-transparent" 
+                size="sm"
+                onClick={() => {
+                  if (!staffInfo.phone) {
+                    alert('Phone number not available')
+                    return
+                  }
+                  window.location.href = `tel:${staffInfo.phone}`
+                }}
+              >
                 <Phone className="h-4 w-4 mr-2" />
                 Call
               </Button>
-              <Button variant="outline" className="flex-1 bg-transparent" size="sm">
+              <Button 
+                variant="outline" 
+                className="flex-1 bg-transparent" 
+                size="sm"
+                onClick={() => {
+                  if (!staffInfo.phone) {
+                    alert('Phone number not available')
+                    return
+                  }
+                  // Format phone number for WhatsApp (remove non-digits, add country code if needed)
+                  let cleaned = staffInfo.phone.replace(/\D/g, '')
+                  if (cleaned.length === 10) {
+                    cleaned = '1' + cleaned
+                  }
+                  window.open(`https://wa.me/${cleaned}`, '_blank')
+                }}
+              >
                 <MessageSquare className="h-4 w-4 mr-2" />
                 Message
               </Button>

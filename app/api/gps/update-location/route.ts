@@ -44,12 +44,25 @@ export async function POST(request: NextRequest) {
         .select('id')
         .eq('staff_id', staffId)
         .eq('status', 'active')
-        .single()
+        .maybeSingle()
       
-      activeTripId = activeTrip?.id
+      activeTripId = activeTrip?.id || null
     }
 
-    // Save location update
+    // Get active visit if exists (for tracking location during visits)
+    const { data: activeVisit } = await supabase
+      .from('staff_visits')
+      .select('id')
+      .eq('staff_id', staffId)
+      .eq('status', 'in_progress')
+      .order('start_time', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    const activeVisitId = activeVisit?.id || null
+
+    // Save location update (always save, even during visits - this ensures continuous GPS tracking)
+    // This allows tracking staff location even when they're on a visit
     const { data: locationUpdate, error: locationError } = await supabase
       .from('staff_location_updates')
       .insert({
@@ -63,6 +76,24 @@ export async function POST(request: NextRequest) {
       })
       .select()
       .single()
+
+    // If there's an active visit, also update the visit location to track where staff is during visit
+    if (activeVisitId && locationUpdate) {
+      const visitLocation = {
+        lat: parseFloat(latitude),
+        lng: parseFloat(longitude),
+        address: null, // Could be reverse geocoded if needed
+        timestamp: new Date().toISOString()
+      }
+      
+      // Update visit location to track real-time location during visit
+      await supabase
+        .from('staff_visits')
+        .update({ 
+          visit_location: visitLocation 
+        })
+        .eq('id', activeVisitId)
+    }
 
     if (locationError) {
       console.error('Error saving location:', locationError)

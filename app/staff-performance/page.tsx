@@ -652,6 +652,7 @@ export default function StaffPerformancePage() {
                       <TableRow>
                         <TableHead>Patient</TableHead>
                         <TableHead>Time</TableHead>
+                        <TableHead>Status</TableHead>
                         <TableHead>Duration</TableHead>
                         <TableHead>Drive Time</TableHead>
                         <TableHead>Distance</TableHead>
@@ -671,6 +672,18 @@ export default function StaffPerformancePage() {
                             <div className="text-sm">
                               {visit.startTime} {visit.endTime ? `- ${visit.endTime}` : visit.endTime === 'In Progress' ? '- In Progress' : ''}
                             </div>
+                          </TableCell>
+                          <TableCell>
+                            {(() => {
+                              const status = (visit as any).status || 'in_progress'
+                              if (status === 'completed') {
+                                return <Badge className="bg-green-500 hover:bg-green-600">Completed</Badge>
+                              } else if (status === 'cancelled') {
+                                return <Badge variant="destructive">Cancelled</Badge>
+                              } else {
+                                return <Badge className="bg-blue-500 hover:bg-blue-600">In Progress</Badge>
+                              }
+                            })()}
                           </TableCell>
                           <TableCell>
                             <Badge variant={(visit as any).status === 'in_progress' ? 'default' : 'outline'}>

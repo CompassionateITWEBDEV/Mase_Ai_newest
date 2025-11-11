@@ -9,9 +9,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { MapPin, Navigation, Play, Square, Clock, Users, CheckCircle, AlertCircle, Loader2, DollarSign, Route } from "lucide-react"
+import { MapPin, Navigation, Play, Square, Clock, Users, CheckCircle, AlertCircle, Loader2, DollarSign, Route, XCircle, Gauge, Compass, Activity, Zap } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
+import TrackMapView from "@/components/track-map-view"
 
 // Helper function to calculate distance between two coordinates (in miles)
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -31,7 +32,7 @@ export default function StaffTrackingPage() {
   const staffId = params.staffId as string
   const [currentTrip, setCurrentTrip] = useState<any>(null)
   const [currentVisit, setCurrentVisit] = useState<any>(null)
-  const [location, setLocation] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null)
+  const [location, setLocation] = useState<{ lat: number; lng: number; accuracy?: number; speed?: number; heading?: number } | null>(null)
   const [isTracking, setIsTracking] = useState(false)
   const [locationError, setLocationError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -40,8 +41,9 @@ export default function StaffTrackingPage() {
   const updateIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [tripStats, setTripStats] = useState<{ distance: number; cost: number; costPerMile: number } | null>(null)
   const [staffCostPerMile, setStaffCostPerMile] = useState<number>(0.67)
-  // Store last trip duration to use as drive time for next visit
   const [lastTripDuration, setLastTripDuration] = useState<number | null>(null)
+  const [routePoints, setRoutePoints] = useState<Array<{ lat: number; lng: number; timestamp: string }>>([])
+  const [tripMetrics, setTripMetrics] = useState<{ distance: number; avgSpeed: number; maxSpeed: number; duration: number } | null>(null)
   const { toast } = useToast()
 
   // Fetch staff cost per mile
@@ -199,14 +201,52 @@ export default function StaffTrackingPage() {
 
     watchIdRef.current = navigator.geolocation.watchPosition(
       (position) => {
+        const speed = position.coords.speed ? position.coords.speed * 2.237 : null // Convert m/s to mph
+        const heading = position.coords.heading !== null && position.coords.heading !== undefined ? position.coords.heading : null
+        
         const newLocation = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
-          accuracy: position.coords.accuracy
+          accuracy: position.coords.accuracy,
+          speed: speed,
+          heading: heading
         }
         setLocation(newLocation)
         setLocationError(null)
         setLastUpdateTime(new Date())
+        
+        // Add to route points if tracking
+        if (isTracking && currentTrip) {
+          setRoutePoints(prev => [...prev, {
+            lat: newLocation.lat,
+            lng: newLocation.lng,
+            timestamp: new Date().toISOString()
+          }])
+          
+          // Calculate trip metrics
+          if (prev.length > 0) {
+            const totalDistance = prev.reduce((sum, point, idx) => {
+              if (idx === 0) return sum
+              return sum + calculateDistance(prev[idx - 1].lat, prev[idx - 1].lng, point.lat, point.lng)
+            }, 0) + calculateDistance(prev[prev.length - 1].lat, prev[prev.length - 1].lng, newLocation.lat, newLocation.lng)
+            
+            const speeds = prev.filter(p => (p as any).speed).map(p => (p as any).speed)
+            if (speed) speeds.push(speed)
+            const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0
+            const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0
+            
+            const duration = currentTrip.startTime 
+              ? Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)
+              : 0
+            
+            setTripMetrics({
+              distance: totalDistance,
+              avgSpeed,
+              maxSpeed,
+              duration
+            })
+          }
+        }
         
         // Validate GPS accuracy - warn if accuracy is very high (IP geolocation)
         // PC/Laptop WiFi location: 100-2000m (acceptable)
@@ -289,17 +329,19 @@ export default function StaffTrackingPage() {
   }, [])
 
   // Start/stop tracking based on isTracking state
+  // GPS tracking continues during trips AND visits (same as start trip)
   useEffect(() => {
-    if (isTracking && currentTrip && location) {
-      // Start periodic updates every 15 seconds for real-time tracking during driving
+    if (isTracking && location) {
+      // Continue GPS tracking during trips AND visits
+      // This ensures real-time location tracking even when staff is on a visit
       updateIntervalRef.current = setInterval(() => {
         if (location) {
           updateLocation()
         }
-      }, 15000) // 15 seconds - more frequent updates while driving
+      }, 15000) // 15 seconds - real-time tracking during driving AND visits
       
       // Also send initial location update immediately
-        updateLocation()
+      updateLocation()
     } else {
       if (updateIntervalRef.current) {
         clearInterval(updateIntervalRef.current)
@@ -313,7 +355,7 @@ export default function StaffTrackingPage() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isTracking, currentTrip?.id, location])
+  }, [isTracking, location]) // Continue tracking even if trip ends but visit is active
 
   // Update location to server
   const updateLocation = async (loc?: { lat: number; lng: number; accuracy?: number }) => {
@@ -653,6 +695,8 @@ export default function StaffTrackingPage() {
 
   // End Visit
   const [visitNotes, setVisitNotes] = useState('')
+  const [cancelReason, setCancelReason] = useState('')
+  const [showCancelDialog, setShowCancelDialog] = useState(false)
 
   const endVisit = async () => {
     if (!currentVisit) return
@@ -691,6 +735,54 @@ export default function StaffTrackingPage() {
     }
   }
 
+  // Cancel Visit
+  const cancelVisit = async () => {
+    if (!currentVisit) return
+
+    if (!cancelReason.trim()) {
+      toast({
+        title: "Reason Required",
+        description: "Please provide a reason for cancelling the visit",
+        variant: "destructive"
+      })
+      return
+    }
+
+    try {
+      const res = await fetch('/api/visits/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visitId: currentVisit.id,
+          reason: cancelReason
+        })
+      })
+
+      const data = await res.json()
+      if (data.success) {
+        setCurrentVisit(null)
+        setCancelReason('')
+        setShowCancelDialog(false)
+        toast({
+          title: "Visit Cancelled",
+          description: "The visit has been cancelled successfully",
+        })
+      } else {
+        toast({
+          title: "Failed to Cancel Visit",
+          description: data.error || 'Failed to cancel visit',
+          variant: "destructive"
+        })
+      }
+    } catch (e: any) {
+      toast({
+        title: "Error",
+        description: 'Failed to cancel visit: ' + e.message,
+        variant: "destructive"
+      })
+    }
+  }
+
   if (isLoading && !currentTrip) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -703,297 +795,586 @@ export default function StaffTrackingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-md mx-auto space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Navigation className="h-5 w-5 mr-2" />
-              GPS Tracking
-            </CardTitle>
-            <CardDescription>Track your trips and visits with real-time GPS</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* Location Status */}
-            <div className="p-3 bg-gray-100 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium">Current Location</span>
-                <Button size="sm" variant="outline" onClick={() => getCurrentLocation()} disabled={isLoading}>
-                  <MapPin className="h-4 w-4 mr-1" />
-                  Refresh
-                </Button>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
+      {/* Professional Header */}
+      <div className="bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-6 py-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-3">
+                <div className="p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+                  <Navigation className="h-6 w-6 text-white" />
+                </div>
+                GPS Tracking Dashboard
+              </h1>
+              <p className="text-sm text-gray-600 mt-1 ml-14">Real-time location tracking with high-precision GPS technology</p>
+            </div>
+            {isTracking && (
+              <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
+                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-sm font-medium text-green-700">Live Tracking</span>
               </div>
-              {location ? (
-                <div className="space-y-1">
-                  <div className="text-sm">
-                    <span className="font-medium">Lat:</span> {location.lat.toFixed(6)}
-                  </div>
-                <div className="text-sm">
-                    <span className="font-medium">Lng:</span> {location.lng.toFixed(6)}
-                  </div>
-                  {location.accuracy && (
-                    <div className="text-xs">
-                      <span className="text-gray-500">Accuracy: </span>
-                      <span className={`font-medium ${
-                        location.accuracy <= 100 ? 'text-green-600' : 
-                        location.accuracy <= 1000 ? 'text-yellow-600' : 
-                        'text-red-600'
-                      }`}>
-                        ±{location.accuracy.toFixed(0)}m
-                        {location.accuracy <= 100 && ' ✓ GPS'}
-                        {location.accuracy > 100 && location.accuracy <= 1000 && ' ⚠️ WiFi'}
-                        {location.accuracy > 1000 && ' ⚠️ Low'}
-                      </span>
-                    </div>
-                  )}
-                  {lastUpdateTime && (
-                    <div className="text-xs text-gray-500">
-                      Updated: {lastUpdateTime.toLocaleTimeString()}
-                    </div>
-                  )}
-                  {isTracking && (
-                    <Badge variant="outline" className="bg-green-100 text-green-800 mt-2">
-                      <Clock className="h-3 w-3 mr-1" />
-                      Tracking Active
-                    </Badge>
-                  )}
-                </div>
-              ) : (
-                <div className="text-sm text-gray-500 flex items-center">
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Getting location...
-                </div>
-              )}
-              {locationError && (
-                <Alert variant="destructive" className="mt-2">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription className="text-xs">{locationError}</AlertDescription>
-                </Alert>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        {/* Map Section - Professional Layout */}
+        <Card className="shadow-xl border-0 overflow-hidden">
+          <CardHeader className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-2xl font-bold text-white flex items-center gap-3 mb-2">
+                  <MapPin className="h-6 w-6" />
+                  Live Location Map
+                </CardTitle>
+                <CardDescription className="text-blue-100 text-base">
+                  Interactive real-time GPS tracking with route visualization
+                </CardDescription>
+              </div>
+              {location && (
+                <Button 
+                  size="sm" 
+                  variant="secondary" 
+                  onClick={() => getCurrentLocation()} 
+                  disabled={isLoading}
+                  className="bg-white/20 hover:bg-white/30 text-white border-white/30"
+                >
+                  <MapPin className="h-4 w-4 mr-2" />
+                  Refresh Location
+                </Button>
               )}
             </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            {location ? (
+              <div className="h-[450px] relative">
+                <TrackMapView
+                  currentLocation={{
+                    ...location,
+                    timestamp: lastUpdateTime || undefined
+                  }}
+                  routePoints={routePoints}
+                  isTracking={isTracking}
+                />
+                {/* Map Overlay Info */}
+                <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg p-3 border border-gray-200 z-[1000]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`h-2 w-2 rounded-full ${
+                      location.accuracy && location.accuracy <= 100 ? 'bg-green-500' :
+                      location.accuracy && location.accuracy <= 1000 ? 'bg-yellow-500' :
+                      'bg-red-500'
+                    } animate-pulse`}></div>
+                    <span className="text-xs font-semibold text-gray-700">GPS Status</span>
+                  </div>
+                  <div className="text-xs space-y-1">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-gray-600">Accuracy:</span>
+                      <span className={`font-bold ${
+                        location.accuracy && location.accuracy <= 100 ? 'text-green-600' :
+                        location.accuracy && location.accuracy <= 1000 ? 'text-yellow-600' :
+                        'text-red-600'
+                      }`}>
+                        ±{location.accuracy?.toFixed(0) || 'N/A'}m
+                      </span>
+                    </div>
+                    {lastUpdateTime && (
+                      <div className="flex justify-between gap-4">
+                        <span className="text-gray-600">Updated:</span>
+                        <span className="font-medium text-gray-800">{lastUpdateTime.toLocaleTimeString()}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="h-[450px] flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
+                <div className="text-center">
+                  <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+                  <p className="text-gray-600 font-medium">Acquiring GPS location...</p>
+                  <p className="text-sm text-gray-500 mt-2">Please allow location access</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-            {/* Trip Controls */}
-            <div className="space-y-2">
-              <Label>Trip Status</Label>
+        {/* Real-time Metrics Grid */}
+        {isTracking && location && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <Card className="border-0 shadow-lg bg-gradient-to-br from-green-50 to-emerald-50 hover:shadow-xl transition-shadow">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 bg-green-100 rounded-lg">
+                    <Gauge className="h-5 w-5 text-green-600" />
+                  </div>
+                  <Badge className="bg-green-500 text-white">Live</Badge>
+                </div>
+                <div className="text-sm font-medium text-gray-600 mb-1">Current Speed</div>
+                <div className="text-3xl font-bold text-green-700">
+                  {location.speed ? `${location.speed.toFixed(1)}` : '0.0'}
+                  <span className="text-lg text-gray-500 ml-1">mph</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-cyan-50 hover:shadow-xl transition-shadow">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <Compass className="h-5 w-5 text-blue-600" />
+                  </div>
+                </div>
+                <div className="text-sm font-medium text-gray-600 mb-1">Heading</div>
+                <div className="text-3xl font-bold text-blue-700">
+                  {location.heading !== null && location.heading !== undefined 
+                    ? `${Math.round(location.heading)}°` 
+                    : 'N/A'}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-lg bg-gradient-to-br from-purple-50 to-pink-50 hover:shadow-xl transition-shadow">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 bg-purple-100 rounded-lg">
+                    <Activity className="h-5 w-5 text-purple-600" />
+                  </div>
+                </div>
+                <div className="text-sm font-medium text-gray-600 mb-1">GPS Accuracy</div>
+                <div className={`text-3xl font-bold ${
+                  location.accuracy && location.accuracy <= 100 ? 'text-green-700' :
+                  location.accuracy && location.accuracy <= 1000 ? 'text-yellow-700' :
+                  'text-red-700'
+                }`}>
+                  {location.accuracy ? `±${location.accuracy.toFixed(0)}` : 'N/A'}
+                  <span className="text-lg text-gray-500 ml-1">m</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-0 shadow-lg bg-gradient-to-br from-orange-50 to-amber-50 hover:shadow-xl transition-shadow">
+              <CardContent className="p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="p-2 bg-orange-100 rounded-lg">
+                    <Route className="h-5 w-5 text-orange-600" />
+                  </div>
+                </div>
+                <div className="text-sm font-medium text-gray-600 mb-1">Distance Traveled</div>
+                <div className="text-3xl font-bold text-orange-700">
+                  {tripMetrics ? tripMetrics.distance.toFixed(2) : '0.00'}
+                  <span className="text-lg text-gray-500 ml-1">mi</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Trip Management Section */}
+        <div className="grid md:grid-cols-2 gap-6">
+          <Card className="shadow-xl border-0">
+            <CardHeader className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6">
+              <CardTitle className="text-xl font-bold text-white flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Navigation className="h-5 w-5" />
+                </div>
+                Trip Management
+              </CardTitle>
+              <CardDescription className="text-indigo-100">Track driving time, distance, and costs</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6 space-y-4">
+              {/* Location Coordinates Display */}
+              {location && (
+                <div className="p-4 bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-sm font-semibold text-gray-700">GPS Coordinates</span>
+                    {isTracking && (
+                      <Badge className="bg-green-500 text-white">
+                        <Clock className="h-3 w-3 mr-1" />
+                        Active
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-gray-500">Latitude:</span>
+                      <div className="font-mono font-semibold text-gray-800">{location.lat.toFixed(6)}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Longitude:</span>
+                      <div className="font-mono font-semibold text-gray-800">{location.lng.toFixed(6)}</div>
+                    </div>
+                  </div>
+                  {locationError && (
+                    <Alert variant="destructive" className="mt-3">
+                      <AlertCircle className="h-4 w-4" />
+                      <AlertDescription className="text-xs">{locationError}</AlertDescription>
+                    </Alert>
+                  )}
+                </div>
+              )}
+
+              {/* Trip Status */}
               {!currentTrip ? (
                 <Button 
-                  className="w-full" 
+                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-lg" 
                   onClick={startTrip} 
                   disabled={!location || isLoading}
                 >
                   {isLoading ? (
                     <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Starting...
+                      <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                      Starting Trip...
                     </>
                   ) : (
                     <>
-                  <Play className="h-4 w-4 mr-2" />
-                  Start Trip
+                      <Play className="h-5 w-5 mr-2" />
+                      Start New Trip
                     </>
                   )}
                 </Button>
               ) : (
-                <div className="space-y-2">
-                  <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <div>
-                        <Badge className="bg-blue-500 text-white">Trip Active</Badge>
+                <div className="space-y-4">
+                  {/* Active Trip Header */}
+                  <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Badge className="bg-blue-600 text-white px-3 py-1 text-sm">Trip Active</Badge>
                         {isTracking && (
-                          <Badge variant="outline" className="bg-green-100 text-green-800 ml-2">
+                          <Badge className="bg-green-500 text-white px-3 py-1 text-sm">
                             <Clock className="h-3 w-3 mr-1" />
-                            GPS Active
+                            GPS Tracking
                           </Badge>
                         )}
                       </div>
                     </div>
-                    <div className="text-xs text-gray-600 space-y-1">
-                      <div>Started: {new Date(currentTrip.startTime).toLocaleString()}</div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Started:</span>
+                        <span className="font-semibold text-gray-800">{new Date(currentTrip.startTime).toLocaleString()}</span>
+                      </div>
                       {currentTrip.startTime && (
-                        <div>
-                          Duration: {Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)} minutes
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Duration:</span>
+                          <span className="font-semibold text-blue-700">
+                            {Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)} minutes
+                          </span>
                         </div>
                       )}
                     </div>
                   </div>
-                  {/* Real-time Trip Stats */}
-                  {currentTrip && !tripStats && (
-                    <div className="p-3 bg-purple-50 rounded-lg border border-purple-200 mt-2">
-                      <div className="text-xs font-medium text-purple-800 mb-2 flex items-center">
-                        <Route className="h-3 w-3 mr-1" />
-                        Current Trip Stats
+                  {/* Real-time Trip Metrics */}
+                  {currentTrip && !tripStats && tripMetrics && (
+                    <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border-2 border-indigo-200 shadow-md">
+                      <div className="flex items-center gap-2 mb-4">
+                        <Route className="h-5 w-5 text-indigo-600" />
+                        <h3 className="text-base font-bold text-indigo-800">Real-time Trip Metrics</h3>
                       </div>
-                      <div className="text-xs text-gray-700 space-y-1">
-                        <div className="flex justify-between">
-                          <span>Cost per Mile:</span>
-                          <span className="font-medium">${staffCostPerMile.toFixed(2)}</span>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="bg-white p-3 rounded-lg border border-indigo-100 shadow-sm">
+                          <div className="text-xs font-medium text-gray-600 mb-1">Distance</div>
+                          <div className="text-2xl font-bold text-indigo-700">
+                            {tripMetrics.distance.toFixed(2)}
+                            <span className="text-sm text-gray-500 ml-1">mi</span>
+                          </div>
                         </div>
-                        <div className="text-gray-500 italic">
-                          Cost will be calculated when trip ends
+                        <div className="bg-white p-3 rounded-lg border border-indigo-100 shadow-sm">
+                          <div className="text-xs font-medium text-gray-600 mb-1">Avg Speed</div>
+                          <div className="text-2xl font-bold text-indigo-700">
+                            {tripMetrics.avgSpeed.toFixed(1)}
+                            <span className="text-sm text-gray-500 ml-1">mph</span>
+                          </div>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border border-indigo-100 shadow-sm">
+                          <div className="text-xs font-medium text-gray-600 mb-1">Max Speed</div>
+                          <div className="text-2xl font-bold text-indigo-700">
+                            {tripMetrics.maxSpeed.toFixed(1)}
+                            <span className="text-sm text-gray-500 ml-1">mph</span>
+                          </div>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg border border-indigo-100 shadow-sm">
+                          <div className="text-xs font-medium text-gray-600 mb-1">Duration</div>
+                          <div className="text-2xl font-bold text-indigo-700">
+                            {tripMetrics.duration}
+                            <span className="text-sm text-gray-500 ml-1">min</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-4 pt-4 border-t border-indigo-200">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Cost per Mile:</span>
+                          <span className="text-lg font-bold text-indigo-800">${staffCostPerMile.toFixed(2)}</span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2 italic">
+                          Final cost will be calculated when trip ends
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Trip Summary (after trip ends) */}
+                  {tripStats && (
+                    <div className="p-5 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 shadow-md">
+                      <div className="flex items-center gap-2 mb-4">
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                        <h3 className="text-base font-bold text-green-800">Trip Completed</h3>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-green-100">
+                          <span className="text-sm text-gray-600">Distance:</span>
+                          <span className="text-lg font-bold text-gray-800">{tripStats.distance.toFixed(2)} miles</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-green-100">
+                          <span className="text-sm text-gray-600">Cost per Mile:</span>
+                          <span className="text-lg font-bold text-gray-800">${tripStats.costPerMile.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between items-center bg-green-100 p-4 rounded-lg border-2 border-green-300">
+                          <span className="text-base font-bold text-green-800">Total Cost:</span>
+                          <span className="text-2xl font-bold text-green-700">${tripStats.cost.toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
                   )}
-                  {/* Trip Summary (after trip ends) */}
-                  {tripStats && (
-                    <div className="p-3 bg-green-50 rounded-lg border border-green-200 mt-2">
-                      <div className="text-xs font-medium text-green-800 mb-1 flex items-center">
-                        <CheckCircle className="h-3 w-3 mr-1" />
-                        Trip Summary
-                      </div>
-                      <div className="text-xs text-gray-700 space-y-1">
-                        <div className="flex justify-between">
-                          <span>Distance:</span>
-                          <span className="font-medium">{tripStats.distance.toFixed(2)} miles</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Cost per Mile:</span>
-                          <span className="font-medium">${tripStats.costPerMile.toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between pt-1 border-t border-green-200">
-                          <span className="font-semibold">Total Cost:</span>
-                          <span className="font-bold text-green-700">${tripStats.cost.toFixed(2)}</span>
-                        </div>
-            </div>
-          </div>
-                  )}
+                  
                   <Button 
                     variant="destructive" 
-                    className="w-full" 
+                    className="w-full h-12 text-base font-semibold shadow-lg" 
                     onClick={endTrip}
                     disabled={isLoading}
                   >
                     {isLoading ? (
                       <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Ending...
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Ending Trip...
                       </>
                     ) : (
                       <>
-                    <Square className="h-4 w-4 mr-2" />
-                    End Trip
+                        <Square className="h-5 w-5 mr-2" />
+                        End Trip
                       </>
                     )}
                   </Button>
+                  
                   {currentVisit && (
-                    <Alert>
-                      <AlertCircle className="h-4 w-4" />
-                      <AlertDescription className="text-xs">
-                        Note: You have an active visit. Visit time is tracked separately from drive time. You can end the trip and continue the visit.
+                    <Alert className="border-blue-200 bg-blue-50">
+                      <AlertCircle className="h-4 w-4 text-blue-600" />
+                      <AlertDescription className="text-sm text-blue-800">
+                        <strong>Note:</strong> You have an active visit. Visit time is tracked separately from drive time. You can end the trip and continue the visit.
                       </AlertDescription>
                     </Alert>
                   )}
-        </div>
+                </div>
               )}
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
 
-        {/* Visit Controls */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center">
-              <Users className="h-5 w-5 mr-2" />
-              Patient Visit
-            </CardTitle>
-            <CardDescription>Track patient visits (independent from GPS trip tracking)</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {!currentVisit ? (
-              <>
-                <div>
-                  <Label>Patient Name *</Label>
-                  <Input
-                    value={visitForm.patientName}
-                    onChange={(e) => setVisitForm({ ...visitForm, patientName: e.target.value })}
-                    placeholder="Enter patient name"
-                  />
+          {/* Visit Management Section */}
+          <Card className="shadow-xl border-0">
+            <CardHeader className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-6">
+              <CardTitle className="text-xl font-bold text-white flex items-center gap-3">
+                <div className="p-2 bg-white/20 rounded-lg">
+                  <Users className="h-5 w-5" />
                 </div>
-                <div>
-                  <Label>Patient Address *</Label>
-                  <Input
-                    value={visitForm.patientAddress}
-                    onChange={(e) => setVisitForm({ ...visitForm, patientAddress: e.target.value })}
-                    placeholder="Enter address"
-                  />
-              </div>
-                <div>
-                  <Label>Visit Type</Label>
-                  <Select value={visitForm.visitType} onValueChange={(v) => setVisitForm({ ...visitForm, visitType: v })}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Wound Care">Wound Care</SelectItem>
-                      <SelectItem value="Medication Management">Medication Management</SelectItem>
-                      <SelectItem value="Physical Assessment">Physical Assessment</SelectItem>
-                      <SelectItem value="Physical Therapy">Physical Therapy</SelectItem>
-                      <SelectItem value="Occupational Therapy">Occupational Therapy</SelectItem>
-                      <SelectItem value="ADL Training">ADL Training</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button 
-                  className="w-full" 
-                  onClick={startVisit} 
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Starting...
-                    </>
-                  ) : (
-                    <>
-                  <Play className="h-4 w-4 mr-2" />
-                  Start Visit
-                    </>
-                  )}
-                </Button>
-              </>
-            ) : (
-              <div className="space-y-4">
-                <div className="p-3 bg-green-50 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <Badge className="bg-green-500">Visit In Progress</Badge>
-                    <div className="text-xs text-gray-600">
-                      Started: {new Date(currentVisit.startTime).toLocaleTimeString()}
+                Patient Visit Management
+              </CardTitle>
+              <CardDescription className="text-emerald-100">Track patient visits independently from trip tracking</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6 space-y-5">
+              {!currentVisit ? (
+                <div className="space-y-5">
+                  <div>
+                    <Label className="text-sm font-semibold text-gray-700 mb-2 block">Patient Name *</Label>
+                    <Input
+                      value={visitForm.patientName}
+                      onChange={(e) => setVisitForm({ ...visitForm, patientName: e.target.value })}
+                      placeholder="Enter patient name"
+                      className="h-11"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-gray-700 mb-2 block">Patient Address *</Label>
+                    <Input
+                      value={visitForm.patientAddress}
+                      onChange={(e) => setVisitForm({ ...visitForm, patientAddress: e.target.value })}
+                      placeholder="Enter real address (e.g., 123 Main St, City, State ZIP)"
+                      className="h-11"
+                    />
+                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-xs text-blue-800 flex items-start gap-2">
+                        <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        <span>Real address required for accurate route optimization. AI will validate using free OpenStreetMap (no API key needed).</span>
+                      </p>
                     </div>
                   </div>
-                  <div className="font-medium">{currentVisit.patientName}</div>
-                  <div className="text-sm text-gray-600">{currentVisit.patientAddress}</div>
-              </div>
-                <div>
-                  <Label>Visit Notes (Optional)</Label>
-                  <Textarea
-                    value={visitNotes}
-                    onChange={(e) => setVisitNotes(e.target.value)}
-                    placeholder="Add notes about this visit..."
-                    rows={3}
-                  />
+                  <div>
+                    <Label className="text-sm font-semibold text-gray-700 mb-2 block">Visit Type</Label>
+                    <Select value={visitForm.visitType} onValueChange={(v) => setVisitForm({ ...visitForm, visitType: v })}>
+                      <SelectTrigger className="h-11">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Wound Care">Wound Care</SelectItem>
+                        <SelectItem value="Medication Management">Medication Management</SelectItem>
+                        <SelectItem value="Physical Assessment">Physical Assessment</SelectItem>
+                        <SelectItem value="Physical Therapy">Physical Therapy</SelectItem>
+                        <SelectItem value="Occupational Therapy">Occupational Therapy</SelectItem>
+                        <SelectItem value="ADL Training">ADL Training</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button 
+                    className="w-full h-12 text-base font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg" 
+                    onClick={startVisit} 
+                    disabled={isLoading}
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Starting Visit...
+                      </>
+                    ) : (
+                      <>
+                        <Play className="h-5 w-5 mr-2" />
+                        Start New Visit
+                      </>
+                    )}
+                  </Button>
                 </div>
-                <Button 
-                  className="w-full" 
-                  variant="destructive" 
-                  onClick={endVisit}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Ending...
-                    </>
-                  ) : (
-                    <>
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  End Visit
-                    </>
+              ) : (
+                <div className="space-y-5">
+                  {/* Active Visit Header */}
+                  <div className="p-5 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl border-2 border-emerald-200 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                      <Badge className="bg-emerald-600 text-white px-3 py-1 text-sm">Visit In Progress</Badge>
+                      <div className="text-sm text-gray-600">
+                        <Clock className="h-4 w-4 inline mr-1" />
+                        Started: {new Date(currentVisit.startTime).toLocaleTimeString()}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-xs text-gray-600 mb-1">Patient Name</div>
+                        <div className="text-lg font-bold text-gray-800">{currentVisit.patientName}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-600 mb-1">Address</div>
+                        <div className="text-sm text-gray-700">{currentVisit.patientAddress}</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-gray-700 mb-2 block">Visit Notes (Optional)</Label>
+                    <Textarea
+                      value={visitNotes}
+                      onChange={(e) => setVisitNotes(e.target.value)}
+                      placeholder="Add notes about this visit..."
+                      rows={4}
+                      className="resize-none"
+                    />
+                  </div>
+                  
+                  <div className="flex gap-3">
+                    <Button 
+                      className="flex-1 h-12 text-base font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg" 
+                      onClick={endVisit}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          Completing...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-5 w-5 mr-2" />
+                          Complete Visit
+                        </>
+                      )}
+                    </Button>
+                    <Button 
+                      className="flex-1 h-12 text-base font-semibold" 
+                      variant="outline"
+                      onClick={() => setShowCancelDialog(true)}
+                      disabled={isLoading}
+                    >
+                      <XCircle className="h-5 w-5 mr-2" />
+                      Cancel Visit
+                    </Button>
+                  </div>
+                  
+                  {/* Cancel Dialog */}
+                  {showCancelDialog && (
+                    <Card className="border-2 border-red-200 shadow-lg">
+                      <CardHeader className="bg-red-50 border-b border-red-200">
+                        <div className="flex items-center justify-between">
+                          <CardTitle className="text-lg font-bold text-red-800 flex items-center gap-2">
+                            <XCircle className="h-5 w-5" />
+                            Cancel Visit
+                          </CardTitle>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setShowCancelDialog(false)
+                              setCancelReason('')
+                            }}
+                            className="h-8 w-8 p-0"
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="p-5 space-y-4">
+                        <div>
+                          <Label className="text-sm font-semibold text-gray-700 mb-2 block">Reason for Cancellation *</Label>
+                          <Textarea
+                            value={cancelReason}
+                            onChange={(e) => setCancelReason(e.target.value)}
+                            placeholder="Enter reason for cancelling this visit..."
+                            rows={4}
+                            className="resize-none"
+                          />
+                        </div>
+                        <div className="flex gap-3">
+                          <Button
+                            variant="destructive"
+                            className="flex-1 h-11 font-semibold"
+                            onClick={cancelVisit}
+                            disabled={isLoading || !cancelReason.trim()}
+                          >
+                            {isLoading ? (
+                              <>
+                                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                Cancelling...
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="h-5 w-5 mr-2" />
+                                Confirm Cancellation
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            className="flex-1 h-11 font-semibold"
+                            onClick={() => {
+                              setShowCancelDialog(false)
+                              setCancelReason('')
+                            }}
+                            disabled={isLoading}
+                          >
+                            Go Back
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
                   )}
-                </Button>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js'
+import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 
 // Configure runtime for Vercel
@@ -6,32 +6,31 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-// Singleton client for better connection management
-let supabaseClient: SupabaseClient | null = null
+export async function GET(request: NextRequest) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-function getClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!supabaseUrl || !supabaseAnonKey) {
+      console.error('[API] Supabase credentials not configured')
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Supabase credentials not configured',
+          staff: [],
+          count: 0
+        },
+        { status: 500 }
+      )
+    }
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error("Missing Supabase environment variables")
-  }
-
-  if (!supabaseClient) {
-    supabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+    // Create a fresh client for each request to avoid connection issues
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false,
       },
     })
-  }
-
-  return supabaseClient
-}
-
-export async function GET(request: NextRequest) {
-  try {
-    const supabase = getClient()
 
     console.log('Fetching all staff members from database...')
 
@@ -42,9 +41,20 @@ export async function GET(request: NextRequest) {
       .order('created_at', { ascending: false })
 
     if (error) {
-      console.error('Error fetching staff:', error)
+      console.error('[API] Database error fetching staff:', {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint
+      })
+      
       return NextResponse.json(
-        { error: 'Failed to fetch staff: ' + error.message },
+        { 
+          success: false,
+          error: 'Failed to fetch staff: ' + error.message,
+          staff: [],
+          count: 0
+        },
         { status: 500 }
       )
     }
@@ -66,13 +76,23 @@ export async function GET(request: NextRequest) {
     return response
     
   } catch (error: any) {
-    console.error('❌ Staff list error:', error)
+    console.error('[API] Unexpected error in staff/list:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name,
+      cause: error.cause
+    })
+    
     const isDevelopment = process.env.NODE_ENV === 'development'
     
+    // Return a response that matches the expected format even on error
     return NextResponse.json(
       { 
+        success: false,
         error: error.message || 'Internal server error',
         details: isDevelopment ? error.stack : undefined,
+        staff: [],
+        count: 0,
         timestamp: new Date().toISOString()
       },
       { status: 500 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -21,6 +21,7 @@ interface StaffMember {
   totalVisitTimeToday: number
   efficiencyScore: number
   location: { lat: number; lng: number } | null
+  phoneNumber?: string
 }
 
 interface StaffGpsTrackerProps {
@@ -29,15 +30,65 @@ interface StaffGpsTrackerProps {
 }
 
 export default function StaffGpsTracker({ staffFleet, filter }: StaffGpsTrackerProps) {
-  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(
-    staffFleet.find(s => s.location !== null) || staffFleet[0] || null
-  )
-
   const filteredFleet = staffFleet.filter((staff) => {
     if (filter === "All") return true
-    if (filter === "En Route") return staff.status === "En Route" || staff.status === "Driving"
+    if (filter === "En Route") return staff.status === "En Route"
     return staff.status === filter
   })
+
+  const [selectedStaff, setSelectedStaff] = useState<StaffMember | null>(
+    filteredFleet.find(s => s.location !== null) || filteredFleet[0] || null
+  )
+
+  // Update selectedStaff when filteredFleet changes
+  useEffect(() => {
+    // If current selected staff is not in filtered list, select a new one
+    const currentSelectedId = selectedStaff?.id
+    if (currentSelectedId && !filteredFleet.find(s => s.id === currentSelectedId)) {
+      const newSelection = filteredFleet.find(s => s.location !== null) || filteredFleet[0] || null
+      setSelectedStaff(newSelection)
+    } else if (!selectedStaff && filteredFleet.length > 0) {
+      // If no selection and we have staff, select the first one with location or first one
+      const newSelection = filteredFleet.find(s => s.location !== null) || filteredFleet[0] || null
+      setSelectedStaff(newSelection)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredFleet])
+
+  // Helper function to format phone number for WhatsApp (remove non-digits, add country code if needed)
+  const formatPhoneForWhatsApp = (phone: string): string => {
+    // Remove all non-digit characters
+    let cleaned = phone.replace(/\D/g, '')
+    
+    // If it doesn't start with a country code, assume US (+1)
+    if (cleaned.length === 10) {
+      cleaned = '1' + cleaned
+    }
+    
+    return cleaned
+  }
+
+  // Handle phone call
+  const handleCall = (phoneNumber?: string) => {
+    if (!phoneNumber) {
+      alert('Phone number not available for this staff member')
+      return
+    }
+    // Open phone dialer
+    window.location.href = `tel:${phoneNumber}`
+  }
+
+  // Handle WhatsApp message
+  const handleWhatsAppMessage = (phoneNumber?: string) => {
+    if (!phoneNumber) {
+      alert('Phone number not available for this staff member')
+      return
+    }
+    // Format phone number for WhatsApp
+    const formattedPhone = formatPhoneForWhatsApp(phoneNumber)
+    // Open WhatsApp with the phone number
+    window.open(`https://wa.me/${formattedPhone}`, '_blank')
+  }
 
   const handleSendLocationLink = async (staffId: string) => {
     // In a real app, you'd get the patient's number associated with the staff's next visit
@@ -96,11 +147,18 @@ export default function StaffGpsTracker({ staffFleet, filter }: StaffGpsTrackerP
                       variant="outline"
                       size="icon"
                       className="h-8 w-8 bg-transparent"
-                      onClick={() => handleSendLocationLink(selectedStaff.id)}
+                      onClick={() => handleWhatsAppMessage(selectedStaff.phoneNumber)}
+                      title="Send WhatsApp message"
                     >
                       <MessageSquare className="h-4 w-4" />
                     </Button>
-                    <Button variant="outline" size="icon" className="h-8 w-8 bg-transparent">
+                    <Button 
+                      variant="outline" 
+                      size="icon" 
+                      className="h-8 w-8 bg-transparent"
+                      onClick={() => handleCall(selectedStaff.phoneNumber)}
+                      title="Call staff member"
+                    >
                       <Phone className="h-4 w-4" />
                     </Button>
                   </div>

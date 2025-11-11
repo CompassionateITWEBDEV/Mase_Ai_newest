@@ -1,7 +1,14 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useCallback } from "react"
 import { Loader2, MapPin } from "lucide-react"
+
+// Dynamically import Leaflet to avoid SSR issues
+let L: any = null
+if (typeof window !== "undefined") {
+  L = require("leaflet")
+  require("leaflet/dist/leaflet.css")
+}
 
 interface StaffMember {
   id: string
@@ -18,10 +25,15 @@ interface LiveStaffMapProps {
   onStaffSelect: (staff: StaffMember) => void
 }
 
-declare global {
-  interface Window {
-    google: any
-    initMap: () => void
+// Fix for default marker icons in Leaflet with Next.js
+const fixLeafletIcons = () => {
+  if (typeof window !== "undefined" && L) {
+    delete (L.Icon.Default.prototype as any)._getIconUrl
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+      iconUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+      shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
+    })
   }
 }
 
@@ -29,131 +41,12 @@ export default function LiveStaffMap({ staffFleet, selectedStaff, onStaffSelect 
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<Map<string, any>>(new Map())
+  const popupsRef = useRef<Map<string, any>>(new Map())
   const [isMapLoaded, setIsMapLoaded] = useState(false)
   const [mapError, setMapError] = useState<string | null>(null)
 
-  // Load Google Maps script
-  useEffect(() => {
-    const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
-
-    if (!googleMapsApiKey) {
-      setMapError("Google Maps API key not configured. Please set NEXT_PUBLIC_GOOGLE_MAPS_API_KEY in your environment variables.")
-      return
-    }
-
-    // Check if script is already loaded
-    if (window.google && window.google.maps) {
-      initializeMap()
-      return
-    }
-
-    // Check if script is already being loaded
-    if (document.querySelector('script[src*="maps.googleapis.com"]')) {
-      // Wait for it to load
-      const checkInterval = setInterval(() => {
-        if (window.google && window.google.maps) {
-          clearInterval(checkInterval)
-          initializeMap()
-        }
-      }, 100)
-      return () => clearInterval(checkInterval)
-    }
-
-    // Load Google Maps script
-    const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${googleMapsApiKey}&libraries=places`
-    script.async = true
-    script.defer = true
-    script.onload = () => {
-      initializeMap()
-    }
-    script.onerror = () => {
-      setMapError("Failed to load Google Maps. Please check your API key.")
-    }
-    document.head.appendChild(script)
-
-    return () => {
-      // Cleanup
-      if (script.parentNode) {
-        script.parentNode.removeChild(script)
-      }
-    }
-  }, [])
-
-  // Initialize map
-  const initializeMap = () => {
-    if (!mapRef.current || !window.google) return
-
-    try {
-      // Get center from staff locations or default
-      const staffWithLocations = staffFleet.filter(s => s.location !== null)
-      let center = { lat: 34.0522, lng: -118.2437 } // Default: Los Angeles
-
-      if (staffWithLocations.length > 0) {
-        // Calculate center from all staff locations
-        const avgLat = staffWithLocations.reduce((sum, s) => sum + (s.location?.lat || 0), 0) / staffWithLocations.length
-        const avgLng = staffWithLocations.reduce((sum, s) => sum + (s.location?.lng || 0), 0) / staffWithLocations.length
-        center = { lat: avgLat, lng: avgLng }
-      }
-
-      // Create map
-      const map = new window.google.maps.Map(mapRef.current, {
-        center,
-        zoom: staffWithLocations.length > 1 ? 11 : 13,
-        mapTypeControl: true,
-        streetViewControl: false,
-        fullscreenControl: true,
-        styles: [
-          {
-            featureType: "poi",
-            elementType: "labels",
-            stylers: [{ visibility: "off" }]
-          }
-        ]
-      })
-
-      mapInstanceRef.current = map
-      setIsMapLoaded(true)
-      updateMarkers()
-    } catch (error: any) {
-      console.error("Error initializing map:", error)
-      setMapError(error.message || "Failed to initialize map")
-    }
-  }
-
   // Check if any staff have locations
   const staffWithLocations = staffFleet.filter(s => s.location !== null)
-
-  // Update markers when staff fleet changes
-  useEffect(() => {
-    if (isMapLoaded && mapInstanceRef.current) {
-      updateMarkers()
-    }
-  }, [staffFleet, selectedStaff, isMapLoaded])
-
-  // Update map center when staff locations change
-  useEffect(() => {
-    if (isMapLoaded && mapInstanceRef.current && staffWithLocations.length > 0) {
-      const bounds = new window.google.maps.LatLngBounds()
-      staffWithLocations.forEach(staff => {
-        if (staff.location) {
-          bounds.extend(new window.google.maps.LatLng(staff.location.lat, staff.location.lng))
-        }
-      })
-      
-      if (staffWithLocations.length === 1) {
-        // Single location - center on it
-        mapInstanceRef.current.setCenter({
-          lat: staffWithLocations[0].location!.lat,
-          lng: staffWithLocations[0].location!.lng
-        })
-        mapInstanceRef.current.setZoom(13)
-      } else {
-        // Multiple locations - fit bounds
-        mapInstanceRef.current.fitBounds(bounds)
-      }
-    }
-  }, [staffFleet, isMapLoaded, staffWithLocations.length])
 
   const getStatusColor = (status: string): string => {
     switch (status) {
@@ -169,78 +62,255 @@ export default function LiveStaffMap({ staffFleet, selectedStaff, onStaffSelect 
     }
   }
 
-  const getStatusIcon = (status: string, isSelected: boolean) => {
-    const color = getStatusColor(status)
-    const scale = isSelected ? 1.3 : 1.0
+  const createStatusIcon = useCallback((status: string, isSelected: boolean) => {
+    if (!L) return undefined
     
-    return {
-      path: window.google.maps.SymbolPath.CIRCLE,
-      scale: 10 * scale,
-      fillColor: color,
-      fillOpacity: 1,
-      strokeColor: "#ffffff",
-      strokeWeight: isSelected ? 4 : 2,
-    }
-  }
+    const color = getStatusColor(status)
+    const size = isSelected ? 20 : 15
+    const borderWidth = isSelected ? 4 : 2
 
-  const updateMarkers = () => {
-    if (!mapInstanceRef.current || !window.google) return
+    // Create a custom HTML icon
+    const iconHtml = `
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        background-color: ${color};
+        border: ${borderWidth}px solid white;
+        border-radius: 50%;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        ${isSelected ? 'animation: pulse 2s infinite;' : ''}
+      "></div>
+    `
+
+    return L.divIcon({
+      html: iconHtml,
+      className: "custom-marker",
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+    })
+  }, [])
+
+  const updateMarkers = useCallback(() => {
+    if (!mapInstanceRef.current || !L) return
 
     const map = mapInstanceRef.current
 
-    // Remove old markers
-    markersRef.current.forEach(marker => {
-      marker.setMap(null)
-    })
-    markersRef.current.clear()
+    // Check if map is still valid
+    if (!map._container || !map._loaded) {
+      return
+    }
 
-    // Add new markers for staff with locations
-    staffFleet
-      .filter(staff => staff.location !== null)
-      .forEach(staff => {
-        if (!staff.location) return
+    try {
+      // Remove old markers
+      markersRef.current.forEach(marker => {
+        try {
+          if (map.hasLayer(marker)) {
+            map.removeLayer(marker)
+          }
+        } catch (e) {
+          // Ignore errors removing markers
+        }
+      })
+      markersRef.current.clear()
+      popupsRef.current.clear()
 
-        const isSelected = selectedStaff?.id === staff.id
+      // Add new markers for staff with locations
+      staffFleet
+        .filter(staff => staff.location !== null)
+        .forEach(staff => {
+          if (!staff.location) return
 
-        const marker = new window.google.maps.Marker({
-          position: {
-            lat: staff.location.lat,
-            lng: staff.location.lng
-          },
-          map,
-          icon: getStatusIcon(staff.status, isSelected),
-          title: `${staff.name} - ${staff.status}`,
-          animation: isSelected ? window.google.maps.Animation.BOUNCE : null
+          try {
+            const isSelected = selectedStaff?.id === staff.id
+
+            // Create marker
+            const marker = L.marker([staff.location.lat, staff.location.lng], {
+              icon: createStatusIcon(staff.status, isSelected),
+            }).addTo(map)
+
+            // Create popup content
+            const popupContent = `
+              <div style="padding: 8px; min-width: 200px;">
+                <h3 style="margin: 0 0 8px 0; font-weight: 600; font-size: 14px;">${staff.name}</h3>
+                <p style="margin: 0 0 4px 0; color: #666; font-size: 12px;">${staff.role}</p>
+                <p style="margin: 0 0 4px 0; font-size: 12px;">
+                  <strong>Status:</strong> <span style="color: ${getStatusColor(staff.status)}">${staff.status}</span>
+                </p>
+                ${staff.currentSpeed > 0 ? `<p style="margin: 0; font-size: 12px;"><strong>Speed:</strong> ${staff.currentSpeed} mph</p>` : ''}
+              </div>
+            `
+
+            // Create and bind popup to the marker so Leaflet can derive position
+            const popup = L.popup({ className: "custom-popup" }).setContent(popupContent)
+            marker.bindPopup(popup)
+            popupsRef.current.set(staff.id, popup)
+
+            // Click handler: open popup via the marker (ensures correct lat/lng)
+            marker.on("click", () => {
+              onStaffSelect(staff)
+              if (mapInstanceRef.current && mapInstanceRef.current.hasLayer(marker)) {
+                marker.openPopup()
+              }
+            })
+
+            // Show popup if selected
+            if (isSelected) {
+              // Use setTimeout to ensure marker is fully added to map
+              setTimeout(() => {
+                if (mapInstanceRef.current && mapInstanceRef.current.hasLayer(marker)) {
+                  marker.openPopup()
+                  marker.setIcon(createStatusIcon(staff.status, true))
+                }
+              }, 50)
+            }
+
+            markersRef.current.set(staff.id, marker)
+          } catch (e) {
+            console.error(`Error creating marker for staff ${staff.id}:`, e)
+          }
         })
+    } catch (error) {
+      console.error("Error updating markers:", error)
+    }
+  }, [staffFleet, selectedStaff, createStatusIcon, onStaffSelect])
 
-        // Info window
-        const infoWindow = new window.google.maps.InfoWindow({
-          content: `
-            <div style="padding: 8px; min-width: 200px;">
-              <h3 style="margin: 0 0 8px 0; font-weight: 600; font-size: 14px;">${staff.name}</h3>
-              <p style="margin: 0 0 4px 0; color: #666; font-size: 12px;">${staff.role}</p>
-              <p style="margin: 0 0 4px 0; font-size: 12px;">
-                <strong>Status:</strong> <span style="color: ${getStatusColor(staff.status)}">${staff.status}</span>
-              </p>
-              ${staff.currentSpeed > 0 ? `<p style="margin: 0; font-size: 12px;"><strong>Speed:</strong> ${staff.currentSpeed} mph</p>` : ''}
-            </div>
-          `
-        })
+  // Initialize map - only run once on mount
+  useEffect(() => {
+    if (!mapRef.current || mapInstanceRef.current || typeof window === "undefined" || !L) return
 
-        // Click handler
-        marker.addListener('click', () => {
-          onStaffSelect(staff)
-          infoWindow.open(map, marker)
-        })
+    // Fix Leaflet icons
+    fixLeafletIcons()
 
-        // Show info window if selected
-        if (isSelected) {
-          infoWindow.open(map, marker)
+    let isMounted = true
+
+    try {
+      // Get center from staff locations or default
+      const staffWithLocations = staffFleet.filter(s => s.location !== null)
+      let center: [number, number] = [34.0522, -118.2437] // Default: Los Angeles
+
+      if (staffWithLocations.length > 0) {
+        // Calculate center from all staff locations
+        const avgLat = staffWithLocations.reduce((sum, s) => sum + (s.location?.lat || 0), 0) / staffWithLocations.length
+        const avgLng = staffWithLocations.reduce((sum, s) => sum + (s.location?.lng || 0), 0) / staffWithLocations.length
+        center = [avgLat, avgLng]
+      }
+
+      // Create map using OpenStreetMap (free, no API key needed!)
+      const map = L.map(mapRef.current, {
+        center,
+        zoom: staffWithLocations.length > 1 ? 11 : 13,
+        zoomControl: true,
+      })
+
+      // Add OpenStreetMap tile layer (completely free!)
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19,
+      }).addTo(map)
+
+      // Wait for map to be fully ready before setting ref
+      map.whenReady(() => {
+        if (!isMounted) return
+        
+        mapInstanceRef.current = map
+        setIsMapLoaded(true)
+        
+        // Update markers after map is ready
+        setTimeout(() => {
+          if (isMounted && mapInstanceRef.current) {
+            updateMarkers()
+          }
+        }, 100)
+      })
+    } catch (error: any) {
+      console.error("Error initializing map:", error)
+      setMapError(error.message || "Failed to initialize map")
+    }
+
+    return () => {
+      isMounted = false
+      if (mapInstanceRef.current) {
+        try {
+          // Clear all markers first
+          markersRef.current.forEach(marker => {
+            try {
+              mapInstanceRef.current.removeLayer(marker)
+            } catch (e) {
+              // Ignore errors during cleanup
+            }
+          })
+          markersRef.current.clear()
+          popupsRef.current.clear()
+          
+          // Remove map
+          mapInstanceRef.current.remove()
+        } catch (e) {
+          // Ignore errors during cleanup
+        }
+        mapInstanceRef.current = null
+        setIsMapLoaded(false)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // Only run once on mount
+
+  // Update markers when staff fleet changes
+  useEffect(() => {
+    if (isMapLoaded && mapInstanceRef.current) {
+      updateMarkers()
+    }
+  }, [isMapLoaded, updateMarkers])
+
+  // Update map center when staff locations change
+  useEffect(() => {
+    if (!isMapLoaded || !mapInstanceRef.current || staffWithLocations.length === 0 || !L) {
+      return
+    }
+
+    const map = mapInstanceRef.current
+
+    // Check if map is still valid and ready
+    if (!map._container || !map._loaded) {
+      return
+    }
+
+    try {
+      const bounds = L.latLngBounds([])
+      staffWithLocations.forEach(staff => {
+        if (staff.location) {
+          bounds.extend([staff.location.lat, staff.location.lng])
+        }
+      })
+      
+      // Use requestAnimationFrame to ensure map is ready
+      requestAnimationFrame(() => {
+        if (!mapInstanceRef.current || !mapInstanceRef.current._loaded) {
+          return
         }
 
-        markersRef.current.set(staff.id, marker)
+        try {
+          if (staffWithLocations.length === 1) {
+            // Single location - center on it
+            mapInstanceRef.current.setView(
+              [staffWithLocations[0].location!.lat, staffWithLocations[0].location!.lng],
+              13
+            )
+          } else if (bounds.isValid() && bounds.getNorth() !== bounds.getSouth()) {
+            // Multiple locations - fit bounds (only if bounds are valid)
+            mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] })
+          }
+        } catch (e) {
+          console.error("Error updating map view:", e)
+        }
       })
-  }
+    } catch (error) {
+      console.error("Error calculating bounds:", error)
+    }
+  }, [staffFleet, isMapLoaded, staffWithLocations.length])
+  // Note: `getStatusColor`, `createStatusIcon`, and `updateMarkers` are
+  // defined earlier as memoized callbacks (useCallback). The duplicates
+  // here were removed to avoid redeclaration errors and keep a single
+  // source of truth for marker rendering logic.
 
   if (mapError) {
     return (
@@ -249,7 +319,7 @@ export default function LiveStaffMap({ staffFleet, selectedStaff, onStaffSelect 
           <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-2" />
           <p className="text-gray-600 font-medium">{mapError}</p>
           <p className="text-sm text-gray-500 mt-2">
-            To enable the map, add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to your .env file
+            Please refresh the page to try again
           </p>
         </div>
       </div>
@@ -281,7 +351,25 @@ export default function LiveStaffMap({ staffFleet, selectedStaff, onStaffSelect 
         </div>
       )}
       <div ref={mapRef} className="w-full h-full rounded-lg" style={{ minHeight: '600px' }} />
+      <style jsx global>{`
+        .custom-marker {
+          background: transparent !important;
+          border: none !important;
+        }
+        .custom-popup .leaflet-popup-content-wrapper {
+          border-radius: 8px;
+        }
+        @keyframes pulse {
+          0%, 100% {
+            transform: scale(1);
+            opacity: 1;
+          }
+          50% {
+            transform: scale(1.2);
+            opacity: 0.8;
+          }
+        }
+      `}</style>
     </div>
   )
 }
-
