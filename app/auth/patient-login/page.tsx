@@ -25,6 +25,8 @@ import {
   CheckCircle,
 } from "lucide-react"
 import Link from "next/link"
+import { useToast } from "@/hooks/use-toast"
+import { Toaster } from "@/components/ui/toaster"
 
 export default function PatientLogin() {
   const [loginMethod, setLoginMethod] = useState("patient-id")
@@ -37,6 +39,7 @@ export default function PatientLogin() {
     password: "",
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const { toast } = useToast()
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -51,14 +54,18 @@ export default function PatientLogin() {
     if (loginMethod === "patient-id") {
       if (!formData.patientId.trim()) {
         newErrors.patientId = "Patient ID is required"
-      } else if (formData.patientId.length < 6) {
-        newErrors.patientId = "Patient ID must be at least 6 characters"
+      } else if (formData.patientId.length < 3) {
+        newErrors.patientId = "Patient ID must be at least 3 characters"
       }
     } else {
       if (!formData.phoneNumber.trim()) {
         newErrors.phoneNumber = "Phone number is required"
-      } else if (!/^$$\d{3}$$ \d{3}-\d{4}$/.test(formData.phoneNumber)) {
-        newErrors.phoneNumber = "Please enter a valid phone number"
+      } else {
+        // Remove formatting and check if it has at least 10 digits
+        const digitsOnly = formData.phoneNumber.replace(/\D/g, "")
+        if (digitsOnly.length < 10) {
+          newErrors.phoneNumber = "Please enter a valid phone number (10 digits)"
+        }
       }
     }
 
@@ -84,15 +91,52 @@ export default function PatientLogin() {
     }
 
     setIsLoading(true)
+    setErrors({}) // Clear previous errors
 
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      // Call patient login API
+      const response = await fetch("/api/auth/patient-login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          patientId: formData.patientId,
+          phoneNumber: formData.phoneNumber,
+          dateOfBirth: formData.dateOfBirth,
+          password: formData.password,
+          loginMethod: loginMethod,
+        }),
+      })
 
-      // Demo login - redirect to patient portal
-      window.location.href = "/patient-portal"
-    } catch (error) {
-      setErrors({ general: "Login failed. Please check your credentials and try again." })
+      const data = await response.json()
+
+      if (!response.ok) {
+        // Handle invalid credentials gracefully
+        setErrors({ general: data.error || "Invalid credentials. Please check your information and try again." })
+        setIsLoading(false)
+        return
+      }
+
+      // Save patient info to localStorage
+      if (data.patient) {
+        localStorage.setItem("currentPatient", JSON.stringify(data.patient))
+      }
+
+      // Show success alert
+      toast({
+        title: "Login Successful!",
+        description: `Welcome back, ${data.patient?.name || "Patient"}! Redirecting to your portal...`,
+        duration: 3000,
+      })
+
+      // Small delay to show the toast before redirecting
+      setTimeout(() => {
+        window.location.href = data.redirectTo || "/patient-portal"
+      }, 1000)
+    } catch (error: any) {
+      console.error("Login error:", error)
+      setErrors({ general: "Login failed. Please try again." })
     } finally {
       setIsLoading(false)
     }
@@ -111,7 +155,9 @@ export default function PatientLogin() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50 to-red-50 flex items-center justify-center p-4">
+    <>
+      <Toaster />
+      <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50 to-red-50 flex items-center justify-center p-4">
       {/* Background Pattern */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-20 left-10 w-32 h-32 bg-rose-200 rounded-full opacity-20 animate-pulse"></div>
@@ -172,9 +218,9 @@ export default function PatientLogin() {
                     <Input
                       id="patientId"
                       type="text"
-                      placeholder="Enter your Patient ID (e.g., PT-123456)"
+                      placeholder="Enter your Patient ID (e.g., PT-2024-001)"
                       value={formData.patientId}
-                      onChange={(e) => handleInputChange("patientId", e.target.value)}
+                      onChange={(e) => handleInputChange("patientId", e.target.value.toUpperCase())}
                       className={`h-12 ${errors.patientId ? "border-red-300 focus:border-red-500" : "border-gray-300"}`}
                     />
                     {errors.patientId && (
@@ -357,5 +403,6 @@ export default function PatientLogin() {
         </div>
       </div>
     </div>
+    </>
   )
 }

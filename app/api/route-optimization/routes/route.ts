@@ -459,10 +459,13 @@ export async function GET(request: NextRequest) {
     }
 
     console.log(`Found ${staffMembers.length} active staff members - checking for routes to optimize...`)
+    console.log(`Staff members:`, staffMembers.map(s => ({ id: s.id, name: s.name })))
 
     // Get active trips and scheduled visits for each staff member
-    const routes = await Promise.all(
-      staffMembers.map(async (staff) => {
+    // Use Promise.allSettled to ensure one failure doesn't break everything
+    const routePromises = staffMembers.map(async (staff) => {
+      try {
+        console.log(`\n📋 Processing staff: ${staff.name} (${staff.id})`)
         // Get active trip (optional - route optimization works with or without active trip)
         // If there's an active trip, we'll include visits from that trip
         const { data: activeTrip } = await supabase
@@ -562,7 +565,7 @@ export async function GET(request: NextRequest) {
           return 0
         })
 
-        // Build waypoints from visits with STRICT AI-Powered Address Validation
+        // Build waypoints from visits - OPTIMIZED: Use GPS coordinates directly when available
         const waypoints: Array<{
           id: string
           name: string
@@ -573,7 +576,7 @@ export async function GET(request: NextRequest) {
           originalIndex: number
         }> = []
 
-        console.log(`🔍 STRICT AI Address Validation for ${visits.length} visits...`)
+        console.log(`🔍 Processing ${visits.length} visits for waypoints...`)
 
         for (let i = 0; i < visits.length; i++) {
           const visit = visits[i]
@@ -581,107 +584,91 @@ export async function GET(request: NextRequest) {
           let lng = 0
           let addressValidated = false
           let validationMethod = ''
-
-          // CRITICAL: Always validate the address, but use GPS as fallback with reverse geocoding
           let actualAddress = visit.patient_address || ''
-          
-          if (visit.patient_address) {
-            console.log(`🔍 Validating address for visit ${visit.id} (${visit.patient_name}): "${visit.patient_address}"`)
+
+          // OPTIMIZED: Use GPS coordinates directly if available (fastest path)
+          if (visit.visit_location) {
+            const loc = visit.visit_location as any
+            const gpsLat = loc.lat || (Array.isArray(loc) ? loc[0] : 0)
+            const gpsLng = loc.lng || (Array.isArray(loc) ? loc[1] : 0)
             
-            // Add delay to respect Nominatim rate limit (1 req/sec)
-            if (i > 0) {
-              await new Promise(resolve => setTimeout(resolve, 1100))
-            }
-            
-            const geocoded = await getCoordinates(visit.patient_address)
-            if (geocoded && geocoded.validated) {
-              lat = geocoded.lat
-              lng = geocoded.lng
+            if (gpsLat && gpsLng && !isNaN(parseFloat(gpsLat.toString())) && !isNaN(parseFloat(gpsLng.toString())) && 
+                parseFloat(gpsLat.toString()) !== 0 && parseFloat(gpsLng.toString()) !== 0) {
+              // Use GPS coordinates directly - no geocoding needed
+              lat = parseFloat(gpsLat.toString())
+              lng = parseFloat(gpsLng.toString())
               addressValidated = true
-              validationMethod = 'geocoded'
-              console.log(`✅ Address VALIDATED: "${visit.patient_address}" -> ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
-            } else {
-              // Address validation failed - try to use GPS coordinates with reverse geocoding
-              console.warn(`⚠️ Address validation failed for "${visit.patient_address}" - trying GPS reverse geocoding...`)
+              validationMethod = 'gps'
               
-              if (visit.visit_location) {
-                const loc = visit.visit_location as any
-                const gpsLat = loc.lat || (Array.isArray(loc) ? loc[0] : 0)
-                const gpsLng = loc.lng || (Array.isArray(loc) ? loc[1] : 0)
-                
-                if (gpsLat && gpsLng && !isNaN(gpsLat) && !isNaN(gpsLng) && gpsLat !== 0 && gpsLng !== 0) {
-                  // Use GPS coordinates and reverse geocode to get actual address
-                  lat = parseFloat(gpsLat.toString())
-                  lng = parseFloat(gpsLng.toString())
-                  
-                  // Reverse geocode to get actual address from GPS
-                  await new Promise(resolve => setTimeout(resolve, 1100))
+              // Only reverse geocode if we don't have an address (optional, non-blocking)
+              if (!actualAddress) {
+                try {
+                  // Don't wait for reverse geocoding - use it asynchronously if it completes
                   const { reverseGeocode } = await import('@/lib/geocoding')
-                  const realAddress = await reverseGeocode(lat, lng)
+                  const realAddress = await Promise.race([
+                    reverseGeocode(lat, lng),
+                    new Promise<string | null>(resolve => setTimeout(() => resolve(null), 2000)) // 2s timeout
+                  ])
                   
                   if (realAddress) {
                     actualAddress = realAddress
-                    addressValidated = true
                     validationMethod = 'gps_reverse_geocoded'
                     console.log(`✅ Using GPS with reverse geocoding: ${lat.toFixed(6)}, ${lng.toFixed(6)} -> "${realAddress}"`)
                   } else {
-                    // GPS exists but reverse geocoding failed - still use GPS coordinates
-                    addressValidated = true
-                    validationMethod = 'gps'
-                    console.log(`✅ Using GPS coordinates (reverse geocoding failed): ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+                    console.log(`✅ Using GPS coordinates: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
                   }
-                } else {
-                  console.error(`❌ REJECTED: Invalid address and no valid GPS coordinates for visit ${visit.id} (${visit.patient_name})`)
-                  continue
-                }
-              } else {
-                console.error(`❌ REJECTED: Invalid address and no GPS coordinates for visit ${visit.id} (${visit.patient_name}): "${visit.patient_address}"`)
-                continue
-              }
-            }
-          } else {
-            // No address provided - use visit_location with reverse geocoding
-            if (visit.visit_location) {
-              const loc = visit.visit_location as any
-              lat = loc.lat || (Array.isArray(loc) ? loc[0] : 0)
-              lng = loc.lng || (Array.isArray(loc) ? loc[1] : 0)
-              
-              if (lat && lng && !isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
-                // Reverse geocode to get actual address from GPS
-                await new Promise(resolve => setTimeout(resolve, 1100))
-                const { reverseGeocode } = await import('@/lib/geocoding')
-                const realAddress = await reverseGeocode(lat, lng)
-                
-                if (realAddress) {
-                  actualAddress = realAddress
-                  validationMethod = 'gps_reverse_geocoded'
-                  console.log(`✅ Using GPS with reverse geocoding: ${lat.toFixed(6)}, ${lng.toFixed(6)} -> "${realAddress}"`)
-                } else {
-                  validationMethod = 'gps'
+                } catch (error) {
+                  // Reverse geocoding failed - still use GPS coordinates
                   console.log(`✅ Using GPS coordinates (reverse geocoding failed): ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
                 }
-                addressValidated = true
+              } else {
+                console.log(`✅ Using GPS coordinates with existing address: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
               }
             }
           }
 
-          // STRICT: Only add waypoint if address was validated
+          // If GPS not available, try geocoding address (slower, but fallback)
+          if (!addressValidated && visit.patient_address) {
+            try {
+              console.log(`🔍 Geocoding address for visit ${visit.id} (${visit.patient_name}): "${visit.patient_address}"`)
+              
+              // Add delay to respect Nominatim rate limit (1 req/sec) - only if geocoding
+              if (i > 0) {
+                await new Promise(resolve => setTimeout(resolve, 1100))
+              }
+              
+              const geocoded = await getCoordinates(visit.patient_address)
+              if (geocoded && geocoded.validated) {
+                lat = geocoded.lat
+                lng = geocoded.lng
+                addressValidated = true
+                validationMethod = 'geocoded'
+                actualAddress = visit.patient_address
+                console.log(`✅ Address geocoded: "${visit.patient_address}" -> ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+              } else {
+                console.warn(`⚠️ Address geocoding failed for "${visit.patient_address}" - skipping visit`)
+                continue
+              }
+            } catch (error) {
+              console.error(`❌ Error geocoding address for visit ${visit.id}:`, error)
+              continue
+            }
+          }
+
+          // Add waypoint if we have valid coordinates
           if (addressValidated && lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) {
             waypoints.push({
               id: visit.id,
               name: visit.patient_name || `Visit ${waypoints.length + 1}`,
-              address: actualAddress || visit.patient_address || '', // Use actual address from reverse geocoding if available
+              address: actualAddress || visit.patient_address || '',
               lat: parseFloat(lat.toString()),
               lng: parseFloat(lng.toString()),
               scheduledTime: visit.scheduled_time,
               originalIndex: i
             })
-            console.log(`✅ Added VALIDATED waypoint: ${visit.patient_name} at ${lat.toFixed(6)}, ${lng.toFixed(6)} (${validationMethod})`)
-            if (actualAddress && actualAddress !== visit.patient_address) {
-              console.log(`   📍 Actual address from GPS: "${actualAddress}" (original: "${visit.patient_address}")`)
-            }
+            console.log(`✅ Added waypoint: ${visit.patient_name} at ${lat.toFixed(6)}, ${lng.toFixed(6)} (${validationMethod})`)
           } else {
-            console.error(`❌ REJECTED visit ${visit.id} (${visit.patient_name}): Address validation failed. Address: "${visit.patient_address || 'N/A'}"`)
+            console.error(`❌ REJECTED visit ${visit.id} (${visit.patient_name}): No valid coordinates. Address: "${visit.patient_address || 'N/A'}", GPS: ${visit.visit_location ? 'present' : 'missing'}`)
           }
         }
         
@@ -845,8 +832,22 @@ export async function GET(request: NextRequest) {
           algorithmComparison: algorithmComparison,
           improvementPercent: improvementPercent
         }
-      })
-    )
+      } catch (error: any) {
+        console.error(`❌ Error processing route for staff ${staff.id} (${staff.name}):`, error)
+        // Return null so this staff member is skipped, but others continue
+        return null
+      }
+    })
+
+    const routeResults = await Promise.allSettled(routePromises)
+    const routes = routeResults.map(result => {
+      if (result.status === 'fulfilled') {
+        return result.value
+      } else {
+        console.error('Route processing error:', result.reason)
+        return null
+      }
+    })
 
     const validRoutes = routes.filter((r): r is NonNullable<typeof r> => r !== null)
 

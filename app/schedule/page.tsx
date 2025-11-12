@@ -736,6 +736,7 @@ function StaffScheduleView() {
   const [newShift, setNewShift] = useState({ day_of_week: 0, start_time: "08:00", end_time: "17:00", shift_type: "office", location: "", notes: "", facility: "", unit: "" })
   const [editingShift, setEditingShift] = useState<any | null>(null)
   const [pickerShifts, setPickerShifts] = useState<any[]>([])
+  const [currentUserDepartment, setCurrentUserDepartment] = useState<string | null>(null)
 
   const formatFacilityUnit = (locationValue?: string) => {
     const raw = String(locationValue || '')
@@ -753,9 +754,42 @@ function StaffScheduleView() {
     const init = async () => {
       try {
         setIsLoading(true)
+        
+        // Get current user's department first
+        let userDepartment: string | null = null
+        try {
+          const storedUser = localStorage.getItem('currentUser')
+          if (storedUser) {
+            const user = JSON.parse(storedUser)
+            // If user has staffId, fetch their staff record to get department
+            if (user.staffId || user.id) {
+              const staffId = user.staffId || user.id
+              const userStaffRes = await fetch(`/api/staff/list`, { cache: 'no-store' })
+              const userStaffData = await userStaffRes.json()
+              if (userStaffData.success && userStaffData.staff) {
+                const currentUserStaff = userStaffData.staff.find((s: any) => 
+                  s.id === staffId || s.email === user.email
+                )
+                if (currentUserStaff && currentUserStaff.department) {
+                  userDepartment = currentUserStaff.department
+                  setCurrentUserDepartment(currentUserStaff.department)
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error getting current user department:', e)
+        }
+        
         const staffRes = await fetch('/api/staff/list', { cache: 'no-store' })
         const staffData = await staffRes.json()
-        const staffList = staffData.success ? staffData.staff : []
+        let staffList = staffData.success ? staffData.staff : []
+        
+        // Filter by current user's department if available
+        if (userDepartment) {
+          staffList = staffList.filter((s: any) => s.department === userDepartment)
+        }
+        
         setStaff(staffList)
         // fetch shifts per staff
         const entries: Record<string, any[]> = {}
@@ -795,7 +829,7 @@ function StaffScheduleView() {
       } catch {}
     }, 10000)
     return () => clearInterval(interval)
-  }, [])
+  }, [currentUserDepartment])
 
   const openAddShift = (s: any) => {
     setTargetStaff(s)
@@ -898,7 +932,11 @@ function StaffScheduleView() {
     <Card>
       <CardHeader>
         <CardTitle>Staff Schedule Overview</CardTitle>
-        <CardDescription>Weekly schedule for all team members</CardDescription>
+        <CardDescription>
+          {currentUserDepartment 
+            ? `Weekly schedule for ${currentUserDepartment} team members`
+            : 'Weekly schedule for team members'}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <div className="space-y-6">

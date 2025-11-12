@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(request: NextRequest) {
   try {
-    const { staffId, tripId, patientName, patientAddress, visitType, scheduledTime, latitude, longitude, driveTimeFromLastTrip } = await request.json()
+    const { staffId, tripId, patientName, patientAddress, visitType, scheduledTime, latitude, longitude, driveTimeFromLastTrip, scheduledVisitId } = await request.json()
 
     if (!staffId) {
       return NextResponse.json({ error: "Staff ID is required" }, { status: 400 })
@@ -211,23 +211,62 @@ export async function POST(request: NextRequest) {
       console.warn(`Visit created without GPS location for staff ${staffId}. Route optimization will not work for this visit.`)
     }
 
-      // Create visit with validated/actual address
+    // If scheduledVisitId is provided, update the existing scheduled visit
+    if (scheduledVisitId) {
       const { data: visit, error } = await supabase
         .from('staff_visits')
-        .insert({
-          staff_id: staffId,
+        .update({
           trip_id: activeTripId,
-          patient_name: patientName,
-          patient_address: actualPatientAddress || patientAddress, // Use actual address from reverse geocoding if available
-          visit_type: visitType,
-          scheduled_time: scheduledTime || null,
-          visit_location: visitLocation, // GPS coordinates (from geocoding or GPS)
+          patient_address: actualPatientAddress || patientAddress,
+          visit_location: visitLocation,
           drive_time_to_visit: driveTimeToVisit,
           distance_to_visit: parseFloat(distanceToVisit.toFixed(2)),
+          start_time: new Date().toISOString(),
           status: 'in_progress'
         })
+        .eq('id', scheduledVisitId)
+        .eq('staff_id', staffId)
         .select()
         .single()
+
+      if (error) {
+        console.error('Error updating scheduled visit:', error)
+        return NextResponse.json({ error: error.message }, { status: 500 })
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: "Scheduled appointment started successfully",
+        addressValidated: addressValidated,
+        visit: {
+          id: visit.id,
+          patientName: visit.patient_name,
+          patientAddress: visit.patient_address,
+          startTime: visit.start_time,
+          driveTime: visit.drive_time_to_visit,
+          distance: visit.distance_to_visit,
+          hasLocation: !!visit.visit_location
+        }
+      })
+    }
+
+    // Otherwise, create a new visit
+    const { data: visit, error } = await supabase
+      .from('staff_visits')
+      .insert({
+        staff_id: staffId,
+        trip_id: activeTripId,
+        patient_name: patientName,
+        patient_address: actualPatientAddress || patientAddress, // Use actual address from reverse geocoding if available
+        visit_type: visitType,
+        scheduled_time: scheduledTime || null,
+        visit_location: visitLocation, // GPS coordinates (from geocoding or GPS)
+        drive_time_to_visit: driveTimeToVisit,
+        distance_to_visit: parseFloat(distanceToVisit.toFixed(2)),
+        status: 'in_progress'
+      })
+      .select()
+      .single()
 
     if (error) {
       console.error('Error creating visit:', error)

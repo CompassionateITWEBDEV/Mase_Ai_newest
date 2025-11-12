@@ -22,6 +22,17 @@ interface StaffMember {
   efficiencyScore: number
   location: { lat: number; lng: number } | null
   phoneNumber?: string
+  routeOptimization?: {
+    currentDistance: number
+    optimizedDistance: number
+    distanceSaved: number
+    timeSaved: number
+    costSaved: number
+    improvementPercent: number
+    isOptimized: boolean
+    optimizedOrder: string[]
+    currentOrder: string[]
+  }
 }
 
 interface StaffGpsTrackerProps {
@@ -33,6 +44,7 @@ export default function StaffGpsTracker({ staffFleet, filter }: StaffGpsTrackerP
   const filteredFleet = staffFleet.filter((staff) => {
     if (filter === "All") return true
     if (filter === "En Route") return staff.status === "En Route"
+    if (filter === "Driving") return staff.status === "Driving"
     return staff.status === filter
   })
 
@@ -180,10 +192,25 @@ export default function StaffGpsTracker({ staffFleet, filter }: StaffGpsTrackerP
                     <span>Efficiency Score:</span>
                     <span className="font-bold text-green-600">{selectedStaff.efficiencyScore}%</span>
                   </div>
-                  <div className="flex items-center text-xs text-gray-500">
-                    <Sparkles className="h-3 w-3 mr-1 text-blue-500" />
-                    <span>3.2 miles & 8 mins saved today</span>
-                  </div>
+                  {selectedStaff.routeOptimization && selectedStaff.routeOptimization.improvementPercent > 0 ? (
+                    <div className="flex items-center text-xs text-gray-500 mt-1">
+                      <Sparkles className="h-3 w-3 mr-1 text-blue-500" />
+                      <span>
+                        {selectedStaff.routeOptimization.distanceSaved > 0 && selectedStaff.routeOptimization.timeSaved > 0
+                          ? `${selectedStaff.routeOptimization.distanceSaved.toFixed(1)} miles & ${selectedStaff.routeOptimization.timeSaved} mins ${selectedStaff.routeOptimization.isOptimized ? 'saved' : 'can be saved'} today`
+                          : selectedStaff.routeOptimization.distanceSaved > 0
+                            ? `${selectedStaff.routeOptimization.distanceSaved.toFixed(1)} miles ${selectedStaff.routeOptimization.isOptimized ? 'saved' : 'can be saved'} today`
+                            : selectedStaff.routeOptimization.timeSaved > 0
+                              ? `${selectedStaff.routeOptimization.timeSaved} mins ${selectedStaff.routeOptimization.isOptimized ? 'saved' : 'can be saved'} today`
+                              : 'Route optimized'}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center text-xs text-gray-400 mt-1">
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      <span>No route optimization available</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>

@@ -57,6 +57,11 @@ import {
 import { DrugInteractionAlert } from "@/components/drug-interaction-alert"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { useToast } from "@/hooks/use-toast"
+import { Toaster } from "@/components/ui/toaster"
 
 export default function PatientPortal() {
   const [activeTab, setActiveTab] = useState("overview")
@@ -67,6 +72,23 @@ export default function PatientPortal() {
   const [scannedMedication, setScannedMedication] = useState<any>(null)
   const [isProcessing, setIsProcessing] = useState(false)
   const [scanProgress, setScanProgress] = useState(0)
+  const [patientData, setPatientData] = useState<any>(null)
+  const [assignedStaffId, setAssignedStaffId] = useState<string | null>(null)
+  const [loadingPatient, setLoadingPatient] = useState(true)
+  const [upcomingAppointments, setUpcomingAppointments] = useState<any[]>([])
+  const [loadingAppointments, setLoadingAppointments] = useState(false)
+  const [showScheduleDialog, setShowScheduleDialog] = useState(false)
+  const [schedulingAppointment, setSchedulingAppointment] = useState(false)
+  const [availableStaff, setAvailableStaff] = useState<any[]>([])
+  const { toast } = useToast()
+  const [scheduleForm, setScheduleForm] = useState({
+    date: "",
+    time: "",
+    visitType: "",
+    staffId: "",
+    notes: "",
+    location: "Home Visit",
+  })
   const [manualEntry, setManualEntry] = useState({
     name: "",
     dosage: "",
@@ -80,8 +102,183 @@ export default function PatientPortal() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Mock patient data
-  const patientData = {
+  // Load patient data from localStorage (from login)
+  useEffect(() => {
+    const loadPatientData = async () => {
+      try {
+        const storedPatient = localStorage.getItem("currentPatient")
+        if (storedPatient) {
+          const patient = JSON.parse(storedPatient)
+          setPatientData(patient)
+          
+          // Fetch full patient data including assigned staff
+          if (patient.id) {
+            const response = await fetch(`/api/patients?id=${patient.id}`)
+            if (response.ok) {
+              const data = await response.json()
+              if (data.patients && data.patients.length > 0) {
+                const fullPatient = data.patients[0]
+                
+                // Fetch full staff details if assigned staff ID exists
+                let assignedStaffDetails = null
+                if (fullPatient.assignedStaffId) {
+                  setAssignedStaffId(fullPatient.assignedStaffId)
+                  
+                  // Fetch full staff details
+                  const staffResponse = await fetch(`/api/staff/list`)
+                  if (staffResponse.ok) {
+                    const staffData = await staffResponse.json()
+                    if (staffData.staff && staffData.staff.length > 0) {
+                      assignedStaffDetails = staffData.staff.find((s: any) => s.id === fullPatient.assignedStaffId)
+                    }
+                  }
+                } else if (fullPatient.assignedStaff && fullPatient.assignedStaff !== "Unassigned") {
+                  // Try to get staff by name
+                  const staffResponse = await fetch(`/api/staff/list`)
+                  if (staffResponse.ok) {
+                    const staffData = await staffResponse.json()
+                    if (staffData.staff && staffData.staff.length > 0) {
+                      assignedStaffDetails = staffData.staff.find((s: any) => 
+                        s.name.toLowerCase().includes(fullPatient.assignedStaff.toLowerCase())
+                      )
+                      if (assignedStaffDetails) {
+                        setAssignedStaffId(assignedStaffDetails.id)
+                      }
+                    }
+                  }
+                }
+                
+                // Fetch primary provider details if available
+                let primaryProviderDetails = null
+                if (fullPatient.primaryProviderId) {
+                  const providerResponse = await fetch(`/api/staff/list`)
+                  if (providerResponse.ok) {
+                    const providerData = await providerResponse.json()
+                    if (providerData.staff) {
+                      primaryProviderDetails = providerData.staff.find((s: any) => s.id === fullPatient.primaryProviderId)
+                    }
+                  }
+                }
+                
+                // Update patient data with primary provider details
+                if (primaryProviderDetails) {
+                  fullPatient.primaryProvider = primaryProviderDetails.name
+                  fullPatient.primaryProviderData = {
+                    id: primaryProviderDetails.id,
+                    name: primaryProviderDetails.name,
+                    role: primaryProviderDetails.credentials || primaryProviderDetails.department || "Primary Care Provider",
+                    phone: primaryProviderDetails.phone_number || "",
+                    email: primaryProviderDetails.email || "",
+                    avatar: "/placeholder.svg",
+                  }
+                } else if (fullPatient.primaryProvider) {
+                  // If we have provider name but no details
+                  fullPatient.primaryProviderData = {
+                    id: null,
+                    name: fullPatient.primaryProvider,
+                    role: "Primary Care Provider",
+                    phone: "",
+                    email: "",
+                    avatar: "/placeholder.svg",
+                  }
+                }
+                
+                // Update patient data with assigned staff details
+                if (assignedStaffDetails) {
+                  fullPatient.assignedStaff = {
+                    id: assignedStaffDetails.id,
+                    name: assignedStaffDetails.name,
+                    role: assignedStaffDetails.credentials || assignedStaffDetails.department || "Healthcare Provider",
+                    phone: assignedStaffDetails.phone_number || "",
+                    email: assignedStaffDetails.email || "",
+                    avatar: "/placeholder.svg",
+                  }
+                } else if (fullPatient.assignedStaff && fullPatient.assignedStaff !== "Unassigned") {
+                  // If we have staff name but no details
+                  fullPatient.assignedStaff = {
+                    id: null,
+                    name: fullPatient.assignedStaff,
+                    role: "Healthcare Provider",
+                    phone: "",
+                    email: "",
+                    avatar: "/placeholder.svg",
+                  }
+                }
+                
+                // For tracking, use assigned staff (nurse) who does home visits
+                // Primary provider (doctor) typically doesn't do home visits
+                if (fullPatient.assignedStaffId) {
+                  setAssignedStaffId(fullPatient.assignedStaffId)
+                }
+                
+                setPatientData(fullPatient)
+              }
+            }
+          }
+        } else {
+          // Fallback to mock data if no patient in localStorage
+          setPatientData({
+            name: "Sarah Johnson",
+            dateOfBirth: "March 15, 1985",
+            mrn: "MRN-2024-001",
+            phone: "(555) 123-4567",
+            email: "sarah.johnson@email.com",
+            address: "123 Main St, Anytown, ST 12345",
+            insurance: "Medicare + Blue Cross Blue Shield",
+            primaryProvider: "Dr. Michael Chen",
+            nextAppointment: {
+              date: "2024-01-15",
+              time: "10:30 AM",
+              provider: "Dr. Michael Chen",
+              type: "Follow-up Visit",
+              location: "Home Visit",
+            },
+            assignedStaff: {
+              id: "RN-2024-001",
+              name: "Jennifer Martinez",
+              role: "Registered Nurse",
+              phone: "(555) 987-6543",
+              avatar: "/professional-woman-diverse.png",
+            },
+          })
+        }
+      } catch (error) {
+        console.error("Error loading patient data:", error)
+        // Use mock data as fallback
+        setPatientData({
+          name: "Sarah Johnson",
+          dateOfBirth: "March 15, 1985",
+          mrn: "MRN-2024-001",
+          phone: "(555) 123-4567",
+          email: "sarah.johnson@email.com",
+          address: "123 Main St, Anytown, ST 12345",
+          insurance: "Medicare + Blue Cross Blue Shield",
+          primaryProvider: "Dr. Michael Chen",
+          nextAppointment: {
+            date: "2024-01-15",
+            time: "10:30 AM",
+            provider: "Dr. Michael Chen",
+            type: "Follow-up Visit",
+            location: "Home Visit",
+          },
+          assignedStaff: {
+            id: "RN-2024-001",
+            name: "Jennifer Martinez",
+            role: "Registered Nurse",
+            phone: "(555) 987-6543",
+            avatar: "/professional-woman-diverse.png",
+          },
+        })
+      } finally {
+        setLoadingPatient(false)
+      }
+    }
+
+    loadPatientData()
+  }, [])
+
+  // Default patient data structure (will be replaced by real data)
+  const defaultPatientData = {
     name: "Sarah Johnson",
     dateOfBirth: "March 15, 1985",
     mrn: "MRN-2024-001",
@@ -104,6 +301,17 @@ export default function PatientPortal() {
       phone: "(555) 987-6543",
       avatar: "/professional-woman-diverse.png",
     },
+  }
+
+  // Use patientData or default - ensure it's never null
+  const currentPatientData = patientData || defaultPatientData
+  
+  // Ensure all nested properties exist
+  if (!currentPatientData.assignedStaff) {
+    currentPatientData.assignedStaff = defaultPatientData.assignedStaff
+  }
+  if (!currentPatientData.nextAppointment) {
+    currentPatientData.nextAppointment = defaultPatientData.nextAppointment
   }
 
   // Care Team Data
@@ -296,35 +504,225 @@ export default function PatientPortal() {
     },
   ]
 
-  const upcomingAppointments = [
-    {
-      id: 1,
-      date: "2024-01-15",
-      time: "10:30 AM",
-      provider: "Dr. Michael Chen",
-      type: "Follow-up Visit",
-      status: "Confirmed",
-      location: "Home Visit",
-    },
-    {
-      id: 2,
-      date: "2024-01-22",
-      time: "2:00 PM",
-      provider: "Physical Therapist",
-      type: "Physical Therapy",
-      status: "Scheduled",
-      location: "Home Visit",
-    },
-    {
-      id: 3,
-      date: "2024-01-29",
-      time: "11:00 AM",
-      provider: "Dr. Michael Chen",
-      type: "Medication Review",
-      status: "Pending",
-      location: "Telehealth",
-    },
-  ]
+  // Fetch appointments from API
+  useEffect(() => {
+    const fetchAppointments = async () => {
+      const patient = patientData || defaultPatientData
+      if (!patient?.id && !patient?.name) return
+
+      setLoadingAppointments(true)
+      try {
+        const params = new URLSearchParams()
+        if (patient.id) {
+          params.append("patient_id", patient.id)
+        }
+        if (patient.name) {
+          params.append("patient_name", patient.name)
+        }
+
+        const response = await fetch(`/api/patients/appointments?${params.toString()}`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.appointments) {
+            setUpcomingAppointments(data.appointments)
+          }
+        }
+      } catch (error) {
+        console.error("Error fetching appointments:", error)
+        // Keep empty array on error
+        setUpcomingAppointments([])
+      } finally {
+        setLoadingAppointments(false)
+      }
+    }
+
+    if (!loadingPatient) {
+      fetchAppointments()
+      // Refresh appointments every 30 seconds
+      const interval = setInterval(fetchAppointments, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [loadingPatient, patientData?.id, patientData?.name])
+
+  // Reset form when dialog closes
+  useEffect(() => {
+    if (!showScheduleDialog) {
+      // Reset form but keep assigned staff as default
+      const assignedId = assignedStaffId || currentPatientData?.assignedStaff?.id || ""
+      setScheduleForm({
+        date: "",
+        time: "",
+        visitType: "",
+        staffId: assignedId,
+        notes: "",
+        location: "Home Visit",
+      })
+    }
+  }, [showScheduleDialog, assignedStaffId, currentPatientData?.assignedStaff?.id])
+
+  // Fetch assigned staff when dialog opens
+  useEffect(() => {
+    const fetchAssignedStaff = async () => {
+      if (!showScheduleDialog) return
+
+      try {
+        const assignedId = assignedStaffId || currentPatientData.assignedStaff?.id
+        
+        if (assignedId) {
+          // Fetch only the assigned staff
+          const response = await fetch("/api/staff/list")
+          if (response.ok) {
+            const data = await response.json()
+            if (data.staff) {
+              const assignedStaff = data.staff.find((s: any) => s.id === assignedId)
+              if (assignedStaff) {
+                setAvailableStaff([assignedStaff])
+                // Pre-select assigned staff
+                setScheduleForm(prev => ({ ...prev, staffId: assignedId }))
+              } else {
+                setAvailableStaff([])
+              }
+            }
+          }
+        } else {
+          // No assigned staff
+          setAvailableStaff([])
+        }
+      } catch (error) {
+        console.error("Error fetching assigned staff:", error)
+        setAvailableStaff([])
+      }
+    }
+
+    fetchAssignedStaff()
+  }, [showScheduleDialog, assignedStaffId, currentPatientData.assignedStaff?.id])
+
+  const handleScheduleAppointment = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // Validate required fields
+    if (!scheduleForm.date || !scheduleForm.time || !scheduleForm.visitType) {
+      toast({
+        title: "Validation Error",
+        description: "Please fill in all required fields (Date, Time, and Visit Type).",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validate patient data exists
+    if (!currentPatientData || !currentPatientData.id || !currentPatientData.name) {
+      toast({
+        title: "Error",
+        description: "Patient information is missing. Please refresh the page and try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Validate staff ID is available
+    const finalStaffId = scheduleForm.staffId || assignedStaffId || currentPatientData.assignedStaff?.id
+    if (!finalStaffId) {
+      toast({
+        title: "Validation Error",
+        description: "No healthcare provider assigned. Please contact your care coordinator to assign a provider.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setSchedulingAppointment(true)
+
+    try {
+      // Create scheduled datetime
+      const scheduledDateTime = new Date(`${scheduleForm.date}T${scheduleForm.time}`)
+      
+      // Validate date is in the future
+      if (scheduledDateTime <= new Date()) {
+        toast({
+          title: "Validation Error",
+          description: "Please select a date and time in the future.",
+          variant: "destructive",
+        })
+        setSchedulingAppointment(false)
+        return
+      }
+
+      const requestBody = {
+        patientId: currentPatientData.id,
+        patientName: currentPatientData.name,
+        patientAddress: currentPatientData.address || currentPatientData.location || scheduleForm.location || "Home Visit",
+        staffId: finalStaffId,
+        scheduledTime: scheduledDateTime.toISOString(),
+        visitType: scheduleForm.visitType,
+        location: scheduleForm.location || "Home Visit",
+        notes: scheduleForm.notes || null,
+      }
+
+      const response = await fetch("/api/patients/appointments/schedule", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      })
+
+      let data
+      try {
+        data = await response.json()
+      } catch (jsonError) {
+        console.error("Error parsing response:", jsonError)
+        throw new Error("Invalid response from server")
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || `Failed to schedule appointment (${response.status})`)
+      }
+
+      if (data.success) {
+        toast({
+          title: "Appointment Scheduled!",
+          description: `Your ${scheduleForm.visitType} appointment has been successfully scheduled for ${new Date(scheduledDateTime).toLocaleDateString()} at ${new Date(scheduledDateTime).toLocaleTimeString()}.`,
+        })
+
+        // Close dialog (form will be reset by useEffect when dialog closes)
+        setShowScheduleDialog(false)
+
+        // Refresh appointments list
+        const params = new URLSearchParams()
+        if (currentPatientData.id) {
+          params.append("patient_id", currentPatientData.id)
+        }
+        if (currentPatientData.name) {
+          params.append("patient_name", currentPatientData.name)
+        }
+
+        try {
+          const refreshResponse = await fetch(`/api/patients/appointments?${params.toString()}`)
+          if (refreshResponse.ok) {
+            const refreshData = await refreshResponse.json()
+            if (refreshData.success && refreshData.appointments) {
+              setUpcomingAppointments(refreshData.appointments)
+            }
+          }
+        } catch (refreshError) {
+          console.error("Error refreshing appointments:", refreshError)
+          // Don't show error to user - appointment was already scheduled
+        }
+      } else {
+        throw new Error(data.error || "Failed to schedule appointment")
+      }
+    } catch (error: any) {
+      console.error("Error scheduling appointment:", error)
+      toast({
+        title: "Error",
+        description: error.message || "Failed to schedule appointment. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setSchedulingAppointment(false)
+    }
+  }
 
   const medications = [
     {
@@ -539,50 +937,73 @@ export default function PatientPortal() {
   }
 
   useEffect(() => {
-    let intervalId
+    let intervalId: NodeJS.Timeout | undefined = undefined
 
     if (isExerciseActive) {
       intervalId = setInterval(() => {
         setExerciseTimer((prevTimer) => prevTimer + 1)
       }, 1000)
-    } else {
-      clearInterval(intervalId)
     }
 
-    return () => clearInterval(intervalId)
+    return () => {
+      if (intervalId !== undefined) {
+        clearInterval(intervalId)
+      }
+    }
   }, [isExerciseActive])
 
+  // Show loading state while patient data is being fetched
+  if (loadingPatient && !patientData) {
+    return (
+      <>
+        <Toaster />
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 flex items-center justify-center">
+          <div className="text-center">
+            <RefreshCw className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+            <p className="text-gray-600">Loading patient portal...</p>
+          </div>
+        </div>
+      </>
+    )
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-purple-50">
+    <>
+      <Toaster />
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px:8">
-          <div className="flex justify-between items-center py-4">
+      <div className="bg-white/80 backdrop-blur-md shadow-lg border-b border-gray-200/50 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center py-5">
             <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-lg">
-                  <Heart className="h-6 w-6 text-white" />
+              <div className="flex items-center space-x-4">
+                <div className="relative">
+                  <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 rounded-xl blur-sm opacity-50"></div>
+                  <div className="relative p-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl shadow-lg">
+                    <Heart className="h-7 w-7 text-white" />
+                  </div>
                 </div>
                 <div>
-                  <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                  <h1 className="text-3xl font-bold bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 bg-clip-text text-transparent">
                     Patient Portal
                   </h1>
-                  <p className="text-sm text-gray-600">Welcome back, {patientData.name}</p>
+                  <p className="text-sm text-gray-600 mt-0.5">Welcome back, <span className="font-semibold text-gray-900">{currentPatientData.name}</span></p>
                 </div>
               </div>
             </div>
             <div className="flex items-center space-x-3">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="relative hover:bg-blue-50 hover:border-blue-300 transition-all">
                 <Bell className="h-4 w-4 mr-2" />
-                Notifications
+                <span className="hidden sm:inline">Notifications</span>
+                <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full border-2 border-white"></span>
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="hover:bg-purple-50 hover:border-purple-300 transition-all">
                 <Settings className="h-4 w-4 mr-2" />
-                Settings
+                <span className="hidden sm:inline">Settings</span>
               </Button>
-              <Avatar>
+              <Avatar className="ring-2 ring-blue-200 hover:ring-blue-400 transition-all cursor-pointer">
                 <AvatarImage src="/professional-woman-diverse.png" />
-                <AvatarFallback>SJ</AvatarFallback>
+                <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold">SJ</AvatarFallback>
               </Avatar>
             </div>
           </div>
@@ -590,9 +1011,9 @@ export default function PatientPortal() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-11 lg:w-auto lg:grid-cols-none lg:flex">
-            <TabsTrigger value="overview" className="flex items-center space-x-2">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-8">
+          <TabsList className="grid w-full grid-cols-11 lg:w-auto lg:grid-cols-none lg:flex bg-white/60 backdrop-blur-sm border border-gray-200/50 shadow-md rounded-xl p-1.5">
+            <TabsTrigger value="overview" className="flex items-center space-x-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-500 data-[state=active]:to-purple-500 data-[state=active]:text-white data-[state=active]:shadow-md transition-all">
               <Activity className="h-4 w-4" />
               <span className="hidden sm:inline">Overview</span>
             </TabsTrigger>
@@ -643,74 +1064,96 @@ export default function PatientPortal() {
           </TabsList>
 
           {/* Overview Tab */}
-          <TabsContent value="overview" className="space-y-6">
+          <TabsContent value="overview" className="space-y-8">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Patient Info Card */}
-              <Card className="lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <User className="h-5 w-5 mr-2" />
+              <Card className="lg:col-span-2 border-0 shadow-xl bg-white/80 backdrop-blur-sm hover:shadow-2xl transition-all duration-300">
+                <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200/50">
+                  <CardTitle className="flex items-center text-xl">
+                    <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg mr-3">
+                      <User className="h-5 w-5 text-white" />
+                    </div>
                     Patient Information
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Full Name</p>
-                      <p className="text-lg">{patientData.name}</p>
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-blue-50/50 to-transparent hover:from-blue-100/50 transition-all">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Full Name</p>
+                      <p className="text-lg font-semibold text-gray-900">{currentPatientData.name}</p>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Date of Birth</p>
-                      <p className="text-lg">{patientData.dateOfBirth}</p>
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-purple-50/50 to-transparent hover:from-purple-100/50 transition-all">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Date of Birth</p>
+                      <p className="text-lg font-semibold text-gray-900">{currentPatientData.dateOfBirth || currentPatientData.dateOfBirth}</p>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Medical Record Number</p>
-                      <p className="text-lg">{patientData.mrn}</p>
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-indigo-50/50 to-transparent hover:from-indigo-100/50 transition-all">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Medical Record Number</p>
+                      <p className="text-lg font-semibold text-gray-900 font-mono">{currentPatientData.medicalRecordNumber || currentPatientData.mrn}</p>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Primary Provider</p>
-                      <p className="text-lg">{patientData.primaryProvider}</p>
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-pink-50/50 to-transparent hover:from-pink-100/50 transition-all">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Primary Provider</p>
+                      <p className="text-lg font-semibold text-gray-900">{currentPatientData.primaryProvider || currentPatientData.primaryProviderData?.name || "No Provider Assigned"}</p>
+                      {currentPatientData.primaryProviderData?.role && (
+                        <p className="text-xs text-gray-500 mt-1">{currentPatientData.primaryProviderData.role}</p>
+                      )}
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Phone</p>
-                      <p className="text-lg">{patientData.phone}</p>
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-indigo-50/50 to-transparent hover:from-indigo-100/50 transition-all">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Assigned Staff</p>
+                      <p className="text-lg font-semibold text-gray-900">{currentPatientData.assignedStaff?.name || currentPatientData.assignedStaff || "No Staff Assigned"}</p>
+                      {currentPatientData.assignedStaff?.role && (
+                        <p className="text-xs text-gray-500 mt-1">{currentPatientData.assignedStaff.role}</p>
+                      )}
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Insurance</p>
-                      <p className="text-lg">{patientData.insurance}</p>
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-cyan-50/50 to-transparent hover:from-cyan-100/50 transition-all">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Phone</p>
+                      <p className="text-lg font-semibold text-gray-900">{currentPatientData.phoneNumber || currentPatientData.phone}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-gradient-to-br from-teal-50/50 to-transparent hover:from-teal-100/50 transition-all">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Insurance</p>
+                      <p className="text-lg font-semibold text-gray-900">{currentPatientData.insurance || "N/A"}</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
               {/* Next Appointment Card */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center">
+              <Card className="border-0 shadow-xl bg-gradient-to-br from-white to-blue-50/30 backdrop-blur-sm hover:shadow-2xl transition-all duration-300">
+                <CardHeader className="bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-t-lg">
+                  <CardTitle className="flex items-center text-xl text-white">
                     <Calendar className="h-5 w-5 mr-2" />
                     Next Appointment
                   </CardTitle>
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Date & Time</p>
-                      <p className="text-lg">{new Date(patientData.nextAppointment.date).toLocaleDateString()}</p>
-                      <p className="text-lg">{patientData.nextAppointment.time}</p>
+                <CardContent className="pt-6">
+                  <div className="space-y-4">
+                    <div className="p-4 bg-white/60 rounded-lg border border-blue-100">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Date & Time</p>
+                      <p className="text-xl font-bold text-gray-900">{currentPatientData.nextAppointment ? new Date(currentPatientData.nextAppointment.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : "No upcoming appointment"}</p>
+                      <p className="text-lg font-semibold text-blue-600">{currentPatientData.nextAppointment?.time || ""}</p>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Provider</p>
-                      <p>{patientData.nextAppointment.provider}</p>
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Provider (Home Visit)</p>
+                        <p className="text-base font-medium text-gray-900">{currentPatientData.nextAppointment?.provider || currentPatientData.assignedStaff?.name || currentPatientData.assignedStaff || "No Staff Assigned"}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">Staff member who will perform the visit</p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Type</p>
+                        <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-200">{currentPatientData.nextAppointment?.type || "Home Visit"}</Badge>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Location</p>
+                        <p className="text-base font-medium text-gray-900 flex items-center">
+                          <MapPin className="h-4 w-4 mr-1 text-blue-500" />
+                          {currentPatientData.nextAppointment?.location || currentPatientData.location || "Home Visit"}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Type</p>
-                      <p>{patientData.nextAppointment.type}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Location</p>
-                      <p>{patientData.nextAppointment.location}</p>
-                    </div>
-                    <Button className="w-full mt-4">
+                    <Button 
+                      className="w-full mt-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all"
+                      onClick={() => setActiveTab("tracking")}
+                      disabled={!assignedStaffId && !currentPatientData.assignedStaff?.id}
+                    >
                       <MapPin className="h-4 w-4 mr-2" />
                       Track Provider
                     </Button>
@@ -720,21 +1163,26 @@ export default function PatientPortal() {
             </div>
 
             {/* Recent Vital Signs */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Activity className="h-5 w-5 mr-2" />
+            <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm hover:shadow-2xl transition-all duration-300">
+              <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-gray-200/50">
+                <CardTitle className="flex items-center text-xl">
+                  <div className="p-2 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg mr-3">
+                    <Activity className="h-5 w-5 text-white" />
+                  </div>
                   Recent Vital Signs
                 </CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-6">
                 <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                   {vitalSigns.map((vital, index) => (
-                    <div key={index} className="text-center p-4 bg-gray-50 rounded-lg">
-                      <p className="text-sm font-medium text-gray-500 mb-1">{vital.metric}</p>
-                      <p className="text-2xl font-bold text-gray-900">{vital.value}</p>
-                      <p className="text-xs text-gray-500 mt-1">{vital.date}</p>
-                      <Badge variant={vital.status === "normal" ? "default" : "destructive"} className="mt-2">
+                    <div key={index} className="text-center p-5 bg-gradient-to-br from-white to-gray-50 rounded-xl border border-gray-200/50 hover:shadow-lg hover:border-blue-300 transition-all duration-300 hover:-translate-y-1">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{vital.metric}</p>
+                      <p className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent mb-2">{vital.value}</p>
+                      <p className="text-xs text-gray-500 mb-3">{vital.date}</p>
+                      <Badge 
+                        variant={vital.status === "normal" ? "default" : "destructive"} 
+                        className={`mt-2 ${vital.status === "normal" ? "bg-green-100 text-green-700 hover:bg-green-200" : ""}`}
+                      >
                         {vital.status}
                       </Badge>
                     </div>
@@ -744,57 +1192,67 @@ export default function PatientPortal() {
             </Card>
 
             {/* Quick Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <Card className="cursor-pointer hover:shadow-md transition-shadow">
-                <CardContent className="p-6 text-center">
-                  <MessageSquare className="h-8 w-8 mx-auto mb-2 text-blue-600" />
-                  <h3 className="font-medium">Send Message</h3>
-                  <p className="text-sm text-gray-500">Contact your provider</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <Card className="cursor-pointer border-0 shadow-lg bg-gradient-to-br from-blue-50 to-blue-100/50 hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group">
+                <CardContent className="p-8 text-center">
+                  <div className="inline-flex p-4 bg-gradient-to-r from-blue-500 to-blue-600 rounded-2xl mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
+                    <MessageSquare className="h-8 w-8 text-white" />
+                  </div>
+                  <h3 className="font-bold text-lg mb-2 text-gray-900">Send Message</h3>
+                  <p className="text-sm text-gray-600">Contact your provider</p>
                 </CardContent>
               </Card>
-              <Card className="cursor-pointer hover:shadow-md transition-shadow">
-                <CardContent className="p-6 text-center">
-                  <Pill className="h-8 w-8 mx-auto mb-2 text-green-600" />
-                  <h3 className="font-medium">Request Refill</h3>
-                  <p className="text-sm text-gray-500">Refill medications</p>
+              <Card className="cursor-pointer border-0 shadow-lg bg-gradient-to-br from-green-50 to-emerald-100/50 hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group">
+                <CardContent className="p-8 text-center">
+                  <div className="inline-flex p-4 bg-gradient-to-r from-green-500 to-emerald-600 rounded-2xl mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
+                    <Pill className="h-8 w-8 text-white" />
+                  </div>
+                  <h3 className="font-bold text-lg mb-2 text-gray-900">Request Refill</h3>
+                  <p className="text-sm text-gray-600">Refill medications</p>
                 </CardContent>
               </Card>
-              <Card className="cursor-pointer hover:shadow-md transition-shadow">
-                <CardContent className="p-6 text-center">
-                  <Calendar className="h-8 w-8 mx-auto mb-2 text-purple-600" />
-                  <h3 className="font-medium">Schedule Visit</h3>
-                  <p className="text-sm text-gray-500">Book appointment</p>
+              <Card className="cursor-pointer border-0 shadow-lg bg-gradient-to-br from-purple-50 to-purple-100/50 hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group">
+                <CardContent className="p-8 text-center">
+                  <div className="inline-flex p-4 bg-gradient-to-r from-purple-500 to-purple-600 rounded-2xl mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
+                    <Calendar className="h-8 w-8 text-white" />
+                  </div>
+                  <h3 className="font-bold text-lg mb-2 text-gray-900">Schedule Visit</h3>
+                  <p className="text-sm text-gray-600">Book appointment</p>
                 </CardContent>
               </Card>
-              <Card className="cursor-pointer hover:shadow-md transition-shadow">
-                <CardContent className="p-6 text-center">
-                  <TestTube className="h-8 w-8 mx-auto mb-2 text-orange-600" />
-                  <h3 className="font-medium">View Results</h3>
-                  <p className="text-sm text-gray-500">Check lab results</p>
+              <Card className="cursor-pointer border-0 shadow-lg bg-gradient-to-br from-orange-50 to-amber-100/50 hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group">
+                <CardContent className="p-8 text-center">
+                  <div className="inline-flex p-4 bg-gradient-to-r from-orange-500 to-amber-600 rounded-2xl mb-4 group-hover:scale-110 transition-transform duration-300 shadow-lg">
+                    <TestTube className="h-8 w-8 text-white" />
+                  </div>
+                  <h3 className="font-bold text-lg mb-2 text-gray-900">View Results</h3>
+                  <p className="text-sm text-gray-600">Check lab results</p>
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
 
           {/* Care Team Tab */}
-          <TabsContent value="care-team" className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Users className="h-5 w-5 mr-2" />
+          <TabsContent value="care-team" className="space-y-8">
+            <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+              <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-gray-200/50">
+                <CardTitle className="flex items-center text-2xl">
+                  <div className="p-2 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-lg mr-3">
+                    <Users className="h-6 w-6 text-white" />
+                  </div>
                   Your Healthcare Team
                 </CardTitle>
-                <CardDescription>Meet the professionals dedicated to your care</CardDescription>
+                <CardDescription className="text-base mt-2">Meet the professionals dedicated to your care</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {careTeam.map((member) => (
-                    <Card key={member.id} className="hover:shadow-md transition-shadow">
+                    <Card key={member.id} className="border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/50 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
                       <CardContent className="p-6">
-                        <div className="flex items-center space-x-4 mb-4">
-                          <Avatar className="h-12 w-12">
+                        <div className="flex items-center space-x-4 mb-5">
+                          <Avatar className="h-16 w-16 ring-4 ring-blue-100">
                             <AvatarImage src={member.avatar || "/placeholder.svg"} />
-                            <AvatarFallback>
+                            <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold text-lg">
                               {member.name
                                 .split(" ")
                                 .map((n) => n[0])
@@ -802,9 +1260,9 @@ export default function PatientPortal() {
                             </AvatarFallback>
                           </Avatar>
                           <div className="flex-1">
-                            <h3 className="font-medium text-lg">{member.name}</h3>
-                            <p className="text-sm text-gray-600">{member.role}</p>
-                            <p className="text-xs text-gray-500">{member.specialty}</p>
+                            <h3 className="font-bold text-lg text-gray-900 mb-1">{member.name}</h3>
+                            <p className="text-sm font-medium text-gray-700">{member.role}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{member.specialty}</p>
                           </div>
                           <Badge
                             variant={
@@ -814,33 +1272,45 @@ export default function PatientPortal() {
                                   ? "secondary"
                                   : "outline"
                             }
-                            className="text-xs"
+                            className={`text-xs font-semibold ${
+                              member.status === "Available"
+                                ? "bg-green-100 text-green-700 hover:bg-green-200"
+                                : member.status === "On Route"
+                                  ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                                  : ""
+                            }`}
                           >
                             {member.status}
                           </Badge>
                         </div>
 
-                        <div className="space-y-2 mb-4">
-                          <div className="flex items-center text-sm text-gray-600">
-                            <Phone className="h-4 w-4 mr-2" />
-                            {member.phone}
+                        <div className="space-y-3 mb-5 p-4 bg-gray-50/50 rounded-lg">
+                          <div className="flex items-center text-sm text-gray-700">
+                            <div className="p-1.5 bg-blue-100 rounded-lg mr-3">
+                              <Phone className="h-3.5 w-3.5 text-blue-600" />
+                            </div>
+                            <span className="font-medium">{member.phone}</span>
+                          </div>
+                          <div className="flex items-center text-sm text-gray-700">
+                            <div className="p-1.5 bg-purple-100 rounded-lg mr-3">
+                              <MessageSquare className="h-3.5 w-3.5 text-purple-600" />
+                            </div>
+                            <span className="font-medium truncate">{member.email}</span>
                           </div>
                           <div className="flex items-center text-sm text-gray-600">
-                            <MessageSquare className="h-4 w-4 mr-2" />
-                            {member.email}
-                          </div>
-                          <div className="flex items-center text-sm text-gray-500">
-                            <Clock className="h-4 w-4 mr-2" />
-                            Last contact: {member.lastContact}
+                            <div className="p-1.5 bg-gray-200 rounded-lg mr-3">
+                              <Clock className="h-3.5 w-3.5 text-gray-600" />
+                            </div>
+                            <span>Last contact: {member.lastContact}</span>
                           </div>
                         </div>
 
                         <div className="flex space-x-2">
-                          <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                          <Button variant="outline" size="sm" className="flex-1 bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 hover:text-blue-800 font-semibold transition-all">
                             <Phone className="h-4 w-4 mr-2" />
                             Call
                           </Button>
-                          <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                          <Button variant="outline" size="sm" className="flex-1 bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-700 hover:text-purple-800 font-semibold transition-all">
                             <MessageSquare className="h-4 w-4 mr-2" />
                             Message
                           </Button>
@@ -1212,58 +1682,270 @@ export default function PatientPortal() {
           </TabsContent>
 
           {/* Appointments Tab */}
-          <TabsContent value="appointments" className="space-y-6">
-            <Card>
-              <CardHeader>
+          <TabsContent value="appointments" className="space-y-8">
+            <Card className="border-0 shadow-xl bg-white/80 backdrop-blur-sm">
+              <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50 border-b border-gray-200/50">
                 <div className="flex justify-between items-center">
-                  <CardTitle>Upcoming Appointments</CardTitle>
-                  <Button>
+                  <CardTitle className="flex items-center text-2xl">
+                    <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg mr-3">
+                      <Calendar className="h-6 w-6 text-white" />
+                    </div>
+                    Upcoming Appointments
+                  </CardTitle>
+                  <Button 
+                    className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all"
+                    onClick={() => setShowScheduleDialog(true)}
+                  >
                     <Plus className="h-4 w-4 mr-2" />
                     Schedule New
                   </Button>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {upcomingAppointments.map((appointment) => (
-                    <div key={appointment.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div className="flex items-center space-x-4">
-                        <div className="text-center">
-                          <p className="text-2xl font-bold text-blue-600">{new Date(appointment.date).getDate()}</p>
-                          <p className="text-sm text-gray-500">
+                {loadingAppointments ? (
+                  <div className="flex items-center justify-center p-8">
+                    <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+                    <span>Loading appointments...</span>
+                  </div>
+                ) : upcomingAppointments.length === 0 ? (
+                  <div className="text-center p-8">
+                    <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                    <p className="text-gray-600 mb-2">No upcoming appointments</p>
+                    <p className="text-sm text-gray-500">Your scheduled visits will appear here</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {upcomingAppointments.map((appointment) => (
+                    <div key={appointment.id} className="flex items-center justify-between p-5 border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/50 rounded-xl hover:shadow-xl transition-all duration-300">
+                      <div className="flex items-center space-x-5">
+                        <div className="text-center p-3 bg-gradient-to-br from-blue-50 to-purple-50 rounded-xl border border-blue-100 min-w-[60px]">
+                          <p className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                            {new Date(appointment.date).getDate()}
+                          </p>
+                          <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide mt-1">
                             {new Date(appointment.date).toLocaleDateString("en-US", { month: "short" })}
                           </p>
                         </div>
-                        <div>
-                          <h3 className="font-medium">{appointment.type}</h3>
-                          <p className="text-sm text-gray-600">{appointment.provider}</p>
-                          <p className="text-sm text-gray-500">
-                            {appointment.time} • {appointment.location}
+                        <div className="flex-1">
+                          <h3 className="font-bold text-lg text-gray-900 mb-1">{appointment.type || "Home Visit"}</h3>
+                          <p className="text-sm font-medium text-gray-700 mb-1">
+                            <User className="h-3.5 w-3.5 inline mr-1.5 text-blue-500" />
+                            {appointment.provider || "Healthcare Provider"}
                           </p>
+                          <p className="text-sm text-gray-600 flex items-center">
+                            <Clock className="h-3.5 w-3.5 mr-1.5 text-purple-500" />
+                            {appointment.time || "TBD"}
+                            <span className="mx-2">•</span>
+                            <MapPin className="h-3.5 w-3.5 mr-1.5 text-green-500" />
+                            {appointment.location || "Home Visit"}
+                          </p>
+                          {appointment.notes && (
+                            <p className="text-xs text-gray-500 mt-2 line-clamp-1 italic">{appointment.notes}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center space-x-3">
                         <Badge
-                          variant={
+                          className={
                             appointment.status === "Confirmed"
-                              ? "default"
+                              ? "bg-red-100 text-red-700 hover:bg-red-200 border-red-300"
                               : appointment.status === "Scheduled"
-                                ? "secondary"
-                                : "outline"
+                                ? "bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-300"
+                                : appointment.status === "Pending"
+                                  ? "bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-300"
+                                  : appointment.status === "In Progress"
+                                    ? "bg-blue-100 text-blue-700 hover:bg-blue-200 border-blue-300"
+                                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 border-gray-300"
                           }
                         >
                           {appointment.status}
                         </Badge>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => {
+                            // Show appointment details
+                            // You can add a details dialog here if needed
+                            console.log("Appointment details:", appointment)
+                          }}
+                          className="border-gray-300 text-gray-700 hover:bg-gray-50"
+                        >
                           <Eye className="h-4 w-4 mr-2" />
                           Details
                         </Button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
+
+            {/* Schedule Appointment Dialog */}
+            <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle className="flex items-center text-2xl">
+                    <div className="p-2 bg-gradient-to-r from-blue-500 to-purple-500 rounded-lg mr-3">
+                      <Calendar className="h-6 w-6 text-white" />
+                    </div>
+                    Schedule New Appointment
+                  </DialogTitle>
+                  <DialogDescription>
+                    Request a new appointment with your healthcare provider
+                  </DialogDescription>
+                </DialogHeader>
+
+                <form onSubmit={handleScheduleAppointment} className="space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Date */}
+                    <div className="space-y-2">
+                      <Label htmlFor="appointment-date">Date *</Label>
+                      <Input
+                        id="appointment-date"
+                        type="date"
+                        value={scheduleForm.date}
+                        onChange={(e) => setScheduleForm({ ...scheduleForm, date: e.target.value })}
+                        min={new Date().toISOString().split("T")[0]}
+                        required
+                        className="h-12"
+                      />
+                    </div>
+
+                    {/* Time */}
+                    <div className="space-y-2">
+                      <Label htmlFor="appointment-time">Time *</Label>
+                      <Input
+                        id="appointment-time"
+                        type="time"
+                        value={scheduleForm.time}
+                        onChange={(e) => setScheduleForm({ ...scheduleForm, time: e.target.value })}
+                        required
+                        className="h-12"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Visit Type */}
+                  <div className="space-y-2">
+                    <Label htmlFor="visit-type">Visit Type *</Label>
+                    <Select
+                      value={scheduleForm.visitType}
+                      onValueChange={(value) => setScheduleForm({ ...scheduleForm, visitType: value })}
+                      required
+                    >
+                      <SelectTrigger id="visit-type" className="h-12">
+                        <SelectValue placeholder="Select visit type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Home Visit">Home Visit</SelectItem>
+                        <SelectItem value="Follow-up Visit">Follow-up Visit</SelectItem>
+                        <SelectItem value="Physical Therapy">Physical Therapy</SelectItem>
+                        <SelectItem value="Occupational Therapy">Occupational Therapy</SelectItem>
+                        <SelectItem value="Skilled Nursing">Skilled Nursing</SelectItem>
+                        <SelectItem value="Wound Care">Wound Care</SelectItem>
+                        <SelectItem value="Medication Review">Medication Review</SelectItem>
+                        <SelectItem value="Assessment">Assessment</SelectItem>
+                        <SelectItem value="Telehealth">Telehealth</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Provider Selection */}
+                  <div className="space-y-2">
+                    <Label htmlFor="provider-select">
+                      Healthcare Provider
+                    </Label>
+                    <Select
+                      value={scheduleForm.staffId || (assignedStaffId || currentPatientData.assignedStaff?.id) || ""}
+                      onValueChange={(value) => setScheduleForm({ ...scheduleForm, staffId: value })}
+                      disabled={availableStaff.length === 0}
+                    >
+                      <SelectTrigger id="provider-select" className="h-12">
+                        <SelectValue placeholder={availableStaff.length > 0 ? "Select provider" : "No provider available"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableStaff.length > 0 ? (
+                          availableStaff.map((staff) => (
+                            <SelectItem key={staff.id} value={staff.id}>
+                              {staff.name} - {staff.credentials || staff.department || "Healthcare Provider"}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value="unassigned" disabled>
+                            No provider available
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {availableStaff.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Your assigned provider will be used for the appointment
+                      </p>
+                    )}
+                    {availableStaff.length === 0 && (
+                      <p className="text-xs text-red-500 mt-1">
+                        No assigned provider. Please contact your care coordinator.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Location */}
+                  <div className="space-y-2">
+                    <Label htmlFor="location">Location</Label>
+                    <Input
+                      id="location"
+                      type="text"
+                      value={scheduleForm.location}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, location: e.target.value })}
+                      placeholder="Home Visit"
+                      className="h-12"
+                    />
+                  </div>
+
+                  {/* Notes */}
+                  <div className="space-y-2">
+                    <Label htmlFor="notes">Notes (Optional)</Label>
+                    <Textarea
+                      id="notes"
+                      value={scheduleForm.notes}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, notes: e.target.value })}
+                      placeholder="Any special instructions or concerns..."
+                      rows={4}
+                    />
+                  </div>
+
+                  <DialogFooter>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setShowScheduleDialog(false)}
+                      disabled={schedulingAppointment}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+                      disabled={schedulingAppointment}
+                    >
+                      {schedulingAppointment ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Scheduling...
+                        </>
+                      ) : (
+                        <>
+                          <Calendar className="h-4 w-4 mr-2" />
+                          Schedule Appointment
+                        </>
+                      )}
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
           </TabsContent>
 
           {/* Medications Tab */}
@@ -1646,7 +2328,7 @@ export default function PatientPortal() {
                   <div className="space-y-3">
                     <div>
                       <p className="text-sm font-medium text-gray-500">Primary Insurance</p>
-                      <p>{patientData.insurance}</p>
+                      <p>{currentPatientData?.insurance || "N/A"}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-500">Policy Number</p>
@@ -1676,11 +2358,27 @@ export default function PatientPortal() {
                       Track Your Healthcare Provider
                     </CardTitle>
                     <CardDescription>
-                      Real-time location and estimated arrival time for your assigned provider
+                      Real-time location and estimated arrival time for your assigned staff member (home visit provider)
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <PatientETAView staffId={patientData.assignedStaff.id} patientId="mock-patient-id" />
+                    {loadingPatient ? (
+                      <div className="flex items-center justify-center p-8">
+                        <RefreshCw className="h-6 w-6 animate-spin mr-2" />
+                        <span>Loading provider information...</span>
+                      </div>
+                    ) : assignedStaffId || currentPatientData.assignedStaff?.id ? (
+                      <PatientETAView 
+                        staffId={assignedStaffId || currentPatientData.assignedStaff?.id || ""} 
+                        patientId={currentPatientData.id || currentPatientData.medicalRecordNumber || "patient-id"} 
+                      />
+                    ) : (
+                      <div className="text-center p-8">
+                        <MapPin className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                        <p className="text-gray-600 mb-2">No assigned provider</p>
+                        <p className="text-sm text-gray-500">Please contact your care coordinator to assign a provider</p>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               </div>
@@ -1694,12 +2392,14 @@ export default function PatientPortal() {
                   <CardContent>
                     <div className="flex items-center space-x-3 mb-4">
                       <Avatar>
-                        <AvatarImage src={patientData.assignedStaff.avatar || "/placeholder.svg"} />
-                        <AvatarFallback>JM</AvatarFallback>
+                        <AvatarImage src={currentPatientData.assignedStaff?.avatar || "/placeholder.svg"} />
+                        <AvatarFallback>
+                          {currentPatientData.assignedStaff?.name?.split(" ").map((n: string) => n[0]).join("") || "P"}
+                        </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-medium">{patientData.assignedStaff.name}</p>
-                        <p className="text-sm text-gray-600">{patientData.assignedStaff.role}</p>
+                        <p className="font-medium">{currentPatientData.assignedStaff?.name || "No Provider Assigned"}</p>
+                        <p className="text-sm text-gray-600">{currentPatientData.assignedStaff?.role || "Provider"}</p>
                       </div>
                     </div>
                     <div className="space-y-2">
@@ -2010,5 +2710,6 @@ export default function PatientPortal() {
         </Tabs>
       </div>
     </div>
+    </>
   )
 }

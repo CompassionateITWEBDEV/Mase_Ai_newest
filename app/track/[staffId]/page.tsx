@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { MapPin, Navigation, Play, Square, Clock, Users, CheckCircle, AlertCircle, Loader2, DollarSign, Route, XCircle, Gauge, Compass, Activity, Zap } from "lucide-react"
+import { MapPin, Navigation, Play, Square, Clock, Users, CheckCircle, AlertCircle, Loader2, DollarSign, Route, XCircle, Gauge, Compass, Activity, Zap, Calendar } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import TrackMapView from "@/components/track-map-view"
@@ -42,8 +42,10 @@ export default function StaffTrackingPage() {
   const [tripStats, setTripStats] = useState<{ distance: number; cost: number; costPerMile: number } | null>(null)
   const [staffCostPerMile, setStaffCostPerMile] = useState<number>(0.67)
   const [lastTripDuration, setLastTripDuration] = useState<number | null>(null)
-  const [routePoints, setRoutePoints] = useState<Array<{ lat: number; lng: number; timestamp: string }>>([])
+  const [routePoints, setRoutePoints] = useState<Array<{ lat: number; lng: number; timestamp: string; speed?: number }>>([])
   const [tripMetrics, setTripMetrics] = useState<{ distance: number; avgSpeed: number; maxSpeed: number; duration: number } | null>(null)
+  const [scheduledAppointments, setScheduledAppointments] = useState<any[]>([])
+  const [loadingAppointments, setLoadingAppointments] = useState(false)
   const { toast } = useToast()
 
   // Fetch staff cost per mile
@@ -104,24 +106,62 @@ export default function StaffTrackingPage() {
     checkActiveTrip()
   }, [staffId])
 
-  // Get current location from device GPS (not IP geolocation)
+  // Fetch scheduled appointments
+  useEffect(() => {
+    const fetchScheduledAppointments = async () => {
+      if (!staffId) return
+
+      setLoadingAppointments(true)
+      try {
+        const res = await fetch(`/api/visits/scheduled?staff_id=${staffId}`)
+        const data = await res.json()
+        if (data.success) {
+          setScheduledAppointments(data.appointments || [])
+        }
+      } catch (e) {
+        console.error('Error fetching scheduled appointments:', e)
+      } finally {
+        setLoadingAppointments(false)
+      }
+    }
+
+    fetchScheduledAppointments()
+    // Refresh every 30 seconds
+    const interval = setInterval(fetchScheduledAppointments, 30000)
+    return () => clearInterval(interval)
+  }, [staffId])
+
+  // Get current location from device GPS (not IP geolocation) - Enhanced for accuracy
   const getCurrentLocation = (options?: PositionOptions) => {
     if (!navigator.geolocation) {
       setLocationError("Geolocation is not supported by your browser")
+      toast({
+        title: "Not Supported",
+        description: "Your browser does not support geolocation. Please use a modern browser with GPS support.",
+        variant: "destructive"
+      })
       return
     }
+
+    // Show loading state
+    setIsLoading(true)
+    setLocationError(null)
 
     // Force device GPS with high accuracy - NOT IP-based location
     const defaultOptions: PositionOptions = {
       enableHighAccuracy: true, // Use GPS, not IP/WiFi triangulation
-      timeout: 20000, // Allow more time for GPS to acquire signal
+      timeout: 30000, // Increased timeout for better GPS acquisition
       maximumAge: 0 // Don't use cached location - get fresh GPS reading
     }
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        setIsLoading(false)
+        
         // Validate location accuracy
         const accuracy = position.coords.accuracy || 0
+        const speed = position.coords.speed ? position.coords.speed * 2.237 : null // Convert m/s to mph
+        const heading = position.coords.heading !== null && position.coords.heading !== undefined ? position.coords.heading : null
         
         // PC/Laptop: WiFi-based location (100-2000m) - acceptable
         // Mobile: Device GPS (< 100m) - preferred
@@ -136,27 +176,135 @@ export default function StaffTrackingPage() {
         } else if (accuracy > 1000) {
           // WiFi-based location on PC (acceptable but less accurate)
           console.info('WiFi-based location detected (PC/Laptop) - acceptable for tracking')
-          // Don't show error - PC WiFi location works
+          toast({
+            title: "Location Updated",
+            description: `Location refreshed (WiFi-based, ${accuracy.toFixed(0)}m accuracy). For better accuracy, use a mobile device with GPS.`,
+            variant: "default"
+          })
         } else if (accuracy <= 100) {
           // Good GPS accuracy
           console.info('Device GPS detected - excellent accuracy')
+          toast({
+            title: "Location Updated",
+            description: `GPS location refreshed successfully (${accuracy.toFixed(0)}m accuracy)`,
+            variant: "default"
+          })
+        } else {
+          // Medium accuracy (100-1000m)
+          toast({
+            title: "Location Updated",
+            description: `Location refreshed (${accuracy.toFixed(0)}m accuracy)`,
+            variant: "default"
+          })
         }
 
         // Verify coordinates are valid (not 0,0 or null)
         if (!position.coords.latitude || !position.coords.longitude) {
           setLocationError("Invalid GPS coordinates received")
+          toast({
+            title: "Invalid Location",
+            description: "Received invalid GPS coordinates. Please try again.",
+            variant: "destructive"
+          })
           return
         }
 
-        setLocation({
+        // Update location with all available data
+        const newLocation = {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
-          accuracy: accuracy
-        })
+          accuracy: accuracy,
+          speed: speed,
+          heading: heading
+        }
+        
+        setLocation(newLocation)
         setLocationError(null)
         setLastUpdateTime(new Date())
+        
+        // If tracking is active, add this point to route points
+        if (isTracking && currentTrip) {
+          setRoutePoints(prev => {
+            const updatedPoints = [...prev, {
+              lat: newLocation.lat,
+              lng: newLocation.lng,
+              timestamp: new Date().toISOString(),
+              speed: speed || undefined
+            }]
+            
+            // Calculate trip metrics using the same logic as end-trip API (matches staff-performance)
+            if (updatedPoints.length > 1) {
+              let totalDistance = 0
+              
+              // Calculate distance from route points (same as end-trip API)
+              for (let i = 1; i < updatedPoints.length; i++) {
+                const prevPoint = updatedPoints[i - 1]
+                const currPoint = updatedPoints[i]
+                
+                // Calculate distance using Haversine formula (same as end-trip API)
+                const R = 3959 // Earth radius in miles
+                const dLat = (currPoint.lat - prevPoint.lat) * Math.PI / 180
+                const dLon = (currPoint.lng - prevPoint.lng) * Math.PI / 180
+                const a = 
+                  Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(prevPoint.lat * Math.PI / 180) * Math.cos(currPoint.lat * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2)
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+                const segmentDistance = R * c
+                
+                // Filter out idle time and GPS drift (same logic as end-trip API)
+                // Only count if:
+                // 1. Speed > 5 mph (definitely driving), OR
+                // 2. No speed data but distance > 0.01 miles (significant movement)
+                const hasValidSpeed = currPoint.speed && currPoint.speed > 5
+                const hasNoSpeedData = !currPoint.speed
+                
+                if (hasValidSpeed || (hasNoSpeedData && segmentDistance > 0.01)) {
+                  totalDistance += segmentDistance
+                }
+              }
+              
+              // Calculate speeds (filter valid speeds)
+              const speeds = updatedPoints
+                .filter(p => (p as any).speed !== undefined && (p as any).speed !== null && (p as any).speed > 0)
+                .map(p => (p as any).speed)
+              
+              const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0
+              const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0
+              
+              const duration = currentTrip.startTime 
+                ? Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)
+                : 0
+              
+              setTripMetrics({
+                distance: parseFloat(totalDistance.toFixed(2)), // Same format as end-trip API
+                avgSpeed: parseFloat(avgSpeed.toFixed(1)),
+                maxSpeed: parseFloat(maxSpeed.toFixed(1)),
+                duration
+              })
+            } else if (updatedPoints.length === 1) {
+              // First point - initialize with 0 distance
+              setTripMetrics({
+                distance: 0,
+                avgSpeed: speed || 0,
+                maxSpeed: speed || 0,
+                duration: currentTrip.startTime 
+                  ? Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)
+                  : 0
+              })
+            }
+            
+            return updatedPoints
+          })
+        }
+        
+        // If watching position is active, restart it to ensure continuous updates
+        if (isTracking && watchIdRef.current === null) {
+          startWatchingPosition()
+        }
       },
       (error) => {
+        setIsLoading(false)
         let errorMessage = "Unable to get device GPS location"
         switch (error.code) {
           case error.PERMISSION_DENIED:
@@ -166,7 +314,7 @@ export default function StaffTrackingPage() {
             errorMessage = "Device GPS is unavailable. Please check your device's location settings and ensure GPS is enabled."
             break
           case error.TIMEOUT:
-            errorMessage = "GPS signal timeout. Please ensure you have a clear view of the sky for better GPS accuracy."
+            errorMessage = "GPS signal timeout. Please ensure you have a clear view of the sky for better GPS accuracy. Try again in a moment."
             break
         }
         setLocationError(errorMessage)
@@ -217,35 +365,78 @@ export default function StaffTrackingPage() {
         
         // Add to route points if tracking
         if (isTracking && currentTrip) {
-          setRoutePoints(prev => [...prev, {
-            lat: newLocation.lat,
-            lng: newLocation.lng,
-            timestamp: new Date().toISOString()
-          }])
-          
-          // Calculate trip metrics
-          if (prev.length > 0) {
-            const totalDistance = prev.reduce((sum, point, idx) => {
-              if (idx === 0) return sum
-              return sum + calculateDistance(prev[idx - 1].lat, prev[idx - 1].lng, point.lat, point.lng)
-            }, 0) + calculateDistance(prev[prev.length - 1].lat, prev[prev.length - 1].lng, newLocation.lat, newLocation.lng)
+          setRoutePoints(prev => {
+            const updatedPoints = [...prev, {
+              lat: newLocation.lat,
+              lng: newLocation.lng,
+              timestamp: new Date().toISOString(),
+              speed: speed || undefined
+            }]
             
-            const speeds = prev.filter(p => (p as any).speed).map(p => (p as any).speed)
-            if (speed) speeds.push(speed)
-            const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0
-            const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0
+            // Calculate trip metrics using the same logic as end-trip API (matches staff-performance)
+            if (updatedPoints.length > 1) {
+              let totalDistance = 0
+              
+              // Calculate distance from route points (same as end-trip API)
+              for (let i = 1; i < updatedPoints.length; i++) {
+                const prevPoint = updatedPoints[i - 1]
+                const currPoint = updatedPoints[i]
+                
+                // Calculate distance using Haversine formula (same as end-trip API)
+                const R = 3959 // Earth radius in miles
+                const dLat = (currPoint.lat - prevPoint.lat) * Math.PI / 180
+                const dLon = (currPoint.lng - prevPoint.lng) * Math.PI / 180
+                const a = 
+                  Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(prevPoint.lat * Math.PI / 180) * Math.cos(currPoint.lat * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2)
+                const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+                const segmentDistance = R * c
+                
+                // Filter out idle time and GPS drift (same logic as end-trip API)
+                // Only count if:
+                // 1. Speed > 5 mph (definitely driving), OR
+                // 2. No speed data but distance > 0.01 miles (significant movement)
+                const hasValidSpeed = currPoint.speed && currPoint.speed > 5
+                const hasNoSpeedData = !currPoint.speed
+                
+                if (hasValidSpeed || (hasNoSpeedData && segmentDistance > 0.01)) {
+                  totalDistance += segmentDistance
+                }
+              }
+              
+              // Calculate speeds (filter valid speeds)
+              const speeds = updatedPoints
+                .filter(p => (p as any).speed !== undefined && (p as any).speed !== null && (p as any).speed > 0)
+                .map(p => (p as any).speed)
+              
+              const avgSpeed = speeds.length > 0 ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0
+              const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0
+              
+              const duration = currentTrip.startTime 
+                ? Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)
+                : 0
+              
+              setTripMetrics({
+                distance: parseFloat(totalDistance.toFixed(2)), // Same format as end-trip API
+                avgSpeed: parseFloat(avgSpeed.toFixed(1)),
+                maxSpeed: parseFloat(maxSpeed.toFixed(1)),
+                duration
+              })
+            } else if (updatedPoints.length === 1) {
+              // First point - initialize with 0 distance
+              setTripMetrics({
+                distance: 0,
+                avgSpeed: speed || 0,
+                maxSpeed: speed || 0,
+                duration: currentTrip.startTime 
+                  ? Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)
+                  : 0
+              })
+            }
             
-            const duration = currentTrip.startTime 
-              ? Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)
-              : 0
-            
-            setTripMetrics({
-              distance: totalDistance,
-              avgSpeed,
-              maxSpeed,
-              duration
-            })
-          }
+            return updatedPoints
+          })
         }
         
         // Validate GPS accuracy - warn if accuracy is very high (IP geolocation)
@@ -638,6 +829,65 @@ export default function StaffTrackingPage() {
     visitType: 'Wound Care'
   })
 
+  // Start scheduled appointment
+  const startScheduledAppointment = async (appointment: any) => {
+    if (!location) {
+      toast({
+        title: "Location Required",
+        description: "Please enable GPS location to start the appointment",
+        variant: "destructive"
+      })
+      return
+    }
+
+    try {
+      setIsLoading(true)
+      const res = await fetch('/api/visits/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          staffId,
+          tripId: currentTrip?.id || null,
+          patientName: appointment.patient_name,
+          patientAddress: appointment.patient_address,
+          visitType: appointment.visit_type,
+          scheduledVisitId: appointment.id, // Pass the scheduled visit ID
+          latitude: location.lat,
+          longitude: location.lng,
+        })
+      })
+
+      const data = await res.json()
+      if (data.success) {
+        setCurrentVisit(data.visit)
+        // Refresh scheduled appointments list
+        const refreshRes = await fetch(`/api/visits/scheduled?staff_id=${staffId}`)
+        const refreshData = await refreshRes.json()
+        if (refreshData.success) {
+          setScheduledAppointments(refreshData.appointments || [])
+        }
+        toast({
+          title: "Appointment Started",
+          description: `Visit to ${appointment.patient_name} has started`,
+        })
+      } else {
+        toast({
+          title: "Failed to Start Appointment",
+          description: data.error || 'Failed to start appointment',
+          variant: "destructive"
+        })
+      }
+    } catch (e: any) {
+      toast({
+        title: "Error",
+        description: 'Failed to start appointment: ' + e.message,
+        variant: "destructive"
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const startVisit = async () => {
     // Visit can be started independently - doesn't require active trip
     // Driving time and visit time are separate
@@ -796,23 +1046,34 @@ export default function StaffTrackingPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 pb-4 lg:pb-8 ml-0 lg:ml-0">
-      {/* Professional Header */}
-      <div className="bg-white border-b border-gray-200 shadow-sm">
+      {/* Enhanced Professional Header */}
+      <div className="bg-white border-b border-gray-200 shadow-md sticky top-0 z-50 backdrop-blur-sm bg-white/95">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-                <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent flex items-center gap-2 sm:gap-3">
-                  <div className="p-1.5 sm:p-2 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+            <div className="flex-1">
+                <h1 className="text-2xl sm:text-3xl font-bold bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent flex items-center gap-2 sm:gap-3">
+                  <div className="p-2 bg-gradient-to-br from-blue-500 via-indigo-600 to-purple-600 rounded-xl shadow-lg transform hover:scale-105 transition-transform">
                     <Navigation className="h-5 w-5 sm:h-6 sm:w-6 text-white" />
                   </div>
                   GPS Tracking Dashboard
                 </h1>
-                <p className="text-xs sm:text-sm text-gray-600 mt-1 ml-0 sm:ml-14">Real-time location tracking with high-precision GPS technology</p>
+                <div className="text-xs sm:text-sm text-gray-600 mt-2 ml-0 sm:ml-14 flex items-center gap-2">
+                  <span>Real-time location tracking with high-precision GPS technology</span>
+                  {location && (
+                    <Badge variant="outline" className="text-xs border-green-500 text-green-700 bg-green-50">
+                      <div className="h-1.5 w-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></div>
+                      Connected
+                    </Badge>
+                  )}
+                </div>
             </div>
             {isTracking && (
-              <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
-                <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
-                <span className="text-sm font-medium text-green-700">Live Tracking</span>
+              <div className="flex items-center gap-3 px-5 py-2.5 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl shadow-md">
+                <div className="relative">
+                  <div className="h-3 w-3 bg-green-500 rounded-full animate-pulse"></div>
+                  <div className="absolute inset-0 h-3 w-3 bg-green-500 rounded-full animate-ping opacity-75"></div>
+                </div>
+                <span className="text-sm font-semibold text-green-700">Live Tracking Active</span>
               </div>
             )}
           </div>
@@ -820,31 +1081,41 @@ export default function StaffTrackingPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4 sm:py-8 space-y-4 sm:space-y-6">
-        {/* Map Section - Professional Layout */}
-        <Card className="shadow-xl border-0 overflow-hidden">
-            <CardHeader className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white p-4 sm:p-6">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        {/* Enhanced Map Section - Professional Layout */}
+        <Card className="shadow-2xl border-0 overflow-hidden hover:shadow-3xl transition-all duration-300">
+            <CardHeader className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white p-4 sm:p-6 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent"></div>
+              <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <CardTitle className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 sm:gap-3 mb-2">
-                    <MapPin className="h-5 w-5 sm:h-6 sm:w-6" />
+                  <CardTitle className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2 sm:gap-3 mb-2 drop-shadow-lg">
+                    <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                      <MapPin className="h-5 w-5 sm:h-6 sm:w-6" />
+                    </div>
                     Live Location Map
                   </CardTitle>
-                  <CardDescription className="text-blue-100 text-sm sm:text-base">
+                  <CardDescription className="text-blue-100 text-sm sm:text-base font-medium">
                     Interactive real-time GPS tracking with route visualization
                   </CardDescription>
                 </div>
-              {location && (
-                <Button 
-                  size="sm" 
-                  variant="secondary" 
-                  onClick={() => getCurrentLocation()} 
-                  disabled={isLoading}
-                  className="bg-white/20 hover:bg-white/30 text-white border-white/30"
-                >
-                  <MapPin className="h-4 w-4 mr-2" />
-                  Refresh Location
-                </Button>
-              )}
+              <Button 
+                size="sm" 
+                variant="secondary" 
+                onClick={() => getCurrentLocation()} 
+                disabled={isLoading}
+                className="bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm shadow-lg hover:shadow-xl transition-all disabled:opacity-50"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Refreshing...
+                  </>
+                ) : (
+                  <>
+                    <MapPin className="h-4 w-4 mr-2" />
+                    Refresh Location
+                  </>
+                )}
+              </Button>
             </div>
           </CardHeader>
             <CardContent className="p-0">
@@ -858,167 +1129,220 @@ export default function StaffTrackingPage() {
                   routePoints={routePoints}
                   isTracking={isTracking}
                 />
-                {/* Map Overlay Info */}
-                <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-sm rounded-lg shadow-lg p-3 border border-gray-200 z-[1000]">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className={`h-2 w-2 rounded-full ${
+                {/* Enhanced Map Overlay Info */}
+                <div className="absolute top-4 left-4 bg-white/98 backdrop-blur-md rounded-xl shadow-2xl p-4 border-2 border-gray-200/50 z-[1000] min-w-[200px]">
+                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-200">
+                    <div className={`h-3 w-3 rounded-full ${
                       location.accuracy && location.accuracy <= 100 ? 'bg-green-500' :
                       location.accuracy && location.accuracy <= 1000 ? 'bg-yellow-500' :
                       'bg-red-500'
-                    } animate-pulse`}></div>
-                    <span className="text-xs font-semibold text-gray-700">GPS Status</span>
+                    } animate-pulse shadow-lg`}></div>
+                    <span className="text-xs font-bold text-gray-800 uppercase tracking-wide">GPS Status</span>
                   </div>
-                  <div className="text-xs space-y-1">
-                    <div className="flex justify-between gap-4">
-                      <span className="text-gray-600">Accuracy:</span>
-                      <span className={`font-bold ${
-                        location.accuracy && location.accuracy <= 100 ? 'text-green-600' :
-                        location.accuracy && location.accuracy <= 1000 ? 'text-yellow-600' :
-                        'text-red-600'
+                  <div className="text-xs space-y-2">
+                    <div className="flex justify-between items-center gap-4 p-2 bg-gray-50 rounded-lg">
+                      <span className="text-gray-600 font-medium">Accuracy:</span>
+                      <span className={`font-bold text-sm px-2 py-1 rounded ${
+                        location.accuracy && location.accuracy <= 100 ? 'text-green-700 bg-green-100' :
+                        location.accuracy && location.accuracy <= 1000 ? 'text-yellow-700 bg-yellow-100' :
+                        'text-red-700 bg-red-100'
                       }`}>
                         ±{location.accuracy?.toFixed(0) || 'N/A'}m
                       </span>
                     </div>
                     {lastUpdateTime && (
-                      <div className="flex justify-between gap-4">
-                        <span className="text-gray-600">Updated:</span>
-                        <span className="font-medium text-gray-800">{lastUpdateTime.toLocaleTimeString()}</span>
+                      <div className="flex justify-between items-center gap-4 p-2 bg-gray-50 rounded-lg">
+                        <span className="text-gray-600 font-medium">Updated:</span>
+                        <span className="font-semibold text-gray-800">{lastUpdateTime.toLocaleTimeString()}</span>
+                      </div>
+                    )}
+                    {location.speed !== undefined && location.speed !== null && (
+                      <div className="flex justify-between items-center gap-4 p-2 bg-blue-50 rounded-lg">
+                        <span className="text-gray-600 font-medium">Speed:</span>
+                        <span className="font-bold text-blue-700">{location.speed.toFixed(1)} mph</span>
                       </div>
                     )}
                   </div>
                 </div>
               </div>
             ) : (
-              <div className="h-[450px] flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100">
-                <div className="text-center">
-                  <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
-                  <p className="text-gray-600 font-medium">Acquiring GPS location...</p>
-                  <p className="text-sm text-gray-500 mt-2">Please allow location access</p>
+              <div className="h-[450px] flex items-center justify-center bg-gradient-to-br from-gray-50 via-blue-50 to-indigo-50">
+                <div className="text-center p-8">
+                  <div className="relative mb-6">
+                    <Loader2 className="h-16 w-16 animate-spin text-blue-600 mx-auto" />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <MapPin className="h-8 w-8 text-blue-400 animate-pulse" />
+                    </div>
+                  </div>
+                  <p className="text-gray-700 font-bold text-lg mb-2">Acquiring GPS location...</p>
+                  <p className="text-sm text-gray-500 font-medium">Please allow location access in your browser</p>
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
 
-          {/* Real-time Metrics Grid */}
+          {/* Enhanced Real-time Metrics Grid */}
           {isTracking && location && (
             <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-            <Card className="border-0 shadow-lg bg-gradient-to-br from-green-50 to-emerald-50 hover:shadow-xl transition-shadow">
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 border-green-500">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="p-2 bg-green-100 rounded-lg">
+                  <div className="p-2.5 bg-gradient-to-br from-green-100 to-emerald-100 rounded-xl shadow-md">
                     <Gauge className="h-5 w-5 text-green-600" />
                   </div>
-                  <Badge className="bg-green-500 text-white">Live</Badge>
+                  <Badge className="bg-green-500 text-white shadow-md animate-pulse">Live</Badge>
                 </div>
-                <div className="text-sm font-medium text-gray-600 mb-1">Current Speed</div>
-                <div className="text-3xl font-bold text-green-700">
+                <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Current Speed</div>
+                <div className="text-3xl sm:text-4xl font-bold text-green-700 flex items-baseline">
                   {location.speed ? `${location.speed.toFixed(1)}` : '0.0'}
-                  <span className="text-lg text-gray-500 ml-1">mph</span>
+                  <span className="text-base text-gray-500 ml-1.5 font-normal">mph</span>
                 </div>
+                {location.speed && location.speed > 0 && (
+                  <div className="mt-2 text-xs text-green-600 font-medium">Moving</div>
+                )}
               </CardContent>
             </Card>
 
-            <Card className="border-0 shadow-lg bg-gradient-to-br from-blue-50 to-cyan-50 hover:shadow-xl transition-shadow">
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-blue-50 via-cyan-50 to-sky-50 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 border-blue-500">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="p-2 bg-blue-100 rounded-lg">
+                  <div className="p-2.5 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-xl shadow-md">
                     <Compass className="h-5 w-5 text-blue-600" />
                   </div>
                 </div>
-                <div className="text-sm font-medium text-gray-600 mb-1">Heading</div>
-                <div className="text-3xl font-bold text-blue-700">
+                <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Heading</div>
+                <div className="text-3xl sm:text-4xl font-bold text-blue-700 flex items-baseline">
                   {location.heading !== null && location.heading !== undefined 
                     ? `${Math.round(location.heading)}°` 
                     : 'N/A'}
                 </div>
+                {location.heading !== null && location.heading !== undefined && (
+                  <div className="mt-2 text-xs text-blue-600 font-medium">
+                    {location.heading >= 0 && location.heading < 45 ? 'North' :
+                     location.heading >= 45 && location.heading < 135 ? 'East' :
+                     location.heading >= 135 && location.heading < 225 ? 'South' :
+                     location.heading >= 225 && location.heading < 315 ? 'West' : 'North'}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            <Card className="border-0 shadow-lg bg-gradient-to-br from-purple-50 to-pink-50 hover:shadow-xl transition-shadow">
+            <Card className={`border-0 shadow-xl bg-gradient-to-br from-purple-50 via-pink-50 to-rose-50 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 ${
+              location.accuracy && location.accuracy <= 100 ? 'border-green-500' :
+              location.accuracy && location.accuracy <= 1000 ? 'border-yellow-500' :
+              'border-red-500'
+            }`}>
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="p-2 bg-purple-100 rounded-lg">
-                    <Activity className="h-5 w-5 text-purple-600" />
+                  <div className={`p-2.5 rounded-xl shadow-md ${
+                    location.accuracy && location.accuracy <= 100 ? 'bg-gradient-to-br from-green-100 to-emerald-100' :
+                    location.accuracy && location.accuracy <= 1000 ? 'bg-gradient-to-br from-yellow-100 to-amber-100' :
+                    'bg-gradient-to-br from-red-100 to-rose-100'
+                  }`}>
+                    <Activity className={`h-5 w-5 ${
+                      location.accuracy && location.accuracy <= 100 ? 'text-green-600' :
+                      location.accuracy && location.accuracy <= 1000 ? 'text-yellow-600' :
+                      'text-red-600'
+                    }`} />
                   </div>
                 </div>
-                <div className="text-sm font-medium text-gray-600 mb-1">GPS Accuracy</div>
-                <div className={`text-3xl font-bold ${
+                <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">GPS Accuracy</div>
+                <div className={`text-3xl sm:text-4xl font-bold flex items-baseline ${
                   location.accuracy && location.accuracy <= 100 ? 'text-green-700' :
                   location.accuracy && location.accuracy <= 1000 ? 'text-yellow-700' :
                   'text-red-700'
                 }`}>
                   {location.accuracy ? `±${location.accuracy.toFixed(0)}` : 'N/A'}
-                  <span className="text-lg text-gray-500 ml-1">m</span>
+                  <span className="text-base text-gray-500 ml-1.5 font-normal">m</span>
                 </div>
+                {location.accuracy && (
+                  <div className={`mt-2 text-xs font-medium ${
+                    location.accuracy <= 100 ? 'text-green-600' :
+                    location.accuracy <= 1000 ? 'text-yellow-600' :
+                    'text-red-600'
+                  }`}>
+                    {location.accuracy <= 100 ? 'Excellent' :
+                     location.accuracy <= 1000 ? 'Good' :
+                     'Poor'}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            <Card className="border-0 shadow-lg bg-gradient-to-br from-orange-50 to-amber-50 hover:shadow-xl transition-shadow">
+            <Card className="border-0 shadow-xl bg-gradient-to-br from-orange-50 via-amber-50 to-yellow-50 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-1 border-l-4 border-orange-500">
               <CardContent className="p-5">
                 <div className="flex items-center justify-between mb-3">
-                  <div className="p-2 bg-orange-100 rounded-lg">
+                  <div className="p-2.5 bg-gradient-to-br from-orange-100 to-amber-100 rounded-xl shadow-md">
                     <Route className="h-5 w-5 text-orange-600" />
                   </div>
                 </div>
-                <div className="text-sm font-medium text-gray-600 mb-1">Distance Traveled</div>
-                <div className="text-3xl font-bold text-orange-700">
+                <div className="text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Distance Traveled</div>
+                <div className="text-3xl sm:text-4xl font-bold text-orange-700 flex items-baseline">
                   {tripMetrics ? tripMetrics.distance.toFixed(2) : '0.00'}
-                  <span className="text-lg text-gray-500 ml-1">mi</span>
+                  <span className="text-base text-gray-500 ml-1.5 font-normal">mi</span>
                 </div>
+                {tripMetrics && tripMetrics.distance > 0 && (
+                  <div className="mt-2 text-xs text-orange-600 font-medium">
+                    {tripMetrics.duration} min active
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
         )}
 
-        {/* Trip Management Section */}
+        {/* Enhanced Trip Management Section */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-          <Card className="shadow-xl border-0">
-            <CardHeader className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6">
-              <CardTitle className="text-xl font-bold text-white flex items-center gap-3">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <Navigation className="h-5 w-5" />
-                </div>
-                Trip Management
-              </CardTitle>
-              <CardDescription className="text-indigo-100">Track driving time, distance, and costs</CardDescription>
+          <Card className="shadow-2xl border-0 hover:shadow-3xl transition-all duration-300">
+            <CardHeader className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 text-white p-6 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent"></div>
+              <div className="relative z-10">
+                <CardTitle className="text-xl font-bold text-white flex items-center gap-3 mb-2 drop-shadow-lg">
+                  <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm shadow-lg">
+                    <Navigation className="h-5 w-5" />
+                  </div>
+                  Trip Management
+                </CardTitle>
+                <CardDescription className="text-indigo-100 font-medium">Track driving time, distance, and costs</CardDescription>
+              </div>
             </CardHeader>
             <CardContent className="p-6 space-y-4">
-              {/* Location Coordinates Display */}
+              {/* Enhanced Location Coordinates Display */}
               {location && (
-                <div className="p-4 bg-gradient-to-br from-gray-50 to-white rounded-lg border border-gray-200">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-sm font-semibold text-gray-700">GPS Coordinates</span>
+                <div className="p-5 bg-gradient-to-br from-gray-50 via-white to-blue-50 rounded-xl border-2 border-gray-200 shadow-md hover:shadow-lg transition-shadow">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm font-bold text-gray-800 uppercase tracking-wide">GPS Coordinates</span>
                     {isTracking && (
-                      <Badge className="bg-green-500 text-white">
-                        <Clock className="h-3 w-3 mr-1" />
+                      <Badge className="bg-green-500 text-white shadow-lg animate-pulse">
+                        <Clock className="h-3 w-3 mr-1.5" />
                         Active
                       </Badge>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 gap-3 text-sm">
-                    <div>
-                      <span className="text-gray-500">Latitude:</span>
-                      <div className="font-mono font-semibold text-gray-800">{location.lat.toFixed(6)}</div>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                      <span className="text-xs text-gray-500 font-medium block mb-1">Latitude</span>
+                      <div className="font-mono font-bold text-gray-900 text-base">{location.lat.toFixed(6)}</div>
                     </div>
-                    <div>
-                      <span className="text-gray-500">Longitude:</span>
-                      <div className="font-mono font-semibold text-gray-800">{location.lng.toFixed(6)}</div>
+                    <div className="p-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                      <span className="text-xs text-gray-500 font-medium block mb-1">Longitude</span>
+                      <div className="font-mono font-bold text-gray-900 text-base">{location.lng.toFixed(6)}</div>
                     </div>
                   </div>
                   {locationError && (
-                    <Alert variant="destructive" className="mt-3">
+                    <Alert variant="destructive" className="mt-4 border-2">
                       <AlertCircle className="h-4 w-4" />
-                      <AlertDescription className="text-xs">{locationError}</AlertDescription>
+                      <AlertDescription className="text-xs font-medium">{locationError}</AlertDescription>
                     </Alert>
                   )}
                 </div>
               )}
 
-              {/* Trip Status */}
+              {/* Enhanced Trip Status */}
               {!currentTrip ? (
                 <Button 
-                  className="w-full h-12 text-base font-semibold bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 shadow-lg" 
+                  className="w-full h-14 text-base font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
                   onClick={startTrip} 
                   disabled={!location || isLoading}
                 >
@@ -1036,102 +1360,106 @@ export default function StaffTrackingPage() {
                 </Button>
               ) : (
                 <div className="space-y-4">
-                  {/* Active Trip Header */}
-                  <div className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-200 shadow-sm">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-2">
-                        <Badge className="bg-blue-600 text-white px-3 py-1 text-sm">Trip Active</Badge>
+                  {/* Enhanced Active Trip Header */}
+                  <div className="p-5 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-xl border-2 border-blue-300 shadow-lg hover:shadow-xl transition-shadow">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge className="bg-blue-600 text-white px-4 py-1.5 text-sm font-semibold shadow-md">Trip Active</Badge>
                         {isTracking && (
-                          <Badge className="bg-green-500 text-white px-3 py-1 text-sm">
-                            <Clock className="h-3 w-3 mr-1" />
+                          <Badge className="bg-green-500 text-white px-4 py-1.5 text-sm font-semibold shadow-md animate-pulse">
+                            <Clock className="h-3.5 w-3.5 mr-1.5" />
                             GPS Tracking
                           </Badge>
                         )}
                       </div>
                     </div>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-gray-600">Started:</span>
-                        <span className="font-semibold text-gray-800">{new Date(currentTrip.startTime).toLocaleString()}</span>
+                    <div className="space-y-3 text-sm">
+                      <div className="flex justify-between items-center p-3 bg-white rounded-lg border border-blue-200 shadow-sm">
+                        <span className="text-gray-600 font-medium">Started:</span>
+                        <span className="font-bold text-gray-900">{new Date(currentTrip.startTime).toLocaleString()}</span>
                       </div>
                       {currentTrip.startTime && (
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Duration:</span>
-                          <span className="font-semibold text-blue-700">
+                        <div className="flex justify-between items-center p-3 bg-white rounded-lg border border-blue-200 shadow-sm">
+                          <span className="text-gray-600 font-medium">Duration:</span>
+                          <span className="font-bold text-blue-700 text-base">
                             {Math.round((new Date().getTime() - new Date(currentTrip.startTime).getTime()) / 60000)} minutes
                           </span>
                         </div>
                       )}
                     </div>
                   </div>
-                  {/* Real-time Trip Metrics */}
+                  {/* Enhanced Real-time Trip Metrics */}
                   {currentTrip && !tripStats && tripMetrics && (
-                    <div className="p-5 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-xl border-2 border-indigo-200 shadow-md">
-                      <div className="flex items-center gap-2 mb-4">
-                        <Route className="h-5 w-5 text-indigo-600" />
-                        <h3 className="text-base font-bold text-indigo-800">Real-time Trip Metrics</h3>
+                    <div className="p-6 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-xl border-2 border-indigo-300 shadow-lg hover:shadow-xl transition-shadow">
+                      <div className="flex items-center gap-3 mb-5">
+                        <div className="p-2 bg-indigo-100 rounded-lg">
+                          <Route className="h-5 w-5 text-indigo-600" />
+                        </div>
+                        <h3 className="text-lg font-bold text-indigo-900">Real-time Trip Metrics</h3>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-white p-3 rounded-lg border border-indigo-100 shadow-sm">
-                          <div className="text-xs font-medium text-gray-600 mb-1">Distance</div>
-                          <div className="text-2xl font-bold text-indigo-700">
+                        <div className="bg-white p-4 rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow">
+                          <div className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Distance</div>
+                          <div className="text-2xl sm:text-3xl font-bold text-indigo-700 flex items-baseline">
                             {tripMetrics.distance.toFixed(2)}
-                            <span className="text-sm text-gray-500 ml-1">mi</span>
+                            <span className="text-sm text-gray-500 ml-1.5 font-normal">mi</span>
                           </div>
                         </div>
-                        <div className="bg-white p-3 rounded-lg border border-indigo-100 shadow-sm">
-                          <div className="text-xs font-medium text-gray-600 mb-1">Avg Speed</div>
-                          <div className="text-2xl font-bold text-indigo-700">
+                        <div className="bg-white p-4 rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow">
+                          <div className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Avg Speed</div>
+                          <div className="text-2xl sm:text-3xl font-bold text-indigo-700 flex items-baseline">
                             {tripMetrics.avgSpeed.toFixed(1)}
-                            <span className="text-sm text-gray-500 ml-1">mph</span>
+                            <span className="text-sm text-gray-500 ml-1.5 font-normal">mph</span>
                           </div>
                         </div>
-                        <div className="bg-white p-3 rounded-lg border border-indigo-100 shadow-sm">
-                          <div className="text-xs font-medium text-gray-600 mb-1">Max Speed</div>
-                          <div className="text-2xl font-bold text-indigo-700">
+                        <div className="bg-white p-4 rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow">
+                          <div className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Max Speed</div>
+                          <div className="text-2xl sm:text-3xl font-bold text-indigo-700 flex items-baseline">
                             {tripMetrics.maxSpeed.toFixed(1)}
-                            <span className="text-sm text-gray-500 ml-1">mph</span>
+                            <span className="text-sm text-gray-500 ml-1.5 font-normal">mph</span>
                           </div>
                         </div>
-                        <div className="bg-white p-3 rounded-lg border border-indigo-100 shadow-sm">
-                          <div className="text-xs font-medium text-gray-600 mb-1">Duration</div>
-                          <div className="text-2xl font-bold text-indigo-700">
+                        <div className="bg-white p-4 rounded-xl border-2 border-indigo-200 shadow-md hover:shadow-lg transition-shadow">
+                          <div className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Duration</div>
+                          <div className="text-2xl sm:text-3xl font-bold text-indigo-700 flex items-baseline">
                             {tripMetrics.duration}
-                            <span className="text-sm text-gray-500 ml-1">min</span>
+                            <span className="text-sm text-gray-500 ml-1.5 font-normal">min</span>
                           </div>
                         </div>
                       </div>
-                      <div className="mt-4 pt-4 border-t border-indigo-200">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-600">Cost per Mile:</span>
-                          <span className="text-lg font-bold text-indigo-800">${staffCostPerMile.toFixed(2)}</span>
+                      <div className="mt-5 pt-5 border-t-2 border-indigo-200 bg-white/50 rounded-lg p-4">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-sm font-semibold text-gray-700">Cost per Mile:</span>
+                          <span className="text-xl font-bold text-indigo-900">${staffCostPerMile.toFixed(2)}</span>
                         </div>
-                        <p className="text-xs text-gray-500 mt-2 italic">
+                        <p className="text-xs text-gray-600 mt-2 italic font-medium">
                           Final cost will be calculated when trip ends
                         </p>
                       </div>
                     </div>
                   )}
                   
-                  {/* Trip Summary (after trip ends) */}
+                  {/* Enhanced Trip Summary (after trip ends) */}
                   {tripStats && (
-                    <div className="p-5 bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl border-2 border-green-200 shadow-md">
-                      <div className="flex items-center gap-2 mb-4">
-                        <CheckCircle className="h-5 w-5 text-green-600" />
-                        <h3 className="text-base font-bold text-green-800">Trip Completed</h3>
+                    <div className="p-6 bg-gradient-to-br from-green-50 via-emerald-50 to-teal-50 rounded-xl border-2 border-green-300 shadow-xl hover:shadow-2xl transition-shadow">
+                      <div className="flex items-center gap-3 mb-5">
+                        <div className="p-2 bg-green-100 rounded-lg">
+                          <CheckCircle className="h-6 w-6 text-green-600" />
+                        </div>
+                        <h3 className="text-lg font-bold text-green-900">Trip Completed</h3>
                       </div>
                       <div className="space-y-3">
-                        <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-green-100">
-                          <span className="text-sm text-gray-600">Distance:</span>
-                          <span className="text-lg font-bold text-gray-800">{tripStats.distance.toFixed(2)} miles</span>
+                        <div className="flex justify-between items-center bg-white p-4 rounded-xl border-2 border-green-200 shadow-md">
+                          <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Distance:</span>
+                          <span className="text-lg font-bold text-gray-900">{tripStats.distance.toFixed(2)} miles</span>
                         </div>
-                        <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-green-100">
-                          <span className="text-sm text-gray-600">Cost per Mile:</span>
-                          <span className="text-lg font-bold text-gray-800">${tripStats.costPerMile.toFixed(2)}</span>
+                        <div className="flex justify-between items-center bg-white p-4 rounded-xl border-2 border-green-200 shadow-md">
+                          <span className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Cost per Mile:</span>
+                          <span className="text-lg font-bold text-gray-900">${tripStats.costPerMile.toFixed(2)}</span>
                         </div>
-                        <div className="flex justify-between items-center bg-green-100 p-4 rounded-lg border-2 border-green-300">
-                          <span className="text-base font-bold text-green-800">Total Cost:</span>
-                          <span className="text-2xl font-bold text-green-700">${tripStats.cost.toFixed(2)}</span>
+                        <div className="flex justify-between items-center bg-gradient-to-r from-green-100 to-emerald-100 p-5 rounded-xl border-2 border-green-400 shadow-lg">
+                          <span className="text-base font-bold text-green-900 uppercase tracking-wide">Total Cost:</span>
+                          <span className="text-3xl font-bold text-green-700">${tripStats.cost.toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
@@ -1139,7 +1467,7 @@ export default function StaffTrackingPage() {
                   
                   <Button 
                     variant="destructive" 
-                    className="w-full h-12 text-base font-semibold shadow-lg" 
+                    className="w-full h-14 text-base font-bold bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
                     onClick={endTrip}
                     disabled={isLoading}
                   >
@@ -1169,16 +1497,100 @@ export default function StaffTrackingPage() {
             </CardContent>
           </Card>
 
-          {/* Visit Management Section */}
-          <Card className="shadow-xl border-0">
-            <CardHeader className="bg-gradient-to-r from-emerald-600 to-teal-600 text-white p-6">
-              <CardTitle className="text-xl font-bold text-white flex items-center gap-3">
-                <div className="p-2 bg-white/20 rounded-lg">
-                  <Users className="h-5 w-5" />
+          {/* Scheduled Appointments Section */}
+          {scheduledAppointments.length > 0 && (
+            <Card className="shadow-2xl border-0 hover:shadow-3xl transition-all duration-300">
+              <CardHeader className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white p-6 relative overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent"></div>
+                <div className="relative z-10">
+                  <CardTitle className="text-xl font-bold text-white flex items-center gap-3 mb-2 drop-shadow-lg">
+                    <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm shadow-lg">
+                      <Calendar className="h-5 w-5" />
+                    </div>
+                    Scheduled Appointments
+                  </CardTitle>
+                  <CardDescription className="text-blue-100 font-medium">
+                    {scheduledAppointments.length} upcoming appointment{scheduledAppointments.length !== 1 ? 's' : ''}
+                  </CardDescription>
                 </div>
-                Patient Visit Management
-              </CardTitle>
-              <CardDescription className="text-emerald-100">Track patient visits independently from trip tracking</CardDescription>
+              </CardHeader>
+              <CardContent className="p-6 space-y-3">
+                {loadingAppointments ? (
+                  <div className="flex items-center justify-center p-8">
+                    <Loader2 className="h-6 w-6 animate-spin mr-2" />
+                    <span>Loading appointments...</span>
+                  </div>
+                ) : (
+                  scheduledAppointments.map((appointment) => (
+                    <div
+                      key={appointment.id}
+                      className="p-4 bg-gradient-to-br from-white to-gray-50 rounded-xl border-2 border-gray-200 hover:border-blue-300 shadow-md hover:shadow-lg transition-all"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge className="bg-blue-100 text-blue-700 border-blue-300">
+                              {appointment.visit_type || "Home Visit"}
+                            </Badge>
+                            <span className="text-xs text-gray-500">
+                              {new Date(appointment.scheduled_time).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric'
+                              })} at {new Date(appointment.scheduled_time).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit'
+                              })}
+                            </span>
+                          </div>
+                          <h3 className="font-bold text-lg text-gray-900 mb-1">{appointment.patient_name}</h3>
+                          <p className="text-sm text-gray-600 flex items-center gap-1">
+                            <MapPin className="h-3.5 w-3.5" />
+                            {appointment.patient_address || "Home Visit"}
+                          </p>
+                          {appointment.notes && (
+                            <p className="text-xs text-gray-500 mt-2 italic">{appointment.notes}</p>
+                          )}
+                        </div>
+                        <Button
+                          size="sm"
+                          onClick={() => startScheduledAppointment(appointment)}
+                          disabled={isLoading || !!currentVisit}
+                          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
+                        >
+                          {isLoading ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Starting...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-4 w-4 mr-2" />
+                              Start Visit
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Enhanced Visit Management Section */}
+          <Card className="shadow-2xl border-0 hover:shadow-3xl transition-all duration-300">
+            <CardHeader className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white p-6 relative overflow-hidden">
+              <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent"></div>
+              <div className="relative z-10">
+                <CardTitle className="text-xl font-bold text-white flex items-center gap-3 mb-2 drop-shadow-lg">
+                  <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm shadow-lg">
+                    <Users className="h-5 w-5" />
+                  </div>
+                  Patient Visit Management
+                </CardTitle>
+                <CardDescription className="text-emerald-100 font-medium">Track patient visits independently from trip tracking</CardDescription>
+              </div>
             </CardHeader>
             <CardContent className="p-6 space-y-5">
               {!currentVisit ? (
@@ -1224,7 +1636,7 @@ export default function StaffTrackingPage() {
                     </Select>
                   </div>
                   <Button 
-                    className="w-full h-12 text-base font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg" 
+                    className="w-full h-14 text-base font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
                     onClick={startVisit} 
                     disabled={isLoading}
                   >
@@ -1243,23 +1655,23 @@ export default function StaffTrackingPage() {
                 </div>
               ) : (
                 <div className="space-y-5">
-                  {/* Active Visit Header */}
-                  <div className="p-5 bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl border-2 border-emerald-200 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                      <Badge className="bg-emerald-600 text-white px-3 py-1 text-sm">Visit In Progress</Badge>
-                      <div className="text-sm text-gray-600">
-                        <Clock className="h-4 w-4 inline mr-1" />
+                  {/* Enhanced Active Visit Header */}
+                  <div className="p-5 bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 rounded-xl border-2 border-emerald-300 shadow-lg hover:shadow-xl transition-shadow">
+                    <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+                      <Badge className="bg-emerald-600 text-white px-4 py-1.5 text-sm font-semibold shadow-md">Visit In Progress</Badge>
+                      <div className="text-sm text-gray-700 font-medium flex items-center">
+                        <Clock className="h-4 w-4 inline mr-1.5" />
                         Started: {new Date(currentVisit.startTime).toLocaleTimeString()}
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <div>
-                        <div className="text-xs text-gray-600 mb-1">Patient Name</div>
-                        <div className="text-lg font-bold text-gray-800">{currentVisit.patientName}</div>
+                    <div className="space-y-3">
+                      <div className="p-3 bg-white rounded-lg border border-emerald-200 shadow-sm">
+                        <div className="text-xs text-gray-500 font-medium mb-1 uppercase tracking-wide">Patient Name</div>
+                        <div className="text-lg font-bold text-gray-900">{currentVisit.patientName}</div>
                       </div>
-                      <div>
-                        <div className="text-xs text-gray-600 mb-1">Address</div>
-                        <div className="text-sm text-gray-700">{currentVisit.patientAddress}</div>
+                      <div className="p-3 bg-white rounded-lg border border-emerald-200 shadow-sm">
+                        <div className="text-xs text-gray-500 font-medium mb-1 uppercase tracking-wide">Address</div>
+                        <div className="text-sm text-gray-800 font-medium">{currentVisit.patientAddress}</div>
                       </div>
                     </div>
                   </div>
@@ -1276,7 +1688,7 @@ export default function StaffTrackingPage() {
                   
                   <div className="flex gap-3">
                     <Button 
-                      className="flex-1 h-12 text-base font-semibold bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 shadow-lg" 
+                      className="flex-1 h-14 text-base font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
                       onClick={endVisit}
                       disabled={isLoading}
                     >
@@ -1293,7 +1705,7 @@ export default function StaffTrackingPage() {
                       )}
                     </Button>
                     <Button 
-                      className="flex-1 h-12 text-base font-semibold" 
+                      className="flex-1 h-14 text-base font-bold border-2 hover:bg-red-50 transition-all duration-300" 
                       variant="outline"
                       onClick={() => setShowCancelDialog(true)}
                       disabled={isLoading}

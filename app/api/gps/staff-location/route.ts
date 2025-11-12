@@ -94,17 +94,36 @@ export async function GET(request: NextRequest) {
       .eq('id', staffId)
       .single()
 
-    // Determine status
+    // Determine status - FIXED: More accurate status detection
     let status = 'offline'
-    if (activeTrip) {
-      status = currentVisit ? 'on_visit' : 'driving'
-    } else if (useLocation) {
-      // Check if location is recent (within last 5 minutes)
-      const lastUpdateTime = new Date(useLocation.timestamp)
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
-      if (lastUpdateTime > fiveMinutesAgo) {
-        status = 'active'
+    
+    if (currentVisit) {
+      // Has active visit - definitely on visit
+      status = 'on_visit'
+    } else if (activeTrip) {
+      // Has active trip - check if actually moving
+      if (useLocation?.speed && useLocation.speed > 5) {
+        // Has speed > 5 mph - actually driving
+        status = 'driving'
+      } else if (isLocationRecent) {
+        // Recent location but no speed - might be stationary
+        status = 'active' // Active but not necessarily driving
+      } else {
+        // Active trip but no recent location - might be stale
+        const tripAge = activeTrip.start_time 
+          ? Math.round((new Date().getTime() - new Date(activeTrip.start_time).getTime()) / 60000)
+          : null
+        
+        if (tripAge !== null && tripAge > 480) {
+          // Trip older than 8 hours - likely stale
+          status = 'offline'
+        } else {
+          status = 'active'
+        }
       }
+    } else if (useLocation && isLocationRecent) {
+      // Recent location but no active trip
+      status = 'active'
     }
 
     // Get address from coordinates (optional - can use reverse geocoding API)

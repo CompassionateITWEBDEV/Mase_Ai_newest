@@ -16,7 +16,7 @@ interface StaffFleetMember {
   id: string
   name: string
   role: string
-  status: "En Route" | "On Visit" | "Idle" | "Offline"
+  status: "En Route" | "Driving" | "On Visit" | "Idle" | "Offline"
   currentSpeed: number
   etaToNext: string
   nextPatient: string
@@ -34,6 +34,14 @@ interface StaffFleetMember {
     endTime: string
     address: string
     status: string
+    cancelReason?: string
+  }>
+  upcomingAppointments?: Array<{
+    id: string
+    patientName: string
+    scheduledTime: string
+    visitType: string
+    address: string
   }>
   drivingCost: number
   phoneNumber?: string
@@ -61,6 +69,15 @@ export default function FleetManagementDashboard() {
   const [applyingRoute, setApplyingRoute] = useState<string | null>(null)
   const { toast } = useToast()
 
+  // Helper function to safely convert improvementPercent to number (API returns it as string)
+  const parseImprovementPercent = (value: any): number => {
+    if (value === null || value === undefined) return 0
+    if (typeof value === 'string') {
+      return parseFloat(value) || 0
+    }
+    return typeof value === 'number' ? value : 0
+  }
+
   // Load route optimization data
   const loadRouteOptimizationData = async () => {
     try {
@@ -77,18 +94,19 @@ export default function FleetManagementDashboard() {
           setStaffFleet(prev => prev.map(staff => {
             const routeData = data.routes.find((r: any) => r.staffId === staff.id)
             if (routeData) {
+              const improvementPercent = parseImprovementPercent(routeData.improvementPercent)
               return {
                 ...staff,
                 routeOptimization: {
-                  currentDistance: routeData.currentDistance,
-                  optimizedDistance: routeData.optimizedDistance,
-                  distanceSaved: routeData.distanceSaved,
-                  timeSaved: routeData.timeSaved,
-                  costSaved: routeData.costSaved,
-                  improvementPercent: routeData.improvementPercent,
-                  isOptimized: routeData.improvementPercent > 0,
-                  optimizedOrder: routeData.optimizedOrder,
-                  currentOrder: routeData.currentOrder
+                  currentDistance: routeData.currentDistance || 0,
+                  optimizedDistance: routeData.optimizedDistance || 0,
+                  distanceSaved: routeData.distanceSaved || 0,
+                  timeSaved: routeData.timeSaved || 0,
+                  costSaved: routeData.costSaved || 0,
+                  improvementPercent: improvementPercent,
+                  isOptimized: improvementPercent > 0,
+                  optimizedOrder: routeData.optimizedOrder || [],
+                  currentOrder: routeData.currentOrder || []
                 }
               }
             }
@@ -196,16 +214,68 @@ export default function FleetManagementDashboard() {
               console.warn(`Failed to load location for staff ${staff.id}:`, locationData.error)
             }
 
-            // Determine status - ACCURATE REAL-TIME STATUS based on GPS data
-            let status: "En Route" | "On Visit" | "Idle" | "Offline" = "Offline"
+            // Get scheduled appointments
+            const appointmentsRes = await fetch(
+              `/api/visits/scheduled?staff_id=${encodeURIComponent(staff.id)}`,
+              { cache: 'no-store' }
+            )
+            const appointmentsData = await appointmentsRes.json()
+            
+            const upcomingAppointments = (appointmentsData.success && appointmentsData.appointments) 
+              ? appointmentsData.appointments.map((apt: any) => ({
+                  id: apt.id,
+                  patientName: apt.patient_name,
+                  scheduledTime: apt.scheduled_time,
+                  visitType: apt.visit_type,
+                  address: apt.patient_address,
+                }))
+              : []
+
+            // Determine status - FIXED: More accurate status detection
+            let status: "En Route" | "Driving" | "On Visit" | "Idle" | "Offline" = "Offline"
             let currentSpeed = 0
-            let nextPatient = "N/A"
+            let nextPatient = ""
             let etaToNext = "N/A"
+            
+            if (locationData.currentVisit) {
+              // Has active visit - definitely on visit
+              status = "On Visit"
+            } else if (locationData.activeTrip) {
+              // Has active trip - check if actually moving
+              const tripSpeed = locationData.currentLocation?.speed || 0
+              if (tripSpeed > 10) {
+                // Has speed > 10 mph - actively Driving
+                status = "Driving"
+                currentSpeed = tripSpeed
+              } else if (tripSpeed > 5) {
+                // Has speed 5-10 mph - En Route to next visit
+                status = "En Route"
+                currentSpeed = tripSpeed
+              } else if (locationData.currentLocation?.isRecent) {
+                // Recent location but no speed - might be stationary
+                status = "Idle" // Active but not necessarily driving
+              } else {
+                // Active trip but no recent location - might be stale
+                const tripAge = locationData.activeTrip.startTime 
+                  ? Math.round((new Date().getTime() - new Date(locationData.activeTrip.startTime).getTime()) / 60000)
+                  : null
+                
+                if (tripAge !== null && tripAge > 480) {
+                  // Trip older than 8 hours - likely stale
+                  status = "Offline"
+                } else {
+                  status = "Idle"
+                }
+              }
+            } else if (locationData.currentLocation?.isRecent) {
+              // Recent location but no active trip
+              status = "Idle"
+            }
 
             // Get visits to help determine status
             const visits = (statsData.success && statsData.visits) ? statsData.visits : []
             const inProgressVisit = visits.find((v: any) => v.status === 'in_progress')
-            const hasActiveTrip = locationData.success && locationData.hasActiveTrip
+            const hasActiveTrip = locationData.activeTrip
 
             // Get location FIRST - Priority: visit_location (if on visit) > currentLocation > GPS location
             // Calculate location BEFORE using it in ETA calculation
@@ -250,7 +320,7 @@ export default function FleetManagementDashboard() {
             }
             
             // Priority 3: Use currentLocation from GPS updates (always available, even during visits)
-            if (!staffLocation && locationData.success && locationData.currentLocation) {
+            if (!staffLocation && locationData.currentLocation) {
               const loc = locationData.currentLocation
               // For "On Visit" status, always use location if available (even if slightly old)
               const isRecent = loc.isRecent !== false || locationData.hasActiveTrip || (loc.ageMinutes !== null && loc.ageMinutes <= 60)
@@ -267,7 +337,7 @@ export default function FleetManagementDashboard() {
             }
 
             // Get GPS data
-            const hasLocation = locationData.success && locationData.currentLocation
+            const hasLocation = locationData.currentLocation
             const locationAge = hasLocation && locationData.currentLocation.ageMinutes !== null 
               ? locationData.currentLocation.ageMinutes 
               : null
@@ -282,14 +352,18 @@ export default function FleetManagementDashboard() {
               if (inProgressVisit || locationData.status === 'on_visit') {
                 status = "On Visit"
               }
-              // PRIORITY 2: Check if staff has ANY speed detected - they are En Route
-              else if (currentSpeed > 0) {
-                // Staff is moving - definitely En Route (any speed means they're driving)
+              // PRIORITY 2: Differentiate between "Driving" and "En Route"
+              else if (currentSpeed > 10) {
+                // Staff is moving fast (> 10 mph) - actively Driving
+                status = "Driving"
+              }
+              else if (currentSpeed > 5) {
+                // Staff is moving at moderate speed (5-10 mph) - En Route to next visit
                 status = "En Route"
               }
-              // PRIORITY 3: Check if staff has active trip but is stationary (no speed)
+              // PRIORITY 3: Check if staff has active trip but is stationary (no speed or slow)
               else if (hasActiveTrip || locationData.status === 'active') {
-                // Has active trip but NO speed - Idle (stationary but on duty)
+                // Has active trip but NO significant speed - Idle (stationary but on duty)
                 status = "Idle"
               }
               // PRIORITY 4: No active trip and no speed - Offline
@@ -304,14 +378,35 @@ export default function FleetManagementDashboard() {
               if (inProgressVisit || locationData.status === 'on_visit') {
                 status = "On Visit"
               } 
-              // If there's ANY speed detected, they are En Route
-              else if (speedFromLocation > 0 || locationData.status === 'driving') {
-                // Staff has speed - they are En Route
+              // FIXED: Differentiate between "Driving" and "En Route" based on speed
+              // Don't trust 'driving' status alone if there's no speed or recent location
+              else if (speedFromLocation > 10 && locationData.currentLocation?.isRecent) {
+                // Staff has high speed (> 10 mph) - actively Driving
+                status = "Driving"
+                currentSpeed = speedFromLocation
+              }
+              else if (speedFromLocation > 5 && locationData.currentLocation?.isRecent) {
+                // Staff has moderate speed (5-10 mph) - En Route to next visit
                 status = "En Route"
+                currentSpeed = speedFromLocation
               } 
-              else if (hasActiveTrip || locationData.status === 'active') {
-                // Has active trip but NO speed - assume Idle
-                status = "Idle"
+              // FIXED: If active trip but no speed/recent location, check if trip is stale
+              else if (hasActiveTrip || locationData.status === 'active' || locationData.status === 'driving') {
+                // Check if active trip is recent (not stale)
+                const tripAge = locationData.activeTrip?.startTime 
+                  ? Math.round((new Date().getTime() - new Date(locationData.activeTrip.startTime).getTime()) / 60000)
+                  : null
+                
+                // If trip is older than 8 hours and no visits, likely stale - show Idle
+                if (tripAge !== null && tripAge > 480 && !inProgressVisit && visits.length === 0) {
+                  status = "Idle" // Stale trip, no activity
+                } else if (speedFromLocation === 0 && !locationData.currentLocation?.isRecent) {
+                  // No speed and no recent location - Idle (not actually moving)
+                  status = "Idle"
+                } else {
+                  // Has active trip but can't determine if moving - default to Idle for safety
+                  status = "Idle"
+                }
               } else {
                 status = "Offline"
               }
@@ -358,7 +453,7 @@ export default function FleetManagementDashboard() {
                                        null
               
               // Get current location (use staffLocation which is calculated above)
-              const currentLoc = locationData.success && locationData.currentLocation 
+              const currentLoc = locationData.currentLocation 
                 ? { lat: locationData.currentLocation.latitude, lng: locationData.currentLocation.longitude }
                 : (staffLocation || null)
               
@@ -397,25 +492,94 @@ export default function FleetManagementDashboard() {
                 }
               }
               
-              // If calculated ETA is available, use it; otherwise try to use scheduled time
+              // If calculated ETA is available, use it; otherwise try to calculate from scheduled_time
               if (calculatedETA !== "N/A") {
                 etaToNext = calculatedETA
-              } else if (nextVisit.startTime) {
-                // Fallback to scheduled time if available
+              } else if ((nextVisit as any).scheduled_time) {
+                // Calculate time remaining until scheduled_time
+                try {
+                  const scheduledTime = new Date((nextVisit as any).scheduled_time)
+                  const now = new Date()
+                  const timeDiff = scheduledTime.getTime() - now.getTime()
+                  
+                  if (timeDiff > 0) {
+                    // Future visit - show time remaining
+                    const minutesRemaining = Math.round(timeDiff / 60000)
+                    if (minutesRemaining < 60) {
+                      etaToNext = `${minutesRemaining} min`
+                    } else {
+                      const hours = Math.floor(minutesRemaining / 60)
+                      const minutes = minutesRemaining % 60
+                      etaToNext = `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`
+                    }
+                  } else {
+                    // Past scheduled time - show as overdue
+                    const minutesOverdue = Math.abs(Math.round(timeDiff / 60000))
+                    if (minutesOverdue < 60) {
+                      etaToNext = `${minutesOverdue} min ago`
+                    } else {
+                      const hours = Math.floor(minutesOverdue / 60)
+                      const minutes = minutesOverdue % 60
+                      etaToNext = `${hours}h ${minutes > 0 ? `${minutes}m` : ''} ago`
+                    }
+                  }
+                } catch (e) {
+                  console.warn('Error calculating ETA from scheduled_time:', e)
+                  etaToNext = "N/A"
+                }
+              } else if (nextVisit.startTime && nextVisit.startTime !== "TIME" && nextVisit.startTime !== "N/A") {
+                // Fallback: if startTime is a valid time string (not "TIME"), show it
                 try {
                   // Try to parse if it's a time string like "2:30 PM"
                   const timeMatch = nextVisit.startTime.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i)
                   if (timeMatch) {
-                    etaToNext = nextVisit.startTime
+                    // It's a time string - calculate time remaining
+                    const now = new Date()
+                    const [hours, minutes, period] = timeMatch.slice(1, 4)
+                    let hour24 = parseInt(hours)
+                    if (period.toUpperCase() === 'PM' && hour24 !== 12) hour24 += 12
+                    if (period.toUpperCase() === 'AM' && hour24 === 12) hour24 = 0
+                    
+                    const visitTime = new Date(now)
+                    visitTime.setHours(hour24, parseInt(minutes), 0, 0)
+                    
+                    const timeDiff = visitTime.getTime() - now.getTime()
+                    if (timeDiff > 0) {
+                      const minutesRemaining = Math.round(timeDiff / 60000)
+                      if (minutesRemaining < 60) {
+                        etaToNext = `${minutesRemaining} min`
+                      } else {
+                        const hours = Math.floor(minutesRemaining / 60)
+                        const minutes = minutesRemaining % 60
+                        etaToNext = `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`
+                      }
+                    } else {
+                      etaToNext = nextVisit.startTime // Show time if it's past
+                    }
                   } else {
-                    // If it's ISO format, parse it
+                    // If it's ISO format, parse it and calculate time remaining
                     const visitTime = new Date(nextVisit.startTime)
                     if (!isNaN(visitTime.getTime())) {
-                      etaToNext = visitTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                      const now = new Date()
+                      const timeDiff = visitTime.getTime() - now.getTime()
+                      if (timeDiff > 0) {
+                        const minutesRemaining = Math.round(timeDiff / 60000)
+                        if (minutesRemaining < 60) {
+                          etaToNext = `${minutesRemaining} min`
+                        } else {
+                          const hours = Math.floor(minutesRemaining / 60)
+                          const minutes = minutesRemaining % 60
+                          etaToNext = `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`
+                        }
+                      } else {
+                        etaToNext = visitTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                      }
+                    } else {
+                      etaToNext = "N/A"
                     }
                   }
                 } catch (e) {
-                  etaToNext = nextVisit.startTime || "N/A"
+                  etaToNext = "N/A"
                 }
               } else {
                 // If no location data and no scheduled time, check if there's an address to geocode
@@ -423,6 +587,8 @@ export default function FleetManagementDashboard() {
                 if (nextAddress && nextAddress !== "N/A" && currentLoc) {
                   // Could geocode here, but for now show "Calculating..."
                   etaToNext = "Calculating..."
+                } else {
+                  etaToNext = "N/A"
                 }
               }
             } else {
@@ -436,19 +602,103 @@ export default function FleetManagementDashboard() {
               if (futureVisits.length > 0) {
                 const firstFuture = futureVisits[0]
                 nextPatient = firstFuture.patientName || "Scheduled Visit"
-                etaToNext = firstFuture.startTime || "Scheduled"
+                
+                // Calculate ETA from scheduled_time if available
+                if ((firstFuture as any).scheduled_time) {
+                  try {
+                    const scheduledTime = new Date((firstFuture as any).scheduled_time)
+                    const now = new Date()
+                    const timeDiff = scheduledTime.getTime() - now.getTime()
+                    
+                    if (timeDiff > 0) {
+                      const minutesRemaining = Math.round(timeDiff / 60000)
+                      if (minutesRemaining < 60) {
+                        etaToNext = `${minutesRemaining} min`
+                      } else {
+                        const hours = Math.floor(minutesRemaining / 60)
+                        const minutes = minutesRemaining % 60
+                        etaToNext = `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`
+                      }
+                    } else {
+                      etaToNext = "Overdue"
+                    }
+                  } catch (e) {
+                    etaToNext = "Scheduled"
+                  }
+                } else if (firstFuture.startTime && firstFuture.startTime !== "TIME" && firstFuture.startTime !== "N/A") {
+                  // Try to calculate from startTime if it's a valid time
+                  try {
+                    const visitTime = new Date(firstFuture.startTime)
+                    if (!isNaN(visitTime.getTime())) {
+                      const now = new Date()
+                      const timeDiff = visitTime.getTime() - now.getTime()
+                      if (timeDiff > 0) {
+                        const minutesRemaining = Math.round(timeDiff / 60000)
+                        if (minutesRemaining < 60) {
+                          etaToNext = `${minutesRemaining} min`
+                        } else {
+                          const hours = Math.floor(minutesRemaining / 60)
+                          const minutes = minutesRemaining % 60
+                          etaToNext = `${hours}h ${minutes > 0 ? `${minutes}m` : ''}`
+                        }
+                      } else {
+                        etaToNext = "Scheduled"
+                      }
+                    } else {
+                      etaToNext = "Scheduled"
+                    }
+                  } catch (e) {
+                    etaToNext = "Scheduled"
+                  }
+                } else {
+                  etaToNext = "Scheduled"
+                }
               } else {
                 nextPatient = "No upcoming visits"
                 etaToNext = "N/A"
               }
             }
 
-            // Calculate efficiency score
+            // Calculate efficiency score - Use database value if available, otherwise calculate
             const todayStats = (statsData.success && statsData.todayStats) ? statsData.todayStats : {}
-            const totalTime = (todayStats.totalDriveTime || 0) + (todayStats.totalVisitTime || 0)
-            const efficiencyScore = totalTime > 0
-              ? Math.round((todayStats.totalVisitTime / totalTime) * 100)
-              : (todayStats.efficiencyScore || 0)
+            const totalDriveTime = Number(todayStats.totalDriveTime) || 0
+            const totalVisitTime = Number(todayStats.totalVisitTime) || 0
+            const totalTime = totalDriveTime + totalVisitTime
+            
+            // Efficiency Score = (Visit Time / (Visit Time + Drive Time)) × 100
+            // Higher score = Better (more time with patients vs driving)
+            // Target: 70%+ efficiency (more time with patients than driving)
+            let efficiencyScore = 0
+            
+            if (totalTime > 0 && totalVisitTime >= 0 && totalDriveTime >= 0) {
+              // Calculate from actual time data (both must be valid numbers)
+              const calculatedScore = (totalVisitTime / totalTime) * 100
+              efficiencyScore = Math.round(calculatedScore)
+              // Ensure it's between 0-100
+              efficiencyScore = Math.max(0, Math.min(100, efficiencyScore))
+              
+              // Debug log for troubleshooting
+              if (isNaN(efficiencyScore) || !isFinite(efficiencyScore)) {
+                console.warn(`Invalid efficiency calculation for ${staff.name}:`, {
+                  totalVisitTime,
+                  totalDriveTime,
+                  totalTime,
+                  calculatedScore
+                })
+                efficiencyScore = 0
+              }
+            } else if (todayStats.efficiencyScore && Number(todayStats.efficiencyScore) > 0) {
+              // Use database value if available and valid
+              const dbScore = Number(todayStats.efficiencyScore)
+              if (!isNaN(dbScore) && isFinite(dbScore)) {
+                efficiencyScore = Math.max(0, Math.min(100, Math.round(dbScore)))
+              } else {
+                efficiencyScore = 0
+              }
+            } else {
+              // No data - default to 0
+              efficiencyScore = 0
+            }
 
             // Format visit details
             const visitDetails = visits.map((v: any) => ({
@@ -457,7 +707,8 @@ export default function FleetManagementDashboard() {
               startTime: v.startTime || "N/A",
               endTime: v.endTime || (v.status === 'in_progress' ? 'In Progress' : 'N/A'),
               address: v.address || "N/A",
-              status: v.status || 'in_progress'
+              status: v.status || 'in_progress',
+              cancelReason: v.cancelReason || undefined
             }))
 
             // Extract phone number - check multiple possible field names
@@ -485,6 +736,7 @@ export default function FleetManagementDashboard() {
               efficiencyScore,
               location: staffLocation,
               visitDetails,
+              upcomingAppointments,
               drivingCost: todayStats.totalCost || 0,
               phoneNumber
             }
@@ -560,18 +812,19 @@ export default function FleetManagementDashboard() {
         // Update staff fleet with optimization data
         setStaffFleet(prev => prev.map(staff => {
           if (staff.id === staffId) {
+            const improvementPercent = parseImprovementPercent(routeData.improvementPercent)
             return {
               ...staff,
               routeOptimization: {
-                currentDistance: routeData.currentDistance,
-                optimizedDistance: routeData.optimizedDistance,
-                distanceSaved: routeData.distanceSaved,
-                timeSaved: routeData.timeSaved,
-                costSaved: routeData.costSaved,
-                improvementPercent: routeData.improvementPercent,
-                isOptimized: routeData.improvementPercent > 0,
-                optimizedOrder: routeData.optimizedOrder,
-                currentOrder: routeData.currentOrder
+                currentDistance: routeData.currentDistance || 0,
+                optimizedDistance: routeData.optimizedDistance || 0,
+                distanceSaved: routeData.distanceSaved || 0,
+                timeSaved: routeData.timeSaved || 0,
+                costSaved: routeData.costSaved || 0,
+                improvementPercent: improvementPercent,
+                isOptimized: improvementPercent > 0,
+                optimizedOrder: routeData.optimizedOrder || [],
+                currentOrder: routeData.currentOrder || []
               }
             }
           }
@@ -641,6 +894,7 @@ export default function FleetManagementDashboard() {
 
   const summaryStats = useMemo(() => {
     const totalStaff = staffFleet.length
+    const driving = staffFleet.filter((s) => s.status === "Driving").length
     const enRoute = staffFleet.filter((s) => s.status === "En Route").length
     const onVisit = staffFleet.filter((s) => s.status === "On Visit").length
     const idle = staffFleet.filter((s) => s.status === "Idle").length
@@ -649,9 +903,13 @@ export default function FleetManagementDashboard() {
     const totalDriveTime = staffFleet.reduce((sum, s) => sum + s.totalDriveTimeToday, 0)
     const totalVisitTime = staffFleet.reduce((sum, s) => sum + s.totalVisitTimeToday, 0)
     const totalVisits = staffFleet.reduce((sum, s) => sum + s.numberOfVisits, 0)
-    const avgEfficiency = totalStaff > 0
-      ? staffFleet.reduce((sum, s) => sum + s.efficiencyScore, 0) / totalStaff
-      : 0
+    // Calculate average efficiency - only include staff with actual activity (totalTime > 0)
+    const staffWithActivity = staffFleet.filter(s => (s.totalDriveTimeToday + s.totalVisitTimeToday) > 0)
+    const avgEfficiency = staffWithActivity.length > 0
+      ? Math.round(staffWithActivity.reduce((sum, s) => sum + s.efficiencyScore, 0) / staffWithActivity.length)
+      : (totalStaff > 0
+          ? Math.round(staffFleet.reduce((sum, s) => sum + s.efficiencyScore, 0) / totalStaff)
+          : 0)
     const totalDrivingCost = staffFleet.reduce((sum, s) => sum + s.drivingCost, 0)
     
     // Calculate average cost per mile from actual staff data
@@ -689,6 +947,7 @@ export default function FleetManagementDashboard() {
 
     return {
       totalStaff,
+      driving,
       enRoute,
       onVisit,
       idle,
@@ -714,6 +973,7 @@ export default function FleetManagementDashboard() {
   const filteredFleet = useMemo(() => {
     if (filter === "All") return staffFleet
     if (filter === "En Route") return staffFleet.filter((s) => s.status === "En Route")
+    if (filter === "Driving") return staffFleet.filter((s) => s.status === "Driving")
     return staffFleet.filter((s) => s.status === filter)
   }, [staffFleet, filter])
 
@@ -785,7 +1045,7 @@ export default function FleetManagementDashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{summaryStats.totalVisits}</div>
             <p className="text-xs text-muted-foreground">
-              {summaryStats.enRoute} en route, {summaryStats.onVisit} on visit
+              {summaryStats.driving} driving, {summaryStats.enRoute} en route, {summaryStats.onVisit} on visit
             </p>
           </CardContent>
         </Card>
@@ -867,6 +1127,7 @@ export default function FleetManagementDashboard() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="All">All Staff</SelectItem>
+                      <SelectItem value="Driving">Driving</SelectItem>
                       <SelectItem value="En Route">En Route</SelectItem>
                       <SelectItem value="On Visit">On Visit</SelectItem>
                       <SelectItem value="Idle">Idle</SelectItem>
@@ -1056,6 +1317,7 @@ export default function FleetManagementDashboard() {
                                 <Badge
                                   variant="outline"
                                   className={
+                                    staff.status === "Driving" ? "border-indigo-600 text-indigo-700 bg-indigo-50" :
                                     staff.status === "En Route" ? "border-blue-500 text-blue-700 bg-blue-50" :
                                     staff.status === "On Visit" ? "border-green-500 text-green-700 bg-green-50" :
                                     staff.status === "Idle" ? "border-yellow-500 text-yellow-700 bg-yellow-50" :
@@ -1068,6 +1330,26 @@ export default function FleetManagementDashboard() {
                               <TableCell className="hidden sm:table-cell">
                                 <div className="text-sm">
                                   <div className="font-medium text-gray-900">{staff.nextPatient}</div>
+                                  {staff.upcomingAppointments && staff.upcomingAppointments.length > 0 && (
+                                    <div className="mt-1 text-xs text-gray-500">
+                                      <Clock className="h-3 w-3 inline mr-1" />
+                                      {staff.upcomingAppointments.length} upcoming appointment{staff.upcomingAppointments.length !== 1 ? 's' : ''}
+                                      {staff.upcomingAppointments.length > 0 && (
+                                        <div className="mt-1 space-y-0.5">
+                                          {staff.upcomingAppointments.slice(0, 2).map((apt) => (
+                                            <div key={apt.id} className="text-xs text-gray-600">
+                                              • {new Date(apt.scheduledTime).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })} - {apt.patientName}
+                                            </div>
+                                          ))}
+                                          {staff.upcomingAppointments.length > 2 && (
+                                            <div className="text-xs text-gray-400">
+                                              +{staff.upcomingAppointments.length - 2} more
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               </TableCell>
                               <TableCell className="hidden md:table-cell">
@@ -1091,10 +1373,22 @@ export default function FleetManagementDashboard() {
                               variant={
                                 staff.efficiencyScore >= 90
                                   ? "default"
-                                  : staff.efficiencyScore >= 80
+                                  : staff.efficiencyScore >= 70
                                     ? "secondary"
-                                    : "destructive"
+                                    : staff.efficiencyScore >= 50
+                                      ? "outline"
+                                      : "destructive"
                               }
+                              className={
+                                staff.efficiencyScore >= 90
+                                  ? "bg-green-500 text-white"
+                                  : staff.efficiencyScore >= 70
+                                    ? "bg-blue-500 text-white"
+                                    : staff.efficiencyScore >= 50
+                                      ? "bg-yellow-500 text-white"
+                                      : "bg-red-500 text-white"
+                              }
+                              title={`Efficiency: ${staff.efficiencyScore}% (${staff.totalVisitTimeToday} min visit time / ${staff.totalDriveTimeToday + staff.totalVisitTimeToday} min total time)`}
                             >
                               {staff.efficiencyScore}%
                             </Badge>
@@ -1198,6 +1492,7 @@ export default function FleetManagementDashboard() {
                     </div>
                     <Badge 
                       className={
+                        selectedStaffData.status === "Driving" ? "border-indigo-600 text-indigo-700 bg-indigo-50" :
                         selectedStaffData.status === "En Route" ? "border-blue-500 text-blue-700 bg-blue-50" :
                         selectedStaffData.status === "On Visit" ? "border-green-500 text-green-700 bg-green-50" :
                         selectedStaffData.status === "Idle" ? "border-yellow-500 text-yellow-700 bg-yellow-50" :
@@ -1330,7 +1625,16 @@ export default function FleetManagementDashboard() {
                                     if (status === 'completed') {
                                       return <Badge className="bg-green-500 hover:bg-green-600 text-white">Completed</Badge>
                                     } else if (status === 'cancelled') {
-                                      return <Badge variant="destructive">Cancelled</Badge>
+                                      return (
+                                        <div className="flex flex-col items-end gap-1">
+                                          <Badge variant="destructive">Cancelled</Badge>
+                                          {visit.cancelReason && (
+                                            <div className="text-xs text-gray-600 italic text-right max-w-[150px]">
+                                              {visit.cancelReason}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
                                     } else {
                                       return <Badge className="bg-blue-500 hover:bg-blue-600 text-white">In Progress</Badge>
                                     }
@@ -1455,7 +1759,7 @@ export default function FleetManagementDashboard() {
                   <div className="flex justify-between">
                     <span className="text-sm">Total Staff Status</span>
                     <span className="font-bold">
-                      {summaryStats.enRoute} En Route, {summaryStats.onVisit} On Visit, {summaryStats.idle} Idle
+                      {summaryStats.driving} Driving, {summaryStats.enRoute} En Route, {summaryStats.onVisit} On Visit, {summaryStats.idle} Idle
                     </span>
                   </div>
                 </div>
@@ -1474,6 +1778,13 @@ export default function FleetManagementDashboard() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
+                    <div className="flex items-center justify-between p-3 bg-indigo-50 rounded-lg">
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 bg-indigo-600 rounded-full"></div>
+                        <span className="text-sm font-medium">Driving</span>
+                      </div>
+                      <span className="font-bold">{summaryStats.driving}</span>
+                    </div>
                     <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                       <div className="flex items-center gap-2">
                         <div className="h-3 w-3 bg-blue-500 rounded-full"></div>

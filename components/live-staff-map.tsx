@@ -50,15 +50,16 @@ export default function LiveStaffMap({ staffFleet, selectedStaff, onStaffSelect 
 
   const getStatusColor = (status: string): string => {
     switch (status) {
-      case "En Route":
       case "Driving":
-        return "#3b82f6" // blue
+        return "#6366f1" // indigo - actively driving fast
+      case "En Route":
+        return "#3b82f6" // blue - en route to next visit
       case "On Visit":
-        return "#10b981" // green
+        return "#10b981" // green - at patient location
       case "Idle":
-        return "#6b7280" // gray
+        return "#6b7280" // gray - stationary but on duty
       default:
-        return "#ef4444" // red
+        return "#ef4444" // red - offline
     }
   }
 
@@ -66,21 +67,96 @@ export default function LiveStaffMap({ staffFleet, selectedStaff, onStaffSelect 
     if (!L) return undefined
     
     const color = getStatusColor(status)
-    const size = isSelected ? 20 : 15
-    const borderWidth = isSelected ? 4 : 2
+    const size = isSelected ? 24 : 18
+    const borderWidth = isSelected ? 4 : 3
 
-    // Create a custom HTML icon
-    const iconHtml = `
-      <div style="
-        width: ${size}px;
-        height: ${size}px;
-        background-color: ${color};
-        border: ${borderWidth}px solid white;
-        border-radius: 50%;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-        ${isSelected ? 'animation: pulse 2s infinite;' : ''}
-      "></div>
-    `
+    // Different icon styles for different statuses
+    let iconHtml = ''
+    
+    if (status === "Driving") {
+      // Car icon for driving status
+      iconHtml = `
+        <div style="
+          position: relative;
+          width: ${size}px;
+          height: ${size}px;
+          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        ">
+          <div style="
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: ${size * 0.7}px;
+            height: ${size * 0.7}px;
+            background-color: ${color};
+            border: ${borderWidth}px solid white;
+            border-radius: 50% 50% 50% 0;
+            transform: translate(-50%, -50%) rotate(-45deg);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            ${isSelected ? 'animation: pulse 2s infinite;' : ''}
+          "></div>
+          <div style="
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: ${size * 0.4}px;
+            height: ${size * 0.4}px;
+            background-color: white;
+            border-radius: 50%;
+          "></div>
+        </div>
+      `
+    } else if (status === "En Route") {
+      // Arrow icon for en route
+      iconHtml = `
+        <div style="
+          position: relative;
+          width: ${size}px;
+          height: ${size}px;
+          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+        ">
+          <div style="
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: ${size * 0.8}px;
+            height: ${size * 0.8}px;
+            background-color: ${color};
+            border: ${borderWidth}px solid white;
+            border-radius: 50%;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+            ${isSelected ? 'animation: pulse 2s infinite;' : ''}
+          "></div>
+          <div style="
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(45deg);
+            width: 0;
+            height: 0;
+            border-left: ${size * 0.2}px solid transparent;
+            border-right: ${size * 0.2}px solid transparent;
+            border-bottom: ${size * 0.3}px solid white;
+          "></div>
+        </div>
+      `
+    } else {
+      // Standard circle for other statuses
+      iconHtml = `
+        <div style="
+          width: ${size}px;
+          height: ${size}px;
+          background-color: ${color};
+          border: ${borderWidth}px solid white;
+          border-radius: 50%;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+          ${isSelected ? 'animation: pulse 2s infinite;' : ''}
+        "></div>
+      `
+    }
 
     return L.divIcon({
       html: iconHtml,

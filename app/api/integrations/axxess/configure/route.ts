@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { createServiceClient } from "@/lib/supabase/service"
 
 // Helper function to calculate next sync time
 function getNextSyncTime(frequency: string): string {
@@ -91,32 +92,65 @@ export async function POST(request: NextRequest) {
       encryptionEnabled: config.encryptionEnabled || true,
     }
 
-    // Simulate saving the configuration to a database
-    const savedConfiguration = {
-      id: `axxess_config_${Date.now()}`,
-      credentials: encryptedCredentials,
-      syncSettings,
-      apiUrl: config.apiUrl || "https://api.axxess.com/v1",
-      status: "active",
-      createdAt: new Date().toISOString(),
-      lastSync: null,
-      nextSync: getNextSyncTime(syncSettings.autoSync ? `${syncSettings.syncInterval}min` : "manual"),
-      lastUpdated: new Date().toISOString(),
+    // Save configuration to database
+    const supabase = createServiceClient()
+    
+    // Check if configuration already exists
+    const { data: existingConfig } = await supabase
+      .from("integrations_config")
+      .select("id")
+      .eq("integration_name", "axxess")
+      .single()
+
+    const configData = {
+      integration_name: "axxess",
+      api_url: config.apiUrl || "https://api.axxess.com/v1",
+      username: encryptedCredentials.username,
+      password: encryptedCredentials.password,
+      agency_id: credentials.agencyId,
+      environment: credentials.environment,
+      auto_sync: syncSettings.autoSync,
+      sync_interval_minutes: syncSettings.syncInterval,
+      enable_webhooks: syncSettings.enableWebhooks,
+      webhook_url: syncSettings.webhookUrl || null,
+      data_retention_days: syncSettings.dataRetention,
+      compression_enabled: syncSettings.compressionEnabled,
+      encryption_enabled: syncSettings.encryptionEnabled,
+      status: "connected",
+      error_message: null,
+      updated_at: new Date().toISOString(),
+    }
+
+    let savedConfiguration
+    if (existingConfig) {
+      // Update existing configuration
+      const { data, error } = await supabase
+        .from("integrations_config")
+        .update(configData)
+        .eq("id", existingConfig.id)
+        .select()
+        .single()
+
+      if (error) throw error
+      savedConfiguration = { id: data.id, ...configData }
+    } else {
+      // Insert new configuration
+      const { data, error } = await supabase
+        .from("integrations_config")
+        .insert(configData)
+        .select()
+        .single()
+
+      if (error) throw error
+      savedConfiguration = { id: data.id, ...configData }
     }
 
     console.log("Axxess configuration saved successfully:", {
       id: savedConfiguration.id,
       status: savedConfiguration.status,
-      nextSync: savedConfiguration.nextSync,
       environment: credentials.environment,
       agencyId: credentials.agencyId,
     })
-
-    // In a real implementation, you would:
-    // 1. Store the encrypted configuration in your database (e.g., Supabase, Neon)
-    // 2. Set up scheduled jobs based on syncSettings.syncInterval
-    // 3. Register webhooks if enabled
-    // 4. Validate the connection to Axxess API
 
     // Return a success response
     return NextResponse.json({
@@ -157,37 +191,58 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   try {
-    // In a real implementation, you would fetch the configuration from your database
-    // For now, return a mock configuration
-    const mockConfiguration = {
-      id: "axxess_config_mock",
-      apiUrl: "https://api.axxess.com/v1",
-      environment: "sandbox",
-      agencyId: "DEMO_AGENCY",
+    const supabase = createServiceClient()
+    
+    const { data: config, error } = await supabase
+      .from("integrations_config")
+      .select("*")
+      .eq("integration_name", "axxess")
+      .single()
+
+    if (error && error.code !== "PGRST116") { // PGRST116 = no rows returned
+      throw error
+    }
+
+    if (!config) {
+      return NextResponse.json({
+        success: false,
+        message: "Axxess configuration not found",
+        configuration: null,
+      })
+    }
+
+    const configuration = {
+      id: config.id,
+      apiUrl: config.api_url,
+      environment: config.environment,
+      agencyId: config.agency_id,
       syncSettings: {
-        autoSync: true,
-        syncInterval: 15,
-        enableWebhooks: false,
-        webhookUrl: "",
-        dataRetention: 90,
-        compressionEnabled: true,
-        encryptionEnabled: true,
+        autoSync: config.auto_sync,
+        syncInterval: config.sync_interval_minutes,
+        enableWebhooks: config.enable_webhooks,
+        webhookUrl: config.webhook_url || "",
+        dataRetention: config.data_retention_days,
+        compressionEnabled: config.compression_enabled,
+        encryptionEnabled: config.encryption_enabled,
       },
-      status: "active",
-      createdAt: "2024-01-16T10:00:00Z",
-      lastSync: "2024-01-16T14:30:00Z",
-      nextSync: "2024-01-16T14:45:00Z",
+      status: config.status,
+      createdAt: config.created_at,
+      lastSync: config.last_sync_time,
+      nextSync: config.last_sync_time 
+        ? new Date(new Date(config.last_sync_time).getTime() + (config.sync_interval_minutes || 15) * 60 * 1000).toISOString()
+        : null,
     }
 
     return NextResponse.json({
       success: true,
-      configuration: mockConfiguration,
+      configuration,
     })
   } catch (error) {
     console.error("Failed to load Axxess configuration:", error)
     return NextResponse.json(
       {
         error: "Failed to load configuration",
+        details: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 },
     )

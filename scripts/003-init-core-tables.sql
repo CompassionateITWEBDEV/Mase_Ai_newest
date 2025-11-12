@@ -1,7 +1,9 @@
 -- Create the 'patients' table
 CREATE TABLE IF NOT EXISTS public.patients (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    axxess_id TEXT UNIQUE NOT NULL,
+    patient_id TEXT UNIQUE, -- Patient ID in format PT-YYYY-XXX (e.g., PT-2024-001)
+    medical_record_number TEXT UNIQUE, -- Medical Record ID (Medical ID)
+    axxess_id TEXT UNIQUE NOT NULL, -- Axxess system identifier (e.g., AX-12345)
     name TEXT NOT NULL,
     referral_date DATE,
     current_status TEXT,
@@ -172,6 +174,11 @@ DECLARE
 BEGIN
     FOR t IN SELECT relname FROM pg_class WHERE relkind = 'r' AND relnamespace = 'public'::regnamespace
     LOOP
+        -- Drop trigger if it exists, then create it
+        EXECUTE format('
+            DROP TRIGGER IF EXISTS set_timestamp ON public.%I;
+        ', t.relname);
+        
         EXECUTE format('
             CREATE TRIGGER set_timestamp
             BEFORE UPDATE ON public.%I

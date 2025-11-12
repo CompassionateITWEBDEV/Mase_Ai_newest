@@ -1,102 +1,64 @@
-import { createClient } from '@supabase/supabase-js'
-import { NextRequest, NextResponse } from 'next/server'
+import { type NextRequest, NextResponse } from "next/server"
+import { createServiceClient } from "@/lib/supabase/service"
 
-// Configure runtime for Vercel
-export const runtime = 'nodejs'
-export const dynamic = 'force-dynamic'
-export const maxDuration = 30
+export const dynamic = "force-dynamic"
 
 export async function GET(request: NextRequest) {
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const { searchParams } = new URL(request.url)
+    const role = searchParams.get("role") // e.g., "RN", "PT", "nurse"
+    const credentials = searchParams.get("credentials") // e.g., "RN"
 
-    if (!supabaseUrl || !supabaseAnonKey) {
-      console.error('[API] Supabase credentials not configured')
-      return NextResponse.json(
-        { 
-          success: false,
-          error: 'Supabase credentials not configured',
-          staff: [],
-          count: 0
-        },
-        { status: 500 }
-      )
+    const supabase = createServiceClient()
+
+    // Build query for active staff members
+    let query = supabase
+      .from("staff")
+      .select("id, name, email, role_id, department, credentials, phone_number, is_active")
+      .eq("is_active", true)
+
+    // Filter by credentials (e.g., RN, PT, MD) if provided
+    if (credentials) {
+      query = query.ilike("credentials", `%${credentials}%`)
+    }
+    // Filter by role if provided (fallback to credentials if role matches common nurse terms)
+    else if (role) {
+      const roleLower = role.toLowerCase()
+      if (roleLower === "nurse" || roleLower === "rn" || roleLower === "registered nurse") {
+        query = query.or("credentials.ilike.%RN%,credentials.ilike.%Nurse%,role_id.ilike.%nurse%")
+      } else {
+        query = query.or(`credentials.ilike.%${role}%,role_id.ilike.%${role}%`)
+      }
     }
 
-    // Create a fresh client for each request to avoid connection issues
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    })
-
-    console.log('Fetching all staff members from database...')
-
-    // Fetch all staff from database
-    const { data: staffList, error } = await supabase
-      .from('staff')
-      .select('*')
-      .order('created_at', { ascending: false })
+    const { data: staffData, error } = await query.order("name", { ascending: true })
 
     if (error) {
-      console.error('[API] Database error fetching staff:', {
-        message: error.message,
-        code: error.code,
-        details: error.details,
-        hint: error.hint
-      })
-      
+      console.error("Error fetching staff:", error)
       return NextResponse.json(
-        { 
+        {
           success: false,
-          error: 'Failed to fetch staff: ' + error.message,
+          error: "Failed to fetch staff: " + error.message,
           staff: [],
-          count: 0
         },
         { status: 500 }
       )
     }
 
-    console.log(`✅ Found ${staffList?.length || 0} staff members`)
-
-    const response = NextResponse.json({
+    return NextResponse.json({
       success: true,
-      staff: staffList || [],
-      count: staffList?.length || 0,
-      timestamp: new Date().toISOString(),
+      staff: staffData || [],
+      count: (staffData || []).length,
     })
-
-    // Disable caching for fresh data
-    response.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
-    response.headers.set('CDN-Cache-Control', 'no-store')
-    response.headers.set('Vercel-CDN-Cache-Control', 'no-store')
-
-    return response
-    
   } catch (error: any) {
-    console.error('[API] Unexpected error in staff/list:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
-      cause: error.cause
-    })
-    
-    const isDevelopment = process.env.NODE_ENV === 'development'
-    
-    // Return a response that matches the expected format even on error
+    console.error("Error in GET /api/staff/list:", error)
     return NextResponse.json(
-      { 
+      {
         success: false,
-        error: error.message || 'Internal server error',
-        details: isDevelopment ? error.stack : undefined,
+        error: error.message || "An unexpected error occurred",
         staff: [],
-        count: 0,
-        timestamp: new Date().toISOString()
       },
       { status: 500 }
     )
   }
 }
-

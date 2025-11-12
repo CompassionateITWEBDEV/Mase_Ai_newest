@@ -40,6 +40,7 @@ export default function TrackMapView({ currentLocation, routePoints = [], isTrac
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markerRef = useRef<any>(null)
+  const accuracyCircleRef = useRef<any>(null)
   const routePolylineRef = useRef<any>(null)
   const [isMapLoaded, setIsMapLoaded] = useState(false)
 
@@ -69,22 +70,42 @@ export default function TrackMapView({ currentLocation, routePoints = [], isTrac
     const map = mapInstanceRef.current
     if (!map) return
 
+    // Clean up old markers and circles properly
+    if (markerRef.current) {
+      try {
+        if (map.hasLayer(markerRef.current)) {
+          map.removeLayer(markerRef.current)
+        }
+      } catch (e) {
+        console.warn('Error removing marker:', e)
+      }
+      markerRef.current = null
+    }
+
+    if (accuracyCircleRef.current) {
+      try {
+        if (map.hasLayer(accuracyCircleRef.current)) {
+          map.removeLayer(accuracyCircleRef.current)
+        }
+      } catch (e) {
+        console.warn('Error removing accuracy circle:', e)
+      }
+      accuracyCircleRef.current = null
+    }
+
     // Update current location marker
     if (currentLocation) {
-      // Remove old marker
-      if (markerRef.current) {
-        map.removeLayer(markerRef.current)
-      }
-
-      // Create custom marker with heading indicator
+      // Create improved custom marker with heading indicator
+      const markerColor = isTracking ? '#10b981' : '#3b82f6'
       const icon = currentLocation.heading !== null && currentLocation.heading !== undefined
         ? L.divIcon({
             className: 'custom-location-marker',
             html: `
               <div style="
                 position: relative;
-                width: 40px;
-                height: 40px;
+                width: 48px;
+                height: 48px;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
               ">
                 <div style="
                   position: absolute;
@@ -93,110 +114,182 @@ export default function TrackMapView({ currentLocation, routePoints = [], isTrac
                   transform: translate(-50%, -50%) rotate(${currentLocation.heading}deg);
                   width: 0;
                   height: 0;
-                  border-left: 8px solid transparent;
-                  border-right: 8px solid transparent;
-                  border-bottom: 20px solid #3b82f6;
+                  border-left: 10px solid transparent;
+                  border-right: 10px solid transparent;
+                  border-bottom: 24px solid ${markerColor};
                   transform-origin: center bottom;
+                  z-index: 1;
                 "></div>
                 <div style="
                   position: absolute;
                   top: 50%;
                   left: 50%;
                   transform: translate(-50%, -50%);
-                  width: 20px;
-                  height: 20px;
-                  background: #3b82f6;
-                  border: 3px solid white;
+                  width: 24px;
+                  height: 24px;
+                  background: ${markerColor};
+                  border: 4px solid white;
                   border-radius: 50%;
-                  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+                  z-index: 2;
                 "></div>
               </div>
             `,
-            iconSize: [40, 40],
-            iconAnchor: [20, 20]
+            iconSize: [48, 48],
+            iconAnchor: [24, 24]
           })
         : L.divIcon({
             className: 'custom-location-marker',
             html: `
               <div style="
-                width: 24px;
-                height: 24px;
-                background: ${isTracking ? '#10b981' : '#3b82f6'};
-                border: 3px solid white;
-                border-radius: 50%;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-              "></div>
+                position: relative;
+                width: 32px;
+                height: 32px;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+              ">
+                <div style="
+                  width: 28px;
+                  height: 28px;
+                  background: ${markerColor};
+                  border: 4px solid white;
+                  border-radius: 50%;
+                  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+                  animation: pulse 2s infinite;
+                "></div>
+                <style>
+                  @keyframes pulse {
+                    0%, 100% { transform: scale(1); opacity: 1; }
+                    50% { transform: scale(1.1); opacity: 0.8; }
+                  }
+                </style>
+              </div>
             `,
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
           })
 
-      const marker = L.marker([currentLocation.lat, currentLocation.lng], { icon })
-        .addTo(map)
+      const marker = L.marker([currentLocation.lat, currentLocation.lng], { 
+        icon,
+        zIndexOffset: 1000 // Ensure marker is on top
+      }).addTo(map)
 
-      // Add accuracy circle if available (very minimal - just border, no fill to avoid blocking map)
-      if (currentLocation.accuracy) {
+      markerRef.current = marker
+
+      // Add accuracy circle if available (subtle, non-intrusive)
+      if (currentLocation.accuracy && currentLocation.accuracy > 0) {
         const accuracyCircle = L.circle([currentLocation.lat, currentLocation.lng], {
           radius: currentLocation.accuracy,
-          fillColor: isTracking ? '#10b981' : '#3b82f6',
-          fillOpacity: 0, // No fill - completely transparent
-          color: isTracking ? '#10b981' : '#3b82f6',
-          weight: 1,
-          opacity: 0.2, // Very transparent border only
-          dashArray: '5, 5' // Dashed line to make it less prominent
+          fillColor: markerColor,
+          fillOpacity: 0.05, // Very subtle fill
+          color: markerColor,
+          weight: 1.5,
+          opacity: 0.3,
+          dashArray: '8, 4',
+          className: 'accuracy-circle'
         }).addTo(map)
 
-        markerRef.current = L.layerGroup([marker, accuracyCircle])
-      } else {
-        markerRef.current = marker
+        accuracyCircleRef.current = accuracyCircle
       }
 
       // Update popup with location info
       const speedText = currentLocation.speed ? `${currentLocation.speed.toFixed(1)} mph` : 'N/A'
       const accuracyText = currentLocation.accuracy ? `±${currentLocation.accuracy.toFixed(0)}m` : 'N/A'
       marker.bindPopup(`
-        <div style="font-weight: bold; margin-bottom: 4px;">Current Location</div>
-        <div style="font-size: 12px; color: #666;">
-          <div>Speed: ${speedText}</div>
-          <div>Accuracy: ${accuracyText}</div>
-          ${currentLocation.timestamp ? `<div>Time: ${currentLocation.timestamp.toLocaleTimeString()}</div>` : ''}
+        <div style="font-weight: 600; margin-bottom: 6px; color: #1f2937;">📍 Current Location</div>
+        <div style="font-size: 12px; color: #4b5563; line-height: 1.6;">
+          <div style="margin-bottom: 4px;"><strong>Speed:</strong> ${speedText}</div>
+          <div style="margin-bottom: 4px;"><strong>Accuracy:</strong> ${accuracyText}</div>
+          ${currentLocation.timestamp ? `<div><strong>Time:</strong> ${new Date(currentLocation.timestamp).toLocaleTimeString()}</div>` : ''}
         </div>
-      `)
+      `, {
+        className: 'custom-popup',
+        closeButton: true,
+        autoPan: true
+      })
 
-      // Center map on current location
-      map.setView([currentLocation.lat, currentLocation.lng], map.getZoom())
+      // Smoothly center map on current location (only if tracking)
+      if (isTracking) {
+        map.setView([currentLocation.lat, currentLocation.lng], map.getZoom(), {
+          animate: true,
+          duration: 0.5
+        })
+      }
     }
 
-    // Draw route polyline
+    // Draw route polyline (only show route, no individual point markers)
     if (routePoints.length > 0) {
       // Remove old polyline
       if (routePolylineRef.current) {
-        map.removeLayer(routePolylineRef.current)
+        try {
+          if (map.hasLayer(routePolylineRef.current)) {
+            map.removeLayer(routePolylineRef.current)
+          }
+        } catch (e) {
+          console.warn('Error removing polyline:', e)
+        }
+        routePolylineRef.current = null
       }
 
-      const routeCoordinates = routePoints.map(p => [p.lat, p.lng] as [number, number])
-      const polyline = L.polyline(routeCoordinates, {
-        color: isTracking ? '#10b981' : '#3b82f6',
-        weight: 4,
-        opacity: 0.7,
-        smoothFactor: 1
-      }).addTo(map)
+      // Filter out duplicate/very close points to reduce clutter
+      const filteredPoints = routePoints.filter((point, index) => {
+        if (index === 0) return true
+        const prevPoint = routePoints[index - 1]
+        const distance = Math.sqrt(
+          Math.pow(point.lat - prevPoint.lat, 2) + 
+          Math.pow(point.lng - prevPoint.lng, 2)
+        )
+        return distance > 0.0001 // Only include if moved at least this much
+      })
 
-      routePolylineRef.current = polyline
+      const routeCoordinates = filteredPoints.map(p => [p.lat, p.lng] as [number, number])
+      
+      if (routeCoordinates.length > 1) {
+        const polyline = L.polyline(routeCoordinates, {
+          color: isTracking ? '#10b981' : '#3b82f6',
+          weight: 5,
+          opacity: 0.8,
+          smoothFactor: 1.5,
+          lineCap: 'round',
+          lineJoin: 'round'
+        }).addTo(map)
 
-      // Fit map to show entire route
-      if (routeCoordinates.length > 0) {
-        try {
-          const bounds = L.latLngBounds(routeCoordinates)
-          map.fitBounds(bounds.pad(0.1))
-        } catch (e) {
-          console.warn('Error fitting bounds:', e)
+        routePolylineRef.current = polyline
+
+        // Fit map to show entire route (only if not tracking to avoid constant zoom changes)
+        if (!isTracking && routeCoordinates.length > 1) {
+          try {
+            const bounds = L.latLngBounds(routeCoordinates)
+            map.fitBounds(bounds.pad(0.15))
+          } catch (e) {
+            console.warn('Error fitting bounds:', e)
+          }
         }
       }
     }
 
     return () => {
-      // Cleanup handled above
+      // Cleanup on unmount
+      if (markerRef.current && mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.removeLayer(markerRef.current)
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+      if (accuracyCircleRef.current && mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.removeLayer(accuracyCircleRef.current)
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
+      if (routePolylineRef.current && mapInstanceRef.current) {
+        try {
+          mapInstanceRef.current.removeLayer(routePolylineRef.current)
+        } catch (e) {
+          // Ignore cleanup errors
+        }
+      }
     }
   }, [currentLocation, routePoints, isTracking])
 

@@ -37,7 +37,10 @@ export default function PatientETAView({ staffId, patientId }: PatientETAViewPro
   const fetchStaffLocation = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/gps/staff-location/${staffId}`)
+      // Use the correct API endpoint with query parameter
+      const response = await fetch(`/api/gps/staff-location?staff_id=${encodeURIComponent(staffId)}`, {
+        cache: 'no-store'
+      })
 
       if (!response.ok) {
         throw new Error("Unable to fetch staff location")
@@ -45,20 +48,41 @@ export default function PatientETAView({ staffId, patientId }: PatientETAViewPro
 
       const data = await response.json()
 
-      if (data.success) {
+      if (data.success && data.currentLocation) {
+        // Get staff info
+        const staffName = data.staff?.name || "Healthcare Provider"
+        const staffRole = data.staff?.department || "Healthcare Provider"
+        
+        // Calculate estimated arrival (20 minutes from now as default)
+        const estimatedArrival = new Date(Date.now() + 20 * 60000).toISOString()
+        
+        // Calculate distance (simplified - in production use actual patient location)
+        const distance = calculateDistance(data.currentLocation)
+        
+        // Determine status
+        let status = "En Route"
+        if (data.status === "on_visit") {
+          status = "On Visit"
+        } else if (data.status === "driving") {
+          status = "En Route"
+        } else if (data.status === "active") {
+          status = "Active"
+        } else {
+          status = "Offline"
+        }
+        
         setStaffInfo({
-          name: data.data.name,
-          role: data.data.role || "Healthcare Provider",
-          phone: data.data.phone || "+1 (555) 123-4567",
-          estimatedArrival:
-            data.data.nextAppointment?.estimatedArrival || new Date(Date.now() + 20 * 60000).toISOString(),
-          currentLocation: data.data.currentLocation,
-          status: data.data.status,
-          distanceAway: calculateDistance(data.data.currentLocation),
+          name: staffName,
+          role: staffRole,
+          phone: "+1 (555) 123-4567", // Would come from staff data
+          estimatedArrival: estimatedArrival,
+          currentLocation: data.currentLocation,
+          status: status,
+          distanceAway: distance,
         })
         setError(null)
       } else {
-        setError(data.message || "Location not available")
+        setError(data.error || "Location not available")
       }
     } catch (err) {
       setError("Unable to load staff location")
@@ -70,8 +94,21 @@ export default function PatientETAView({ staffId, patientId }: PatientETAViewPro
   }
 
   const calculateDistance = (location: StaffLocation): number => {
-    // Mock calculation - in real app, you'd calculate actual distance
-    return Math.random() * 5 + 0.5 // Random distance between 0.5 and 5.5 miles
+    // Simplified distance calculation
+    // In production, you would:
+    // 1. Get patient's address from patient data
+    // 2. Use geocoding to get patient coordinates
+    // 3. Calculate actual distance using Haversine formula
+    
+    // For now, return a reasonable estimate based on location accuracy
+    // If accuracy is high (GPS), assume closer; if low (IP), assume farther
+    if (location.accuracy && location.accuracy > 1000) {
+      // IP geolocation - less accurate, assume farther
+      return Math.random() * 10 + 5 // 5-15 miles
+    } else {
+      // GPS location - more accurate, assume closer
+      return Math.random() * 5 + 0.5 // 0.5-5.5 miles
+    }
   }
 
   const formatTimeUntilArrival = (arrivalTime: string): string => {

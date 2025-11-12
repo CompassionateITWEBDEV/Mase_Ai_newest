@@ -44,6 +44,9 @@ import {
   Package,
   Truck,
   ShoppingCart,
+  X,
+  Activity,
+  User,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -94,11 +97,15 @@ interface Patient {
   id: string
   name: string
   axxessId: string
+  medicalRecordNumber?: string
   referralDate: string
   currentStatus: "Active" | "Pending" | "Discharged" | "On Hold"
   dischargeStatus: "N/A" | "Completed" | "Transferred" | "Deceased" | "Against Medical Advice"
   referralAccepted: boolean
-  assignedStaff: string
+  assignedStaff: string // Nurse/Staff who does home visits
+  assignedStaffId?: string | null
+  primaryProvider?: string // Doctor who oversees care
+  primaryProviderId?: string | null
   socDueDate: string
   socWindowStatus: "On Track" | "Due Soon" | "Overdue"
   location: string
@@ -106,6 +113,7 @@ interface Patient {
   priority: "High" | "Medium" | "Low"
   diagnosis: string
   age: number
+  dateOfBirth?: string
   insurance: string
   phoneNumber: string
   address: string
@@ -140,9 +148,38 @@ export default function PatientTrackingDashboard() {
   const [showAddPatient, setShowAddPatient] = useState(false)
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null)
   const [showPatientDetails, setShowPatientDetails] = useState(false)
+  const [isAddingPatient, setIsAddingPatient] = useState(false)
+  const [showEditPatient, setShowEditPatient] = useState(false)
+  const [isUpdatingPatient, setIsUpdatingPatient] = useState(false)
+  const [editingPatient, setEditingPatient] = useState<Patient | null>(null)
+  
+  // Form state for adding patient
+  const [newPatientForm, setNewPatientForm] = useState({
+    name: "",
+    axxessId: "",
+    patientId: "",
+    referralDate: "",
+    referralType: "Clinic" as "Hospital" | "Facility" | "Clinic",
+    priority: "Low" as "High" | "Medium" | "Low",
+    location: "",
+    diagnosis: "",
+    age: "",
+    dateOfBirth: "",
+    insurance: "",
+    phoneNumber: "",
+    address: "",
+    emergencyContact: "",
+    primaryProvider: "", // Doctor who oversees care
+    assignedStaff: "", // Nurse/Staff who does home visits
+    socDueDate: "",
+    episodeStartDate: "",
+    episodeEndDate: "",
+    nextReEvalDate: "",
+  })
   const [activeTab, setActiveTab] = useState("overview")
   const [isLoading, setIsLoading] = useState(false)
   const [lastSync, setLastSync] = useState<string | null>(null)
+  const [allStaff, setAllStaff] = useState<Array<{ id: string; name: string; credentials?: string; department?: string }>>([])
   const [selectedStaffMember, setSelectedStaffMember] = useState<string>("")
   const [isRecordingSupervision, setIsRecordingSupervision] = useState(false)
   const [supervisionTime, setSupervisionTime] = useState(0)
@@ -264,324 +301,47 @@ export default function PatientTrackingDashboard() {
     return order
   }
 
-  // Mock patient data with DME orders - Initialize with default empty array
-  const [patients, setPatients] = useState<Patient[]>([
-    {
-      id: "PT-2024-001",
-      name: "Margaret Anderson",
-      axxessId: "AX-12345",
-      referralDate: "2024-01-15",
-      currentStatus: "Active",
-      dischargeStatus: "N/A",
-      referralAccepted: true,
-      assignedStaff: "Sarah Johnson, RN",
-      socDueDate: "2024-01-22",
-      socWindowStatus: "Overdue",
-      location: "Downtown Clinic",
-      referralType: "Hospital",
-      priority: "High",
-      diagnosis: "Diabetic foot ulcer, CHF",
-      age: 78,
-      insurance: "Medicare",
-      phoneNumber: "(555) 123-4567",
-      address: "123 Main St, City, ST 12345",
-      emergencyContact: "John Anderson (Son) - (555) 987-6543",
-      episodeStartDate: "2024-01-15",
-      episodeEndDate: "2024-03-15",
-      nextReEvalDate: "2024-02-14",
-      lupaStatus: "At Risk",
-      totalEpisodeCost: 2850.0,
-      projectedCost: 3200.0,
-      visitFrequencies: [
-        {
-          discipline: "RN",
-          authorized: 14,
-          used: 8,
-          remaining: 6,
-          weeklyFrequency: "2x/week",
-          lastVisit: "2024-01-20",
-          nextScheduled: "2024-01-22",
-          lupaThreshold: 10,
-          isOverThreshold: false,
-          costPerVisit: 125.0,
-          totalCost: 1000.0,
-        },
-        {
-          discipline: "PT",
-          authorized: 12,
-          used: 7,
-          remaining: 5,
-          weeklyFrequency: "2x/week",
-          lastVisit: "2024-01-19",
-          nextScheduled: "2024-01-21",
-          lupaThreshold: 10,
-          isOverThreshold: false,
-          costPerVisit: 150.0,
-          totalCost: 1050.0,
-        },
-        {
-          discipline: "HHA",
-          authorized: 20,
-          used: 12,
-          remaining: 8,
-          weeklyFrequency: "3x/week",
-          lastVisit: "2024-01-20",
-          nextScheduled: "2024-01-22",
-          lupaThreshold: 15,
-          isOverThreshold: false,
-          costPerVisit: 65.0,
-          totalCost: 780.0,
-        },
-      ],
-      patientGoals: [
-        {
-          id: "G001",
-          discipline: "PT",
-          goal: "Patient will ambulate 50 feet with walker independently",
-          targetDate: "2024-02-15",
-          status: "In Progress",
-          progress: 65,
-          notes: "Good progress, patient can now walk 35 feet",
-        },
-        {
-          id: "G002",
-          discipline: "RN",
-          goal: "Wound healing with 50% reduction in size",
-          targetDate: "2024-02-20",
-          status: "In Progress",
-          progress: 40,
-          notes: "Wound showing signs of improvement",
-        },
-      ],
-      dmeOrders: [
-        {
-          id: "DME-PARACHUTE-001",
-          supplier: "Parachute Health",
-          status: "shipped",
-          orderDate: "2024-01-16",
-          estimatedDelivery: "2024-01-24",
-          trackingNumber: "PH123456789",
-          items: [
-            { name: "Blood Glucose Monitor", quantity: 1, category: "diabetic", cost: 75.0 },
-            { name: "Test Strips (100ct)", quantity: 2, category: "diabetic", cost: 80.0 },
-            { name: "Hydrocolloid Dressings", quantity: 30, category: "wound_care", cost: 45.0 },
-          ],
-          totalCost: 280.0,
-          insuranceCoverage: "80%",
-          autoGenerated: true,
-          notes: "Auto-generated based on diabetic diagnosis and wound care needs",
-        },
-        {
-          id: "DME-PARACHUTE-002",
-          supplier: "Parachute Health",
-          status: "approved",
-          orderDate: "2024-01-20",
-          estimatedDelivery: "2024-01-26",
-          trackingNumber: "PH987654321",
-          items: [
-            { name: "Walker with Wheels", quantity: 1, category: "mobility", cost: 120.0 },
-            { name: "Toilet Safety Rails", quantity: 1, category: "mobility", cost: 85.0 },
-          ],
-          totalCost: 205.0,
-          insuranceCoverage: "80%",
-          autoGenerated: true,
-          notes: "Auto-generated based on mobility/PT needs",
-        },
-      ],
-      woundCare: {
-        hasWounds: true,
-        woundCount: 2,
-        woundTypes: ["Diabetic ulcer", "Pressure sore"],
-        lastAssessment: "2024-01-20",
-        healingProgress: "Improving",
-        nextDressing: "2024-01-22",
-        supplies: ["Hydrocolloid dressing", "Silver foam", "Gauze pads"],
-      },
-    },
-    {
-      id: "PT-2024-002",
-      name: "Robert Thompson",
-      axxessId: "AX-12346",
-      referralDate: "2024-01-18",
-      currentStatus: "Active",
-      dischargeStatus: "N/A",
-      referralAccepted: true,
-      assignedStaff: "Michael Chen, PT",
-      socDueDate: "2024-01-23",
-      socWindowStatus: "Due Soon",
-      location: "North Branch",
-      referralType: "Facility",
-      priority: "Medium",
-      diagnosis: "Post-surgical rehabilitation",
-      age: 65,
-      insurance: "Blue Cross",
-      phoneNumber: "(555) 234-5678",
-      address: "456 Oak Ave, City, ST 12345",
-      emergencyContact: "Mary Thompson (Wife) - (555) 876-5432",
-      episodeStartDate: "2024-01-18",
-      episodeEndDate: "2024-03-18",
-      nextReEvalDate: "2024-02-17",
-      lupaStatus: "Over Threshold",
-      totalEpisodeCost: 3200.0,
-      projectedCost: 3800.0,
-      visitFrequencies: [
-        {
-          discipline: "PT",
-          authorized: 15,
-          used: 12,
-          remaining: 3,
-          weeklyFrequency: "3x/week",
-          lastVisit: "2024-01-20",
-          nextScheduled: "2024-01-22",
-          lupaThreshold: 10,
-          isOverThreshold: true,
-          costPerVisit: 150.0,
-          totalCost: 1800.0,
-        },
-        {
-          discipline: "OT",
-          authorized: 10,
-          used: 8,
-          remaining: 2,
-          weeklyFrequency: "2x/week",
-          lastVisit: "2024-01-19",
-          nextScheduled: "2024-01-21",
-          lupaThreshold: 10,
-          isOverThreshold: false,
-          costPerVisit: 140.0,
-          totalCost: 1120.0,
-        },
-        {
-          discipline: "RN",
-          authorized: 6,
-          used: 2,
-          remaining: 4,
-          weeklyFrequency: "1x/week",
-          lastVisit: "2024-01-18",
-          nextScheduled: "2024-01-25",
-          lupaThreshold: 10,
-          isOverThreshold: false,
-          costPerVisit: 125.0,
-          totalCost: 250.0,
-        },
-      ],
-      patientGoals: [
-        {
-          id: "G003",
-          discipline: "PT",
-          goal: "Return to pre-surgery mobility level",
-          targetDate: "2024-02-28",
-          status: "In Progress",
-          progress: 80,
-          notes: "Excellent progress, ahead of schedule",
-        },
-        {
-          id: "G004",
-          discipline: "OT",
-          goal: "Independent ADL performance",
-          targetDate: "2024-02-25",
-          status: "In Progress",
-          progress: 70,
-          notes: "Patient demonstrating good adaptation",
-        },
-      ],
-      dmeOrders: [
-        {
-          id: "DME-VERSE-001",
-          supplier: "Verse Medical",
-          status: "delivered",
-          orderDate: "2024-01-19",
-          estimatedDelivery: "2024-01-23",
-          trackingNumber: "VM456789123",
-          items: [
-            { name: "Walker with Wheels", quantity: 1, category: "mobility", cost: 120.0 },
-            { name: "Shower Chair", quantity: 1, category: "mobility", cost: 95.0 },
-            { name: "Toilet Safety Rails", quantity: 1, category: "mobility", cost: 85.0 },
-          ],
-          totalCost: 300.0,
-          insuranceCoverage: "90%",
-          autoGenerated: true,
-          notes: "Auto-generated based on post-surgical rehabilitation needs",
-        },
-      ],
-    },
-    {
-      id: "PT-2024-003",
-      name: "Dorothy Williams",
-      axxessId: "AX-12347",
-      referralDate: "2024-01-20",
-      currentStatus: "Pending",
-      dischargeStatus: "N/A",
-      referralAccepted: false,
-      assignedStaff: "Emily Davis, OT",
-      socDueDate: "2024-01-25",
-      socWindowStatus: "On Track",
-      location: "South Campus",
-      referralType: "Clinic",
-      priority: "Low",
-      diagnosis: "Stroke recovery, occupational therapy",
-      age: 72,
-      insurance: "Medicaid",
-      phoneNumber: "(555) 345-6789",
-      address: "789 Pine St, City, ST 12345",
-      emergencyContact: "James Williams (Brother) - (555) 765-4321",
-      episodeStartDate: "2024-01-20",
-      episodeEndDate: "2024-03-20",
-      nextReEvalDate: "2024-02-19",
-      lupaStatus: "Safe",
-      totalEpisodeCost: 1800.0,
-      projectedCost: 2100.0,
-      visitFrequencies: [
-        {
-          discipline: "OT",
-          authorized: 12,
-          used: 3,
-          remaining: 9,
-          weeklyFrequency: "2x/week",
-          lastVisit: "2024-01-19",
-          nextScheduled: "2024-01-21",
-          lupaThreshold: 10,
-          isOverThreshold: false,
-          costPerVisit: 140.0,
-          totalCost: 420.0,
-        },
-        {
-          discipline: "MSW",
-          authorized: 4,
-          used: 1,
-          remaining: 3,
-          weeklyFrequency: "1x/month",
-          lastVisit: "2024-01-20",
-          nextScheduled: "2024-02-20",
-          lupaThreshold: 5,
-          isOverThreshold: false,
-          costPerVisit: 120.0,
-          totalCost: 120.0,
-        },
-      ],
-      patientGoals: [
-        {
-          id: "G005",
-          discipline: "OT",
-          goal: "Improve fine motor skills for daily tasks",
-          targetDate: "2024-03-01",
-          status: "Not Started",
-          progress: 10,
-          notes: "Initial assessment completed",
-        },
-      ],
-      dmeOrders: [],
-      woundCare: {
-        hasWounds: true,
-        woundCount: 1,
-        woundTypes: ["Pressure ulcer"],
-        lastAssessment: "2024-01-19",
-        healingProgress: "Stable",
-        nextDressing: "2024-01-21",
-        supplies: ["Foam dressing", "Barrier cream"],
-      },
-    },
-  ])
+  // Patient data from database - Initialize with empty array
+  const [patients, setPatients] = useState<Patient[]>([])
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch patients from API
+  const fetchPatients = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const params = new URLSearchParams()
+      if (searchTerm) params.append("search", searchTerm)
+      if (staffFilter !== "All") params.append("staff", staffFilter)
+      if (locationFilter !== "All") params.append("location", locationFilter)
+      if (statusFilter !== "All") params.append("status", statusFilter)
+      if (referralTypeFilter !== "All") params.append("referralType", referralTypeFilter)
+      if (lupaFilter !== "All") params.append("lupa", lupaFilter)
+
+      const response = await fetch(`/api/patients?${params.toString()}`)
+      const data = await response.json()
+
+      if (data.success) {
+        setPatients(data.patients || [])
+        setLastSync(new Date().toISOString())
+      } else {
+        setError(data.error || "Failed to fetch patients")
+        setPatients([])
+      }
+    } catch (err: any) {
+      console.error("Error fetching patients:", err)
+      setError(err.message || "Failed to fetch patients")
+      setPatients([])
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Fetch patients on mount and when filters change
+  useEffect(() => {
+    fetchPatients()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchTerm, staffFilter, locationFilter, statusFilter, referralTypeFilter, lupaFilter])
 
   // Auto-generate DME orders when patient is accepted
   const handlePatientAcceptance = async (patientId: string) => {
@@ -606,7 +366,152 @@ export default function PatientTrackingDashboard() {
     }
   }
 
-  // Sync with Axxess API
+  // Handle adding new patient manually
+  const handleAddPatient = async () => {
+    if (!newPatientForm.name || !newPatientForm.axxessId) {
+      setError("Patient name and Axxess ID are required")
+      return
+    }
+
+    setIsAddingPatient(true)
+    setError(null)
+
+    try {
+      const response = await fetch("/api/patients/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name: newPatientForm.name,
+          axxessId: newPatientForm.axxessId,
+          patientId: newPatientForm.patientId,
+          referralDate: newPatientForm.referralDate || null,
+          referralType: newPatientForm.referralType,
+          priority: newPatientForm.priority,
+          location: newPatientForm.location || null,
+          diagnosis: newPatientForm.diagnosis || null,
+          age: newPatientForm.age ? parseInt(newPatientForm.age) : null,
+          dateOfBirth: newPatientForm.dateOfBirth || null,
+          insurance: newPatientForm.insurance || null,
+          phoneNumber: newPatientForm.phoneNumber || null,
+          address: newPatientForm.address || null,
+          emergencyContact: newPatientForm.emergencyContact || null,
+          primaryProvider: newPatientForm.primaryProvider || null,
+          assignedStaff: newPatientForm.assignedStaff || null,
+          socDueDate: newPatientForm.socDueDate || null,
+          episodeStartDate: newPatientForm.episodeStartDate || null,
+          episodeEndDate: newPatientForm.episodeEndDate || null,
+          nextReEvalDate: newPatientForm.nextReEvalDate || null,
+          currentStatus: "Pending",
+          referralAccepted: false,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Reset form
+        setNewPatientForm({
+          name: "",
+          axxessId: "",
+          patientId: "",
+          referralDate: "",
+          referralType: "Clinic",
+          priority: "Low",
+          location: "",
+          diagnosis: "",
+          age: "",
+          dateOfBirth: "",
+          insurance: "",
+          phoneNumber: "",
+          address: "",
+          emergencyContact: "",
+          primaryProvider: "",
+          assignedStaff: "",
+          socDueDate: "",
+          episodeStartDate: "",
+          episodeEndDate: "",
+          nextReEvalDate: "",
+        })
+        setShowAddPatient(false)
+        // Refresh patient list
+        await fetchPatients()
+      } else {
+        setError(data.error || "Failed to add patient")
+      }
+    } catch (err: any) {
+      console.error("Error adding patient:", err)
+      setError(err.message || "Failed to add patient")
+    } finally {
+      setIsAddingPatient(false)
+    }
+  }
+
+  // Handle updating existing patient
+  const handleUpdatePatient = async () => {
+    if (!editingPatient) return
+
+    if (!editingPatient.name || !editingPatient.axxessId) {
+      setError("Patient name and Axxess ID are required")
+      return
+    }
+
+    setIsUpdatingPatient(true)
+    setError(null)
+
+    try {
+      const response = await fetch("/api/patients/update", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          id: editingPatient.id,
+          name: editingPatient.name,
+          axxessId: editingPatient.axxessId,
+          patientId: editingPatient.medicalRecordNumber || "",
+          referralDate: editingPatient.referralDate || null,
+          referralType: editingPatient.referralType,
+          priority: editingPatient.priority,
+          location: editingPatient.location || null,
+          diagnosis: editingPatient.diagnosis || null,
+          age: editingPatient.age || null,
+          dateOfBirth: editingPatient.dateOfBirth || null,
+          insurance: editingPatient.insurance || null,
+          phoneNumber: editingPatient.phoneNumber || null,
+          address: editingPatient.address || null,
+          emergencyContact: editingPatient.emergencyContact || null,
+          primaryProvider: editingPatient.primaryProvider || null,
+          assignedStaff: editingPatient.assignedStaff || null,
+          socDueDate: editingPatient.socDueDate || null,
+          episodeStartDate: editingPatient.episodeStartDate || null,
+          episodeEndDate: editingPatient.episodeEndDate || null,
+          nextReEvalDate: editingPatient.nextReEvalDate || null,
+          currentStatus: editingPatient.currentStatus,
+          referralAccepted: editingPatient.referralAccepted,
+        }),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setShowEditPatient(false)
+        setEditingPatient(null)
+        // Refresh patient list
+        await fetchPatients()
+      } else {
+        setError(data.error || "Failed to update patient")
+      }
+    } catch (err: any) {
+      console.error("Error updating patient:", err)
+      setError(err.message || "Failed to update patient")
+    } finally {
+      setIsUpdatingPatient(false)
+    }
+  }
+
+  // Sync with Axxess API and refresh patients
   const syncWithAxxess = async () => {
     setIsLoading(true)
     try {
@@ -625,24 +530,14 @@ export default function PatientTrackingDashboard() {
       if (response.ok) {
         const data = await response.json()
         if (data.success) {
-          // Update patients with Axxess data
-          setPatients((prevPatients) => {
-            const updatedPatients = [...prevPatients]
-            data.patients?.forEach((axxessPatient: any) => {
-              const existingIndex = updatedPatients.findIndex((p) => p.axxessId === axxessPatient.axxessId)
-              if (existingIndex >= 0) {
-                updatedPatients[existingIndex] = { ...updatedPatients[existingIndex], ...axxessPatient }
-              } else {
-                updatedPatients.push(axxessPatient)
-              }
-            })
-            return updatedPatients
-          })
           setLastSync(new Date().toISOString())
+          // Refresh patients after sync
+          await fetchPatients()
         }
       }
     } catch (error) {
       console.error("Axxess sync error:", error)
+      setError("Failed to sync with Axxess")
     } finally {
       setIsLoading(false)
     }
@@ -650,9 +545,12 @@ export default function PatientTrackingDashboard() {
 
   // Auto-sync every 15 minutes
   useEffect(() => {
-    const interval = setInterval(syncWithAxxess, 15 * 60 * 1000)
+    const interval = setInterval(() => {
+      syncWithAxxess()
+    }, 15 * 60 * 1000)
     return () => clearInterval(interval)
-  }, [lastSync])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Auto-generate DME orders for newly accepted patients
   useEffect(() => {
@@ -665,38 +563,52 @@ export default function PatientTrackingDashboard() {
     newlyAcceptedPatients.forEach((patient) => {
       handlePatientAcceptance(patient.id)
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patients])
 
-  // Calculate SOC window status based on current date
-  const calculateSOCStatus = (socDueDate: string): "On Track" | "Due Soon" | "Overdue" => {
-    const today = new Date()
-    const dueDate = new Date(socDueDate)
-    const timeDiff = dueDate.getTime() - today.getTime()
-    const hoursDiff = timeDiff / (1000 * 3600)
+  // Note: DME order generation will trigger a manual refresh if needed
+  // Removed auto-refresh to prevent infinite loops
 
-    if (hoursDiff < 0) return "Overdue"
-    if (hoursDiff < 24) return "Due Soon"
-    return "On Track"
-  }
-
-  // Update SOC status for all patients - Add null check
-  const updatedPatients = useMemo(() => {
+  // Patients are already transformed by the API with correct SOC and LUPA statuses
+  // No need to recalculate here - just ensure data structure is correct
+  const updatedPatients = useMemo((): Patient[] => {
     if (!patients || patients.length === 0) return []
 
-    return patients.map((patient) => ({
+    return patients.map((patient): Patient => ({
       ...patient,
-      socWindowStatus: calculateSOCStatus(patient.socDueDate),
       visitFrequencies: patient.visitFrequencies || [],
       patientGoals: patient.patientGoals || [],
       dmeOrders: patient.dmeOrders || [],
+      primaryProvider: patient.primaryProvider || "",
+      primaryProviderId: patient.primaryProviderId || null,
+      assignedStaffId: patient.assignedStaffId || null,
     }))
   }, [patients])
 
+  // Fetch all staff members for dropdown (doctors, nurses, therapists, etc.)
+  useEffect(() => {
+    const fetchStaff = async () => {
+      try {
+        // Fetch ALL active staff (not just nurses) - provider can be anyone
+        const response = await fetch("/api/staff/list")
+        const data = await response.json()
+        if (data.success) {
+          setAllStaff(data.staff || [])
+        }
+      } catch (err) {
+        console.error("Error fetching staff:", err)
+      }
+    }
+    fetchStaff()
+  }, [])
+
   // Get unique values for filters - Add null checks
   const uniqueStaff = useMemo(() => {
-    if (!updatedPatients || updatedPatients.length === 0) return []
-    return [...new Set(updatedPatients.map((p) => p.assignedStaff).filter(Boolean))]
-  }, [updatedPatients])
+    // Combine staff from patients and all staff from database
+    const patientStaff = updatedPatients?.map((p) => p.assignedStaff).filter(Boolean) || []
+    const dbStaff = allStaff.map((s) => s.name)
+    return [...new Set([...patientStaff, ...dbStaff])].sort()
+  }, [updatedPatients, allStaff])
 
   const uniqueLocations = useMemo(() => {
     if (!updatedPatients || updatedPatients.length === 0) return []
@@ -1025,31 +937,45 @@ export default function PatientTrackingDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50">
+      {/* Professional Header */}
+      <header className="bg-white/80 backdrop-blur-md border-b border-gray-200/50 shadow-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between py-6">
-            <div className="flex items-center">
+          <div className="flex items-center justify-between py-5">
+            <div className="flex items-center space-x-4">
               <Link href="/">
-                <Button variant="ghost" size="sm" className="mr-4">
+                <Button variant="ghost" size="sm" className="hover:bg-gray-100">
                   <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Dashboard
+                  Back
                 </Button>
               </Link>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">M.A.S.E AI Patient Tracking Dashboard</h1>
-                <p className="text-gray-600">
-                  AI-powered patient management with LUPA monitoring, visit frequency tracking, automatic DME ordering,
-                  and Axxess integration
-                </p>
+              <div className="h-8 w-px bg-gray-300" />
+              <div className="flex items-center space-x-3">
+                <div className="p-2.5 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl shadow-lg shadow-blue-500/20">
+                  <Users className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold text-gray-900 tracking-tight">
+                    Patient Tracking Dashboard
+                  </h1>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Real-time patient management with Axxess integration
+                  </p>
+                </div>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
-              <Button variant="outline" size="sm" onClick={syncWithAxxess} disabled={isLoading}>
+            <div className="flex items-center space-x-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={syncWithAxxess} 
+                disabled={isLoading}
+                className="border-gray-300 hover:bg-gray-50 shadow-sm"
+              >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
                 {isLoading ? "Syncing..." : "Sync Axxess"}
               </Button>
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="shadow-sm">
                 <Download className="h-4 w-4 mr-2" />
                 Export
               </Button>
@@ -1065,22 +991,49 @@ export default function PatientTrackingDashboard() {
                     <DialogTitle>Add New Patient</DialogTitle>
                     <DialogDescription>Enter patient information and referral details</DialogDescription>
                   </DialogHeader>
-                  <div className="grid grid-cols-2 gap-4 py-4">
+                  <div className="grid grid-cols-2 gap-4 py-4 max-h-[60vh] overflow-y-auto">
                     <div className="space-y-2">
-                      <Label htmlFor="patientName">Patient Name</Label>
-                      <Input id="patientName" placeholder="Enter full name" />
+                      <Label htmlFor="patientName">Patient Name *</Label>
+                      <Input 
+                        id="patientName" 
+                        placeholder="Enter full name"
+                        value={newPatientForm.name}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, name: e.target.value })}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="patientId">Patient ID</Label>
-                      <Input id="patientId" placeholder="PT-2024-XXX" />
+                      <Label htmlFor="axxessId">Axxess ID *</Label>
+                      <Input 
+                        id="axxessId" 
+                        placeholder="AX-XXXXX"
+                        value={newPatientForm.axxessId}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, axxessId: e.target.value })}
+                      />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="axxessId">Axxess ID</Label>
-                      <Input id="axxessId" placeholder="AX-XXXXX" />
+                      <Label htmlFor="patientId">Patient ID (Optional - Auto-generated if empty)</Label>
+                      <Input 
+                        id="patientId" 
+                        placeholder="PT-2024-001 (leave empty to auto-generate)"
+                        value={newPatientForm.patientId}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, patientId: e.target.value })}
+                      />
+                      <p className="text-xs text-gray-500">
+                        Format: PT-YYYY-XXX (e.g., PT-2024-001). Will be auto-generated if left empty.
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="referralType">Referral Type</Label>
-                      <Select>
+                      <Select 
+                        value={newPatientForm.referralType}
+                        onValueChange={(value: "Hospital" | "Facility" | "Clinic") => {
+                          setNewPatientForm({ 
+                            ...newPatientForm, 
+                            referralType: value,
+                            priority: value === "Hospital" ? "High" : value === "Facility" ? "Medium" : "Low"
+                          })
+                        }}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
@@ -1092,56 +1045,517 @@ export default function PatientTrackingDashboard() {
                       </Select>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="assignedStaff">Assigned Staff</Label>
-                      <Select>
+                      <Label htmlFor="primaryProvider">Primary Provider (Doctor) *</Label>
+                      <Select 
+                        value={newPatientForm.primaryProvider || "unassigned"}
+                        onValueChange={(value) => setNewPatientForm({ ...newPatientForm, primaryProvider: value === "unassigned" ? "" : value })}
+                      >
                         <SelectTrigger>
-                          <SelectValue placeholder="Select staff" />
+                          <SelectValue placeholder="Select primary provider (doctor)" />
                         </SelectTrigger>
                         <SelectContent>
-                          {uniqueStaff.map((staff) => (
-                            <SelectItem key={staff} value={staff}>
-                              {staff}
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                          {allStaff.map((staff) => (
+                            <SelectItem key={staff.id} value={staff.name}>
+                              {staff.name} {staff.credentials ? `(${staff.credentials})` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      <p className="text-xs text-gray-500">Doctor who oversees care and receives appointments</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="assignedStaff">Assigned Staff (Nurse/Staff)</Label>
+                      <Select 
+                        value={newPatientForm.assignedStaff || "unassigned"}
+                        onValueChange={(value) => setNewPatientForm({ ...newPatientForm, assignedStaff: value === "unassigned" ? "" : value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select staff (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                          {allStaff.map((staff) => (
+                            <SelectItem key={staff.id} value={staff.name}>
+                              {staff.name} {staff.credentials ? `(${staff.credentials})` : ""}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-500">Nurse/Staff who performs home visits</p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="location">Location</Label>
-                      <Select>
+                      <Select 
+                        value={newPatientForm.location || "none"}
+                        onValueChange={(value) => setNewPatientForm({ ...newPatientForm, location: value === "none" ? "" : value })}
+                      >
                         <SelectTrigger>
-                          <SelectValue placeholder="Select location" />
+                          <SelectValue placeholder="Select or type location" />
                         </SelectTrigger>
                         <SelectContent>
-                          {uniqueLocations.map((location) => (
-                            <SelectItem key={location} value={location}>
-                              {location}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="none">No Location</SelectItem>
+                          {uniqueLocations.length > 0 ? (
+                            uniqueLocations.map((location) => (
+                              <SelectItem key={location} value={location}>
+                                {location}
+                              </SelectItem>
+                            ))
+                          ) : (
+                            <>
+                              <SelectItem value="Main Campus">Main Campus</SelectItem>
+                              <SelectItem value="West Branch">West Branch</SelectItem>
+                              <SelectItem value="East Wing">East Wing</SelectItem>
+                              <SelectItem value="North Branch">North Branch</SelectItem>
+                              <SelectItem value="South Clinic">South Clinic</SelectItem>
+                            </>
+                          )}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
+                      <Label htmlFor="referralDate">Referral Date</Label>
+                      <Input 
+                        id="referralDate" 
+                        type="date"
+                        value={newPatientForm.referralDate}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, referralDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
                       <Label htmlFor="socDueDate">SOC Due Date</Label>
-                      <Input id="socDueDate" type="date" />
+                      <Input 
+                        id="socDueDate" 
+                        type="date"
+                        value={newPatientForm.socDueDate}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, socDueDate: e.target.value })}
+                      />
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="episodeStartDate">Episode Start Date</Label>
-                      <Input id="episodeStartDate" type="date" />
+                      <Input 
+                        id="episodeStartDate" 
+                        type="date"
+                        value={newPatientForm.episodeStartDate}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, episodeStartDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="episodeEndDate">Episode End Date</Label>
+                      <Input 
+                        id="episodeEndDate" 
+                        type="date"
+                        value={newPatientForm.episodeEndDate}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, episodeEndDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="dateOfBirth">Date of Birth *</Label>
+                      <Input 
+                        id="dateOfBirth" 
+                        type="date"
+                        value={newPatientForm.dateOfBirth}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, dateOfBirth: e.target.value })}
+                        required
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="age">Age (Optional)</Label>
+                      <Input 
+                        id="age" 
+                        type="number"
+                        placeholder="Age"
+                        value={newPatientForm.age}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, age: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="insurance">Insurance</Label>
+                      <Input 
+                        id="insurance" 
+                        placeholder="Insurance provider"
+                        value={newPatientForm.insurance}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, insurance: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phoneNumber">Phone Number</Label>
+                      <Input 
+                        id="phoneNumber" 
+                        placeholder="(555) 123-4567"
+                        value={newPatientForm.phoneNumber}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, phoneNumber: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="nextReEvalDate">Next Re-Eval Date</Label>
+                      <Input 
+                        id="nextReEvalDate" 
+                        type="date"
+                        value={newPatientForm.nextReEvalDate}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, nextReEvalDate: e.target.value })}
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-2">
+                      <Label htmlFor="address">Address</Label>
+                      <Input 
+                        id="address" 
+                        placeholder="Street address, City, State ZIP"
+                        value={newPatientForm.address}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, address: e.target.value })}
+                      />
+                    </div>
+                    <div className="col-span-2 space-y-2">
+                      <Label htmlFor="emergencyContact">Emergency Contact</Label>
+                      <Input 
+                        id="emergencyContact" 
+                        placeholder="Name and phone number"
+                        value={newPatientForm.emergencyContact}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, emergencyContact: e.target.value })}
+                      />
                     </div>
                     <div className="col-span-2 space-y-2">
                       <Label htmlFor="diagnosis">Diagnosis</Label>
-                      <Textarea id="diagnosis" placeholder="Enter primary diagnosis and conditions" />
+                      <Textarea 
+                        id="diagnosis" 
+                        placeholder="Enter primary diagnosis and conditions"
+                        value={newPatientForm.diagnosis}
+                        onChange={(e) => setNewPatientForm({ ...newPatientForm, diagnosis: e.target.value })}
+                      />
                     </div>
                   </div>
+                  {error && (
+                    <Alert className="border-red-200 bg-red-50">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                      <AlertTitle className="text-red-800">Error</AlertTitle>
+                      <AlertDescription className="text-red-700">{error}</AlertDescription>
+                    </Alert>
+                  )}
                   <div className="flex justify-end space-x-2">
-                    <Button variant="outline" onClick={() => setShowAddPatient(false)}>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        setShowAddPatient(false)
+                        setError(null)
+                      }}
+                      disabled={isAddingPatient}
+                    >
                       Cancel
                     </Button>
-                    <Button onClick={() => setShowAddPatient(false)}>Add Patient</Button>
+                    <Button 
+                      onClick={handleAddPatient}
+                      disabled={isAddingPatient || !newPatientForm.name || !newPatientForm.axxessId}
+                    >
+                      {isAddingPatient ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Adding...
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="h-4 w-4 mr-2" />
+                          Add Patient
+                        </>
+                      )}
+                    </Button>
                   </div>
                 </DialogContent>
               </Dialog>
+
+              {/* Edit Patient Dialog */}
+              <Dialog open={showEditPatient} onOpenChange={setShowEditPatient}>
+                <DialogContent className="max-w-2xl">
+                  <DialogHeader>
+                    <DialogTitle>Edit Patient</DialogTitle>
+                    <DialogDescription>Update patient information and referral details</DialogDescription>
+                  </DialogHeader>
+                  {editingPatient && (
+                    <div className="grid grid-cols-2 gap-4 py-4 max-h-[60vh] overflow-y-auto">
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-patientName">Patient Name *</Label>
+                        <Input 
+                          id="edit-patientName" 
+                          placeholder="Enter full name"
+                          value={editingPatient.name}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, name: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-axxessId">Axxess ID *</Label>
+                        <Input 
+                          id="edit-axxessId" 
+                          placeholder="AX-XXXXX"
+                          value={editingPatient.axxessId}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, axxessId: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-patientId">Patient ID</Label>
+                        <Input 
+                          id="edit-patientId" 
+                          placeholder="PT-2024-001"
+                          value={editingPatient.medicalRecordNumber || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, medicalRecordNumber: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-referralDate">Referral Date</Label>
+                        <Input 
+                          id="edit-referralDate" 
+                          type="date"
+                          value={editingPatient.referralDate || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, referralDate: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-referralType">Referral Type</Label>
+                        <Select 
+                          value={editingPatient.referralType}
+                          onValueChange={(value: "Hospital" | "Facility" | "Clinic") => setEditingPatient({ ...editingPatient, referralType: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Hospital">Hospital (High Priority)</SelectItem>
+                            <SelectItem value="Facility">Facility (Medium Priority)</SelectItem>
+                            <SelectItem value="Clinic">Clinic (Low Priority)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-priority">Priority</Label>
+                        <Select 
+                          value={editingPatient.priority}
+                          onValueChange={(value: "High" | "Medium" | "Low") => setEditingPatient({ ...editingPatient, priority: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="High">High</SelectItem>
+                            <SelectItem value="Medium">Medium</SelectItem>
+                            <SelectItem value="Low">Low</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-primaryProvider">Primary Provider (Doctor)</Label>
+                        <Select 
+                          value={editingPatient.primaryProvider || "unassigned"}
+                          onValueChange={(value) => setEditingPatient({ ...editingPatient, primaryProvider: value === "unassigned" ? "" : value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select primary provider (doctor)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned">Unassigned</SelectItem>
+                            {allStaff.map((staff) => (
+                              <SelectItem key={staff.id} value={staff.name}>
+                                {staff.name} {staff.credentials ? `(${staff.credentials})` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-gray-500">Doctor who oversees care and receives appointments</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-assignedStaff">Assigned Staff (Nurse/Staff)</Label>
+                        <Select 
+                          value={editingPatient.assignedStaff || "unassigned"}
+                          onValueChange={(value) => setEditingPatient({ ...editingPatient, assignedStaff: value === "unassigned" ? "" : value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select staff (optional)" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned">Unassigned</SelectItem>
+                            {allStaff.map((staff) => (
+                              <SelectItem key={staff.id} value={staff.name}>
+                                {staff.name} {staff.credentials ? `(${staff.credentials})` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-gray-500">Nurse/Staff who performs home visits</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-location">Location</Label>
+                        <Select 
+                          value={editingPatient.location || "none"}
+                          onValueChange={(value) => setEditingPatient({ ...editingPatient, location: value === "none" ? "" : value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select or type location" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">None</SelectItem>
+                            {uniqueLocations.map((loc) => (
+                              <SelectItem key={loc} value={loc}>
+                                {loc}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-socDueDate">SOC Due Date</Label>
+                        <Input 
+                          id="edit-socDueDate" 
+                          type="date"
+                          value={editingPatient.socDueDate || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, socDueDate: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-episodeStartDate">Episode Start Date</Label>
+                        <Input 
+                          id="edit-episodeStartDate" 
+                          type="date"
+                          value={editingPatient.episodeStartDate || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, episodeStartDate: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-episodeEndDate">Episode End Date</Label>
+                        <Input 
+                          id="edit-episodeEndDate" 
+                          type="date"
+                          value={editingPatient.episodeEndDate || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, episodeEndDate: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-dateOfBirth">Date of Birth</Label>
+                        <Input 
+                          id="edit-dateOfBirth" 
+                          type="date"
+                          value={editingPatient.dateOfBirth || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, dateOfBirth: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-age">Age</Label>
+                        <Input 
+                          id="edit-age" 
+                          type="number"
+                          placeholder="Age"
+                          value={editingPatient.age || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, age: parseInt(e.target.value) || 0 })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-insurance">Insurance</Label>
+                        <Input 
+                          id="edit-insurance" 
+                          placeholder="Insurance provider"
+                          value={editingPatient.insurance || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, insurance: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-phoneNumber">Phone Number</Label>
+                        <Input 
+                          id="edit-phoneNumber" 
+                          placeholder="(555) 123-4567"
+                          value={editingPatient.phoneNumber || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, phoneNumber: e.target.value })}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="edit-nextReEvalDate">Next Re-Eval Date</Label>
+                        <Input 
+                          id="edit-nextReEvalDate" 
+                          type="date"
+                          value={editingPatient.nextReEvalDate || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, nextReEvalDate: e.target.value })}
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-2">
+                        <Label htmlFor="edit-address">Address</Label>
+                        <Input 
+                          id="edit-address" 
+                          placeholder="Street address, City, State ZIP"
+                          value={editingPatient.address || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, address: e.target.value })}
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-2">
+                        <Label htmlFor="edit-emergencyContact">Emergency Contact</Label>
+                        <Input 
+                          id="edit-emergencyContact" 
+                          placeholder="Name and phone number"
+                          value={editingPatient.emergencyContact || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, emergencyContact: e.target.value })}
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-2">
+                        <Label htmlFor="edit-diagnosis">Diagnosis</Label>
+                        <Textarea 
+                          id="edit-diagnosis" 
+                          placeholder="Enter primary diagnosis and conditions"
+                          value={editingPatient.diagnosis || ""}
+                          onChange={(e) => setEditingPatient({ ...editingPatient, diagnosis: e.target.value })}
+                        />
+                      </div>
+                      <div className="col-span-2 space-y-2">
+                        <Label htmlFor="edit-currentStatus">Current Status</Label>
+                        <Select 
+                          value={editingPatient.currentStatus}
+                          onValueChange={(value: "Active" | "Pending" | "Discharged" | "On Hold") => setEditingPatient({ ...editingPatient, currentStatus: value })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="Active">Active</SelectItem>
+                            <SelectItem value="Pending">Pending</SelectItem>
+                            <SelectItem value="Discharged">Discharged</SelectItem>
+                            <SelectItem value="On Hold">On Hold</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  )}
+                  {error && (
+                    <Alert className="border-red-200 bg-red-50">
+                      <AlertTriangle className="h-4 w-4 text-red-600" />
+                      <AlertTitle className="text-red-800">Error</AlertTitle>
+                      <AlertDescription className="text-red-700">{error}</AlertDescription>
+                    </Alert>
+                  )}
+                  <div className="flex justify-end space-x-2">
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        setShowEditPatient(false)
+                        setEditingPatient(null)
+                        setError(null)
+                      }}
+                      disabled={isUpdatingPatient}
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      onClick={handleUpdatePatient}
+                      disabled={isUpdatingPatient || !editingPatient?.name || !editingPatient?.axxessId}
+                    >
+                      {isUpdatingPatient ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Updating...
+                        </>
+                      ) : (
+                        <>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Update Patient
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
+
               <Link href="/referral-management">
                 <Button
                   size="sm"
@@ -1159,222 +1573,329 @@ export default function PatientTrackingDashboard() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Critical Alerts */}
+        {/* Error Alert - Professional Design */}
+        {error && (
+          <Alert className="mb-6 border-l-4 border-l-red-500 bg-red-50/80 backdrop-blur-sm shadow-md animate-in slide-in-from-top-2">
+            <div className="flex items-start">
+              <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 mr-3 flex-shrink-0" />
+              <div className="flex-1">
+                <AlertTitle className="text-red-900 font-semibold mb-1">Error Loading Patients</AlertTitle>
+                <AlertDescription className="text-red-800">
+                  {error}
+                </AlertDescription>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="mt-3 border-red-300 text-red-700 hover:bg-red-100"
+                  onClick={() => fetchPatients()}
+                >
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Retry
+                </Button>
+              </div>
+            </div>
+          </Alert>
+        )}
+
+        {/* Loading State - Professional Design */}
+        {isLoading && patients.length === 0 && (
+          <Card className="mb-6 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50 shadow-md">
+            <CardContent className="p-6">
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-blue-100 rounded-lg">
+                  <RefreshCw className="h-6 w-6 text-blue-600 animate-spin" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-blue-900">Loading Patients</h3>
+                  <p className="text-sm text-blue-700">Fetching patient data from database...</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Critical Alerts - Professional Design */}
         {summaryStats.lupaOverThreshold > 0 && (
-          <Alert className="mb-6 border-red-200 bg-red-50">
-            <AlertTriangle className="h-4 w-4 text-red-600" />
-            <AlertTitle className="text-red-800">LUPA Threshold Alert</AlertTitle>
-            <AlertDescription className="text-red-700">
-              {summaryStats.lupaOverThreshold} patient(s) are over the LUPA threshold. Review visit frequencies to
-              prevent financial loss.
-            </AlertDescription>
+          <Alert className="mb-6 border-l-4 border-l-red-500 bg-gradient-to-r from-red-50 to-red-100/50 shadow-lg animate-in slide-in-from-top-2">
+            <div className="flex items-start">
+              <div className="p-2 bg-red-100 rounded-lg mr-3">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <AlertTitle className="text-red-900 font-bold text-lg mb-1">⚠️ LUPA Threshold Alert</AlertTitle>
+                <AlertDescription className="text-red-800">
+                  <strong>{summaryStats.lupaOverThreshold}</strong> patient(s) are over the LUPA threshold. 
+                  Review visit frequencies immediately to prevent financial loss.
+                </AlertDescription>
+              </div>
+            </div>
           </Alert>
         )}
 
         {summaryStats.reEvalDue > 0 && (
-          <Alert className="mb-6 border-yellow-200 bg-yellow-50">
-            <Calendar className="h-4 w-4 text-yellow-600" />
-            <AlertTitle className="text-yellow-800">Re-Evaluation Due</AlertTitle>
-            <AlertDescription className="text-yellow-700">
-              {summaryStats.reEvalDue} patient(s) have re-evaluations due within 7 days for potential visit
-              authorization increases.
-            </AlertDescription>
+          <Alert className="mb-6 border-l-4 border-l-yellow-500 bg-gradient-to-r from-yellow-50 to-amber-50/50 shadow-lg animate-in slide-in-from-top-2">
+            <div className="flex items-start">
+              <div className="p-2 bg-yellow-100 rounded-lg mr-3">
+                <Calendar className="h-5 w-5 text-yellow-600" />
+              </div>
+              <div className="flex-1">
+                <AlertTitle className="text-yellow-900 font-bold text-lg mb-1">📅 Re-Evaluation Due</AlertTitle>
+                <AlertDescription className="text-yellow-800">
+                  <strong>{summaryStats.reEvalDue}</strong> patient(s) have re-evaluations due within 7 days 
+                  for potential visit authorization increases.
+                </AlertDescription>
+              </div>
+            </div>
           </Alert>
         )}
 
         {summaryStats.pendingDMEOrders > 0 && (
-          <Alert className="mb-6 border-blue-200 bg-blue-50">
-            <Package className="h-4 w-4 text-blue-600" />
-            <AlertTitle className="text-blue-800">DME Orders Pending</AlertTitle>
-            <AlertDescription className="text-blue-700">
-              {summaryStats.pendingDMEOrders} DME orders are pending approval. Total value: $
-              {summaryStats.totalDMECost.toFixed(2)}
-            </AlertDescription>
+          <Alert className="mb-6 border-l-4 border-l-blue-500 bg-gradient-to-r from-blue-50 to-indigo-50/50 shadow-lg animate-in slide-in-from-top-2">
+            <div className="flex items-start">
+              <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                <Package className="h-5 w-5 text-blue-600" />
+              </div>
+              <div className="flex-1">
+                <AlertTitle className="text-blue-900 font-bold text-lg mb-1">📦 DME Orders Pending</AlertTitle>
+                <AlertDescription className="text-blue-800">
+                  <strong>{summaryStats.pendingDMEOrders}</strong> DME orders are pending approval. 
+                  Total value: <strong>${summaryStats.totalDMECost.toFixed(2)}</strong>
+                </AlertDescription>
+              </div>
+            </div>
           </Alert>
         )}
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6">
-            <TabsTrigger value="overview">Patient Overview</TabsTrigger>
-            <TabsTrigger value="visit-frequency">Visit Frequency</TabsTrigger>
-            <TabsTrigger value="lupa-monitoring">LUPA Monitoring</TabsTrigger>
-            <TabsTrigger value="goals-tracking">Goals Tracking</TabsTrigger>
-            <TabsTrigger value="dme-orders">DME Orders</TabsTrigger>
-            <TabsTrigger value="performance-supervision">Performance & Supervision</TabsTrigger>
-          </TabsList>
+          <Card className="shadow-sm border-gray-200">
+            <CardContent className="p-2">
+              <TabsList className="grid w-full grid-cols-6 bg-transparent">
+                <TabsTrigger 
+                  value="overview" 
+                  className="data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md transition-all"
+                >
+                  Patient Overview
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="visit-frequency"
+                  className="data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md transition-all"
+                >
+                  Visit Frequency
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="lupa-monitoring"
+                  className="data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md transition-all"
+                >
+                  LUPA Monitoring
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="goals-tracking"
+                  className="data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md transition-all"
+                >
+                  Goals Tracking
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="dme-orders"
+                  className="data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md transition-all"
+                >
+                  DME Orders
+                </TabsTrigger>
+                <TabsTrigger 
+                  value="performance-supervision"
+                  className="data-[state=active]:bg-blue-500 data-[state=active]:text-white data-[state=active]:shadow-md transition-all"
+                >
+                  Performance & Supervision
+                </TabsTrigger>
+              </TabsList>
+            </CardContent>
+          </Card>
 
           <TabsContent value="overview" className="space-y-6">
-            {/* Enhanced Summary Statistics */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-10 gap-4">
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-green-100 rounded-lg">
-                      <CheckCircle className="h-6 w-6 text-green-600" />
+            {/* Quick Stats Summary Bar */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-lg hover:shadow-xl transition-shadow">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-blue-100 text-sm font-medium mb-1">Total Patients</p>
+                      <p className="text-3xl font-bold">{summaryStats.total}</p>
                     </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">On Track</p>
+                    <Users className="h-10 w-10 text-blue-200 opacity-80" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-green-500 to-emerald-600 text-white border-0 shadow-lg hover:shadow-xl transition-shadow">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-green-100 text-sm font-medium mb-1">Active</p>
+                      <p className="text-3xl font-bold">{summaryStats.totalActive}</p>
+                    </div>
+                    <Activity className="h-10 w-10 text-green-200 opacity-80" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-lg hover:shadow-xl transition-shadow">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-purple-100 text-sm font-medium mb-1">Total Cost</p>
+                      <p className="text-3xl font-bold">${(summaryStats.totalEpisodeCost / 1000).toFixed(1)}k</p>
+                    </div>
+                    <DollarSign className="h-10 w-10 text-purple-200 opacity-80" />
+                  </div>
+                </CardContent>
+              </Card>
+              <Card className="bg-gradient-to-br from-orange-500 to-orange-600 text-white border-0 shadow-lg hover:shadow-xl transition-shadow">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-orange-100 text-sm font-medium mb-1">DME Orders</p>
+                      <p className="text-3xl font-bold">{summaryStats.totalDMEOrders}</p>
+                    </div>
+                    <Package className="h-10 w-10 text-orange-200 opacity-80" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Enhanced Summary Statistics */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+              <Card className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-green-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">On Track</p>
                       <p className="text-2xl font-bold text-green-600">{summaryStats.onTrack}</p>
                     </div>
+                    <div className="p-3 bg-green-100 rounded-xl">
+                      <CheckCircle className="h-6 w-6 text-green-600" />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-yellow-100 rounded-lg">
-                      <Clock className="h-6 w-6 text-yellow-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Due Soon</p>
+              <Card className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-yellow-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Due Soon</p>
                       <p className="text-2xl font-bold text-yellow-600">{summaryStats.dueSoon}</p>
                     </div>
+                    <div className="p-3 bg-yellow-100 rounded-xl">
+                      <Clock className="h-6 w-6 text-yellow-600" />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-red-100 rounded-lg">
-                      <AlertTriangle className="h-6 w-6 text-red-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Overdue</p>
+              <Card className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-red-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Overdue</p>
                       <p className="text-2xl font-bold text-red-600">{summaryStats.overdue}</p>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-blue-100 rounded-lg">
-                      <Users className="h-6 w-6 text-blue-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Active</p>
-                      <p className="text-2xl font-bold text-blue-600">{summaryStats.totalActive}</p>
+                    <div className="p-3 bg-red-100 rounded-xl">
+                      <AlertTriangle className="h-6 w-6 text-red-600" />
                     </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-green-100 rounded-lg">
-                      <Zap className="h-6 w-6 text-green-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">LUPA Safe</p>
+              <Card className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-green-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">LUPA Safe</p>
                       <p className="text-2xl font-bold text-green-600">{summaryStats.lupaSafe}</p>
                     </div>
+                    <div className="p-3 bg-green-100 rounded-xl">
+                      <Zap className="h-6 w-6 text-green-600" />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-yellow-100 rounded-lg">
-                      <AlertCircle className="h-6 w-6 text-yellow-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">At Risk</p>
+              <Card className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-yellow-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">At Risk</p>
                       <p className="text-2xl font-bold text-yellow-600">{summaryStats.lupaAtRisk}</p>
                     </div>
+                    <div className="p-3 bg-yellow-100 rounded-xl">
+                      <AlertCircle className="h-6 w-6 text-yellow-600" />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-red-100 rounded-lg">
-                      <DollarSign className="h-6 w-6 text-red-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Over Threshold</p>
+              <Card className="hover:shadow-lg transition-all duration-200 border-l-4 border-l-red-500">
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Over Threshold</p>
                       <p className="text-2xl font-bold text-red-600">{summaryStats.lupaOverThreshold}</p>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-purple-100 rounded-lg">
-                      <Timer className="h-6 w-6 text-purple-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">Re-Eval Due</p>
-                      <p className="text-2xl font-bold text-purple-600">{summaryStats.reEvalDue}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-indigo-100 rounded-lg">
-                      <Inbox className="h-6 w-6 text-indigo-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">New Referrals</p>
-                      <p className="text-2xl font-bold text-indigo-600">{summaryStats.pendingReferrals}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-4">
-                  <div className="flex items-center">
-                    <div className="p-2 bg-orange-100 rounded-lg">
-                      <Package className="h-6 w-6 text-orange-600" />
-                    </div>
-                    <div className="ml-4">
-                      <p className="text-sm font-medium text-gray-600">DME Orders</p>
-                      <p className="text-2xl font-bold text-orange-600">{summaryStats.totalDMEOrders}</p>
+                    <div className="p-3 bg-red-100 rounded-xl">
+                      <DollarSign className="h-6 w-6 text-red-600" />
                     </div>
                   </div>
                 </CardContent>
               </Card>
             </div>
 
-            {/* Enhanced Filters and Search */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Filter className="h-5 w-5 mr-2" />
-                  Filters & Search
+            {/* Enhanced Filters and Search - Professional Design */}
+            <Card className="shadow-lg border-gray-200">
+              <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100/50 border-b">
+                <CardTitle className="flex items-center justify-between">
+                  <span className="flex items-center">
+                    <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                      <Filter className="h-5 w-5 text-blue-600" />
+                    </div>
+                    Filters & Search
+                  </span>
+                  {(searchTerm || staffFilter !== "All" || locationFilter !== "All" || statusFilter !== "All" || referralTypeFilter !== "All" || lupaFilter !== "All") && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        setSearchTerm("")
+                        setStaffFilter("All")
+                        setLocationFilter("All")
+                        setStatusFilter("All")
+                        setReferralTypeFilter("All")
+                        setLupaFilter("All")
+                      }}
+                      className="text-gray-600 hover:text-gray-900"
+                    >
+                      <X className="h-4 w-4 mr-1" />
+                      Clear All
+                    </Button>
+                  )}
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-4">
+              <CardContent className="pt-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="lg:col-span-2">
-                    <Label htmlFor="search">Search Patients</Label>
+                    <Label htmlFor="search" className="mb-2 block font-semibold text-gray-700">Search Patients</Label>
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
                       <Input
                         id="search"
                         placeholder="Search by name, ID, Axxess ID, or diagnosis..."
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10"
+                        className="pl-10 h-11 border-gray-300 focus:border-blue-500 focus:ring-blue-500"
                       />
                     </div>
                   </div>
 
                   <div>
-                    <Label htmlFor="staff-filter">Staff</Label>
+                    <Label htmlFor="staff-filter" className="mb-2 block font-semibold text-gray-700">Staff</Label>
                     <Select value={staffFilter} onValueChange={setStaffFilter}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-11 border-gray-300">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1389,9 +1910,9 @@ export default function PatientTrackingDashboard() {
                   </div>
 
                   <div>
-                    <Label htmlFor="location-filter">Location</Label>
+                    <Label htmlFor="location-filter" className="mb-2 block font-semibold text-gray-700">Location</Label>
                     <Select value={locationFilter} onValueChange={setLocationFilter}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-11 border-gray-300">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1406,9 +1927,9 @@ export default function PatientTrackingDashboard() {
                   </div>
 
                   <div>
-                    <Label htmlFor="status-filter">SOC Status</Label>
+                    <Label htmlFor="status-filter" className="mb-2 block font-semibold text-gray-700">SOC Status</Label>
                     <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-11 border-gray-300">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1421,9 +1942,9 @@ export default function PatientTrackingDashboard() {
                   </div>
 
                   <div>
-                    <Label htmlFor="referral-filter">Referral Type</Label>
+                    <Label htmlFor="referral-filter" className="mb-2 block font-semibold text-gray-700">Referral Type</Label>
                     <Select value={referralTypeFilter} onValueChange={setReferralTypeFilter}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-11 border-gray-300">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1438,9 +1959,9 @@ export default function PatientTrackingDashboard() {
                   </div>
 
                   <div>
-                    <Label htmlFor="lupa-filter">LUPA Status</Label>
+                    <Label htmlFor="lupa-filter" className="mb-2 block font-semibold text-gray-700">LUPA Status</Label>
                     <Select value={lupaFilter} onValueChange={setLupaFilter}>
-                      <SelectTrigger>
+                      <SelectTrigger className="h-11 border-gray-300">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -1455,172 +1976,221 @@ export default function PatientTrackingDashboard() {
               </CardContent>
             </Card>
 
-            {/* Enhanced Patient Table */}
-            <Card>
-              <CardHeader>
+            {/* Enhanced Patient List - Card Based Design */}
+            <Card className="shadow-lg border-gray-200">
+              <CardHeader className="bg-gradient-to-r from-gray-50 to-gray-100/50 border-b">
                 <CardTitle className="flex items-center justify-between">
                   <span className="flex items-center">
-                    <Users className="h-5 w-5 mr-2" />
-                    Patient List ({filteredPatients?.length || 0} of {summaryStats.total})
+                    <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                      <Users className="h-5 w-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <span className="text-lg font-bold text-gray-900">Patient List</span>
+                      <span className="text-sm text-gray-500 ml-2">
+                        ({filteredPatients?.length || 0} of {summaryStats.total})
+                      </span>
+                    </div>
                   </span>
                   <div className="flex items-center space-x-2">
-                    <Badge variant="outline">{filteredPatients?.length || 0} patients shown</Badge>
+                    <Badge variant="outline" className="bg-white">{filteredPatients?.length || 0} shown</Badge>
                     {lastSync && (
-                      <Badge variant="outline" className="text-xs">
-                        Last sync: {new Date(lastSync).toLocaleTimeString()}
+                      <Badge variant="outline" className="bg-white text-xs">
+                        <Clock className="h-3 w-3 mr-1" />
+                        {new Date(lastSync).toLocaleTimeString()}
                       </Badge>
                     )}
                   </div>
                 </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <table className="w-full border-collapse">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="text-left p-3 font-medium">Patient Info</th>
-                        <th className="text-left p-3 font-medium">Auth Status</th>
-                        <th className="text-left p-3 font-medium">Episode Dates</th>
-                        <th className="text-left p-3 font-medium">Axxess ID</th>
-                        <th className="text-left p-3 font-medium">LUPA Status</th>
-                        <th className="text-left p-3 font-medium">Visit Summary</th>
-                        <th className="text-left p-3 font-medium">DME Orders</th>
-                        <th className="text-left p-3 font-medium">Episode Cost</th>
-                        <th className="text-left p-3 font-medium">Re-Eval Date</th>
-                        <th className="text-left p-3 font-medium">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredPatients && filteredPatients.length > 0 ? (
-                        filteredPatients.map((patient) => (
-                          <tr key={patient.id} className="border-b hover:bg-gray-50 transition-colors">
-                            <td className="p-3">
+              <CardContent className="p-6">
+                <div className="space-y-4">
+                  {filteredPatients && filteredPatients.length > 0 ? (
+                    filteredPatients.map((patient) => (
+                      <Card 
+                        key={patient.id} 
+                        className="hover:shadow-xl transition-all duration-300 border-l-4 border-l-blue-500 hover:border-l-blue-600 group"
+                      >
+                        <CardContent className="p-6">
+                          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                            {/* Patient Info - 4 columns */}
+                            <div className="lg:col-span-4">
+                              <div className="flex items-start justify-between mb-3">
+                                <div className="flex-1">
+                                  <h3 className="text-lg font-bold text-gray-900 mb-1 group-hover:text-blue-600 transition-colors">
+                                    {patient.name}
+                                  </h3>
+                                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    {patient.medicalRecordNumber && (
+                                      <span className="text-sm text-gray-500 font-mono">
+                                        <span className="font-medium text-gray-600">Patient ID:</span> {patient.medicalRecordNumber}
+                                      </span>
+                                    )}
+                                    {patient.axxessId && (
+                                      <>
+                                        <span className="text-xs text-gray-400">•</span>
+                                        <span className="text-sm text-gray-500 font-mono">
+                                          <span className="font-medium text-gray-600">Axxess ID:</span> {patient.axxessId}
+                                        </span>
+                                      </>
+                                    )}
+                                    {!patient.medicalRecordNumber && !patient.axxessId && (
+                                      <span className="text-sm text-gray-500 font-mono">
+                                        <span className="font-medium text-gray-600">ID:</span> {patient.id}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-gray-600 line-clamp-2 mb-2">{patient.diagnosis}</p>
+                                  <div className="flex flex-wrap items-center gap-3 mb-2 text-xs text-gray-500">
+                                    {patient.location && (
+                                      <div className="flex items-center">
+                                        <Building className="h-3 w-3 mr-1" />
+                                        <span>{patient.location}</span>
+                                      </div>
+                                    )}
+                                    {patient.dateOfBirth && (
+                                      <div className="flex items-center">
+                                        <Calendar className="h-3 w-3 mr-1" />
+                                        <span>DOB: {new Date(patient.dateOfBirth).toLocaleDateString()}</span>
+                                      </div>
+                                    )}
+                                    {patient.age > 0 && (
+                                      <div className="flex items-center">
+                                        <span>Age: {patient.age}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-3 mb-2 text-xs">
+                                    {patient.primaryProvider && (
+                                      <div className="flex items-center bg-blue-50 px-2 py-1 rounded">
+                                        <User className="h-3 w-3 mr-1 text-blue-600" />
+                                        <span className="font-medium text-blue-700">Provider:</span>
+                                        <span className="text-blue-600 ml-1">{patient.primaryProvider}</span>
+                                      </div>
+                                    )}
+                                    {patient.assignedStaff && patient.assignedStaff !== "Unassigned" && (
+                                      <div className="flex items-center bg-green-50 px-2 py-1 rounded">
+                                        <User className="h-3 w-3 mr-1 text-green-600" />
+                                        <span className="font-medium text-green-700">Staff:</span>
+                                        <span className="text-green-600 ml-1">{patient.assignedStaff}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Badge className={getReferralTypeColor(patient.referralType)}>
+                                      {getReferralTypeIcon(patient.referralType)}
+                                      <span className="ml-1">{patient.referralType}</span>
+                                    </Badge>
+                                    <Badge className={getStatusColor(patient.currentStatus)}>
+                                      {patient.currentStatus}
+                                    </Badge>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Status & Info - 3 columns */}
+                            <div className="lg:col-span-3 space-y-4">
                               <div>
-                                <div className="font-medium">{patient.name}</div>
-                                <div className="text-sm text-gray-600">{patient.id}</div>
-                                <div className="text-xs text-gray-500">{patient.diagnosis}</div>
-                                <div className="flex items-center mt-1 space-x-1">
-                                  <Badge className={getReferralTypeColor(patient.referralType)}>
-                                    {getReferralTypeIcon(patient.referralType)}
-                                    <span className="ml-1">{patient.referralType}</span>
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Status Indicators</p>
+                                <div className="space-y-2">
+                                  <Badge className={getLupaStatusColor(patient.lupaStatus)}>
+                                    LUPA: {patient.lupaStatus}
                                   </Badge>
-                                  <Badge className={getStatusColor(patient.currentStatus)}>
-                                    {patient.currentStatus}
+                                  <Badge className={getStatusColor(patient.socWindowStatus)}>
+                                    SOC: {patient.socWindowStatus}
                                   </Badge>
                                 </div>
                               </div>
-                            </td>
-                            <td className="p-3">
-                              <div className="flex flex-col space-y-1">
-                                <Badge
-                                  className={getEligibilityColor(
-                                    patient.id === "PT-2024-001"
-                                      ? "Eligible"
-                                      : patient.id === "PT-2024-002"
-                                        ? "Eligible"
-                                        : "Not Checked",
-                                  )}
-                                >
-                                  {patient.id === "PT-2024-001"
-                                    ? "Eligible"
-                                    : patient.id === "PT-2024-002"
-                                      ? "Eligible"
-                                      : "Not Checked"}
-                                </Badge>
-                                <Badge
-                                  className={getAuthColor(
-                                    patient.id === "PT-2024-001"
-                                      ? "Approved"
-                                      : patient.id === "PT-2024-002"
-                                        ? "Pending"
-                                        : "Not Required",
-                                  )}
-                                >
-                                  {patient.id === "PT-2024-001"
-                                    ? "Approved"
-                                    : patient.id === "PT-2024-002"
-                                      ? "Pending"
-                                      : "Not Required"}
-                                </Badge>
+                              <div>
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Episode Dates</p>
+                                <div className="text-sm space-y-1">
+                                  <div className="flex items-center">
+                                    <Calendar className="h-3 w-3 mr-2 text-gray-400" />
+                                    <span className="text-gray-600">Start: {patient.episodeStartDate}</span>
+                                  </div>
+                                  <div className="flex items-center">
+                                    <Calendar className="h-3 w-3 mr-2 text-gray-400" />
+                                    <span className="text-gray-600">End: {patient.episodeEndDate}</span>
+                                  </div>
+                                </div>
                               </div>
-                            </td>
-                            <td className="p-3">
-                              <div className="text-sm">
-                                <div>Start: {patient.episodeStartDate}</div>
-                                <div>End: {patient.episodeEndDate}</div>
-                              </div>
-                            </td>
-                            <td className="p-3">
-                              <div className="font-mono text-sm">{patient.axxessId}</div>
-                            </td>
-                            <td className="p-3">
-                              <Badge className={getLupaStatusColor(patient.lupaStatus)}>{patient.lupaStatus}</Badge>
-                            </td>
-                            <td className="p-3">
-                              <div className="space-y-1">
-                                {patient.visitFrequencies && patient.visitFrequencies.length > 0 ? (
-                                  patient.visitFrequencies.map((freq, index) => (
-                                    <div key={index} className="flex items-center text-xs">
-                                      <span className="font-medium w-8">{freq.discipline}:</span>
-                                      <span
-                                        className={freq.isOverThreshold ? "text-red-600 font-medium" : "text-gray-600"}
-                                      >
-                                        {freq.used}/{freq.authorized}
-                                      </span>
-                                      {freq.isOverThreshold && <AlertTriangle className="h-3 w-3 text-red-500 ml-1" />}
+                              <div>
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Re-Eval Date</p>
+                                <div className="text-sm">
+                                  {patient.nextReEvalDate ? (
+                                    <div className="flex items-center space-x-2">
+                                      <span>{patient.nextReEvalDate}</span>
+                                      {(() => {
+                                        const reEvalDate = new Date(patient.nextReEvalDate)
+                                        const today = new Date()
+                                        const daysDiff = Math.ceil(
+                                          (reEvalDate.getTime() - today.getTime()) / (1000 * 3600 * 24),
+                                        )
+                                        if (daysDiff <= 7 && daysDiff >= 0) {
+                                          return (
+                                            <Badge className="bg-yellow-100 text-yellow-800 text-xs">Due Soon</Badge>
+                                          )
+                                        }
+                                        return null
+                                      })()}
                                     </div>
-                                  ))
-                                ) : (
-                                  <span className="text-xs text-gray-500">No visits</span>
-                                )}
+                                  ) : (
+                                    <span className="text-gray-400">Not scheduled</span>
+                                  )}
+                                </div>
                               </div>
-                            </td>
-                            <td className="p-3">
-                              <div className="space-y-1">
-                                {patient.dmeOrders && patient.dmeOrders.length > 0 ? (
-                                  patient.dmeOrders.slice(0, 2).map((order, index) => (
-                                    <div key={index} className="flex items-center text-xs">
-                                      <Badge className={getDMEStatusColor(order.status)} variant="outline">
-                                        {order.status}
-                                      </Badge>
-                                      <span className="ml-1 text-gray-600">${order.totalCost.toFixed(0)}</span>
-                                    </div>
-                                  ))
-                                ) : (
-                                  <span className="text-xs text-gray-500">No orders</span>
-                                )}
-                                {patient.dmeOrders && patient.dmeOrders.length > 2 && (
-                                  <div className="text-xs text-gray-500">+{patient.dmeOrders.length - 2} more</div>
-                                )}
+                            </div>
+
+                            {/* Visit Summary & Financial - 3 columns */}
+                            <div className="lg:col-span-3 space-y-4">
+                              <div>
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Visit Summary</p>
+                                <div className="space-y-1.5">
+                                  {patient.visitFrequencies && patient.visitFrequencies.length > 0 ? (
+                                    patient.visitFrequencies.slice(0, 3).map((freq, index) => (
+                                      <div key={index} className="flex items-center justify-between text-xs bg-gray-50 p-2 rounded">
+                                        <span className="font-medium">{freq.discipline}:</span>
+                                        <span className={freq.isOverThreshold ? "text-red-600 font-bold" : "text-gray-700"}>
+                                          {freq.used}/{freq.authorized}
+                                        </span>
+                                        {freq.isOverThreshold && <AlertTriangle className="h-3 w-3 text-red-500 ml-1" />}
+                                      </div>
+                                    ))
+                                  ) : (
+                                    <span className="text-xs text-gray-500">No visits</span>
+                                  )}
+                                </div>
                               </div>
-                            </td>
-                            <td className="p-3">
-                              <div className="text-sm">
-                                <div className="font-medium">${patient.totalEpisodeCost.toFixed(2)}</div>
-                                <div className="text-gray-500">Proj: ${patient.projectedCost.toFixed(2)}</div>
+                              <div>
+                                <p className="text-xs font-semibold text-gray-500 mb-2">Episode Cost</p>
+                                <div className="text-sm">
+                                  <div className="font-bold text-lg text-gray-900">${patient.totalEpisodeCost.toFixed(2)}</div>
+                                  <div className="text-gray-500">Projected: ${patient.projectedCost.toFixed(2)}</div>
+                                </div>
                               </div>
-                            </td>
-                            <td className="p-3">
-                              <div className="text-sm">
-                                {patient.nextReEvalDate}
-                                {(() => {
-                                  if (!patient.nextReEvalDate) return null
-                                  const reEvalDate = new Date(patient.nextReEvalDate)
-                                  const today = new Date()
-                                  const daysDiff = Math.ceil(
-                                    (reEvalDate.getTime() - today.getTime()) / (1000 * 3600 * 24),
-                                  )
-                                  if (daysDiff <= 7 && daysDiff >= 0) {
-                                    return (
-                                      <Badge className="ml-1 bg-yellow-100 text-yellow-800 text-xs">Due Soon</Badge>
-                                    )
-                                  }
-                                  return null
-                                })()}
-                              </div>
-                            </td>
-                            <td className="p-3">
-                              <div className="flex space-x-1">
+                              {patient.dmeOrders && patient.dmeOrders.length > 0 && (
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-500 mb-2">DME Orders</p>
+                                  <div className="space-y-1">
+                                    {patient.dmeOrders.slice(0, 2).map((order, index) => (
+                                      <div key={index} className="flex items-center justify-between text-xs">
+                                        <Badge className={getDMEStatusColor(order.status)} variant="outline">
+                                          {order.status}
+                                        </Badge>
+                                        <span className="text-gray-600 font-medium">${order.totalCost.toFixed(0)}</span>
+                                      </div>
+                                    ))}
+                                    {patient.dmeOrders.length > 2 && (
+                                      <div className="text-xs text-gray-500">+{patient.dmeOrders.length - 2} more</div>
+                                    )}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Actions - 2 columns */}
+                            <div className="lg:col-span-2 flex items-center justify-end">
+                              <div className="flex flex-col space-y-2 w-full">
                                 <Button
                                   size="sm"
                                   variant="outline"
@@ -1628,28 +2198,58 @@ export default function PatientTrackingDashboard() {
                                     setSelectedPatient(patient)
                                     setShowPatientDetails(true)
                                   }}
+                                  className="w-full justify-start hover:bg-blue-50 hover:border-blue-300"
                                 >
-                                  <Eye className="h-3 w-3" />
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  View Details
                                 </Button>
-                                <Button size="sm" variant="outline">
-                                  <Edit className="h-3 w-3" />
-                                </Button>
-                                <Button size="sm" variant="outline">
-                                  <BarChart3 className="h-3 w-3" />
-                                </Button>
+                                <div className="flex space-x-2">
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline" 
+                                    className="flex-1 hover:bg-gray-50"
+                                    onClick={() => {
+                                      setEditingPatient(patient)
+                                      setShowEditPatient(true)
+                                    }}
+                                  >
+                                    <Edit className="h-4 w-4 mr-1" />
+                                    Edit
+                                  </Button>
+                                  <Button size="sm" variant="outline" className="flex-1 hover:bg-gray-50">
+                                    <BarChart3 className="h-4 w-4 mr-1" />
+                                    Analytics
+                                  </Button>
+                                </div>
                               </div>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={10} className="p-8 text-center text-gray-500">
-                            No patients found matching your criteria
-                          </td>
-                        </tr>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))
+                    ) : (
+                        <Card className="border-dashed border-2 border-gray-300">
+                          <CardContent className="p-12 text-center">
+                            <div className="flex flex-col items-center">
+                              <div className="p-4 bg-gray-100 rounded-full mb-4">
+                                <Users className="h-12 w-12 text-gray-400" />
+                              </div>
+                              <h3 className="text-lg font-semibold text-gray-900 mb-2">No patients found</h3>
+                              <p className="text-gray-500 mb-4 max-w-md">
+                                {searchTerm || staffFilter !== "All" || locationFilter !== "All"
+                                  ? "Try adjusting your filters to see more results"
+                                  : "Sync with Axxess to start tracking patients"}
+                              </p>
+                              {!searchTerm && (
+                                <Button onClick={syncWithAxxess} variant="outline" className="mt-2">
+                                  <RefreshCw className="h-4 w-4 mr-2" />
+                                  Sync with Axxess
+                                </Button>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
                       )}
-                    </tbody>
-                  </table>
                 </div>
               </CardContent>
             </Card>
@@ -1943,6 +2543,342 @@ export default function PatientTrackingDashboard() {
           {/* Other tabs would continue here... */}
         </Tabs>
       </main>
+
+      {/* Patient Details Dialog */}
+      <Dialog open={showPatientDetails} onOpenChange={setShowPatientDetails}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold flex items-center gap-2">
+              <Stethoscope className="h-6 w-6 text-blue-600" />
+              Patient Details
+            </DialogTitle>
+            <DialogDescription>
+              Complete patient information and care plan overview
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedPatient && (
+            <div className="space-y-6">
+              {/* Patient Header */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 mb-2">{selectedPatient.name}</h3>
+                  <div className="space-y-1 text-sm">
+                    {selectedPatient.medicalRecordNumber && (
+                      <p className="text-gray-600">
+                        <span className="font-medium">Patient ID:</span> <span className="font-mono">{selectedPatient.medicalRecordNumber}</span>
+                      </p>
+                    )}
+                    {selectedPatient.axxessId && (
+                      <p className="text-gray-600">
+                        <span className="font-medium">Axxess ID:</span> <span className="font-mono">{selectedPatient.axxessId}</span>
+                      </p>
+                    )}
+                    {!selectedPatient.medicalRecordNumber && !selectedPatient.axxessId && (
+                      <p className="text-gray-600">
+                        <span className="font-medium">ID:</span> <span className="font-mono">{selectedPatient.id}</span>
+                      </p>
+                    )}
+                    <div className="text-gray-600">
+                      <span className="font-medium">Status:</span>{" "}
+                      <Badge className={selectedPatient.currentStatus === "Active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}>
+                        {selectedPatient.currentStatus}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1 text-sm">
+                  <p className="text-gray-600">
+                    <span className="font-medium">Location:</span> {selectedPatient.location || "N/A"}
+                  </p>
+                  <p className="text-gray-600">
+                    <span className="font-medium">Primary Provider:</span> {selectedPatient.primaryProvider || "Unassigned"}
+                  </p>
+                  <p className="text-gray-600">
+                    <span className="font-medium">Assigned Staff:</span> {selectedPatient.assignedStaff || "Unassigned"}
+                  </p>
+                  <div className="text-gray-600">
+                    <span className="font-medium">Priority:</span>{" "}
+                    <Badge className={
+                      selectedPatient.priority === "High" ? "bg-red-100 text-red-800" :
+                      selectedPatient.priority === "Medium" ? "bg-yellow-100 text-yellow-800" :
+                      "bg-blue-100 text-blue-800"
+                    }>
+                      {selectedPatient.priority}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+
+              {/* Diagnosis & Medical Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Diagnosis</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-gray-700">{selectedPatient.diagnosis || "No diagnosis recorded"}</p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Contact Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2 text-sm">
+                    {selectedPatient.dateOfBirth && (
+                      <p><span className="font-medium">Date of Birth:</span> {new Date(selectedPatient.dateOfBirth).toLocaleDateString()}</p>
+                    )}
+                    {selectedPatient.age > 0 && (
+                      <p><span className="font-medium">Age:</span> {selectedPatient.age} years</p>
+                    )}
+                    <p><span className="font-medium">Phone:</span> {selectedPatient.phoneNumber || "N/A"}</p>
+                    <p><span className="font-medium">Address:</span> {selectedPatient.address || "N/A"}</p>
+                    <p><span className="font-medium">Emergency Contact:</span> {selectedPatient.emergencyContact || "N/A"}</p>
+                    <p><span className="font-medium">Insurance:</span> {selectedPatient.insurance || "N/A"}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Dates & Timeline */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Calendar className="h-5 w-5" />
+                    Important Dates
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div>
+                      <p className="font-medium text-gray-500">Referral Date</p>
+                      <p className="text-gray-900">{selectedPatient.referralDate || "N/A"}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-500">SOC Due Date</p>
+                      <p className="text-gray-900">{selectedPatient.socDueDate || "N/A"}</p>
+                      <Badge className={
+                        selectedPatient.socWindowStatus === "Overdue" ? "bg-red-100 text-red-800 mt-1" :
+                        selectedPatient.socWindowStatus === "Due Soon" ? "bg-yellow-100 text-yellow-800 mt-1" :
+                        "bg-green-100 text-green-800 mt-1"
+                      }>
+                        {selectedPatient.socWindowStatus}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-500">Episode Start</p>
+                      <p className="text-gray-900">{selectedPatient.episodeStartDate || "N/A"}</p>
+                    </div>
+                    <div>
+                      <p className="font-medium text-gray-500">Episode End</p>
+                      <p className="text-gray-900">{selectedPatient.episodeEndDate || "N/A"}</p>
+                    </div>
+                  </div>
+                  {selectedPatient.nextReEvalDate && (
+                    <div className="mt-4 pt-4 border-t">
+                      <p className="font-medium text-gray-500">Next Re-evaluation</p>
+                      <p className="text-gray-900">{selectedPatient.nextReEvalDate}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Visit Frequencies */}
+              {selectedPatient.visitFrequencies && selectedPatient.visitFrequencies.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      Visit Frequencies
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {selectedPatient.visitFrequencies.map((freq, index) => (
+                        <div key={index} className="p-3 bg-gray-50 rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium">{freq.discipline}</span>
+                            <Badge className={freq.isOverThreshold ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"}>
+                              {freq.used}/{freq.authorized} visits
+                            </Badge>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                            <p>Remaining: {freq.remaining}</p>
+                            <p>Frequency: {freq.weeklyFrequency}</p>
+                            <p>Last Visit: {freq.lastVisit || "N/A"}</p>
+                            <p>Next Scheduled: {freq.nextScheduled || "N/A"}</p>
+                          </div>
+                          {freq.isOverThreshold && (
+                            <Alert className="mt-2 border-red-200 bg-red-50">
+                              <AlertTriangle className="h-4 w-4 text-red-600" />
+                              <AlertDescription className="text-red-800 text-sm">
+                                Over LUPA threshold - Review required
+                              </AlertDescription>
+                            </Alert>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Financial Summary */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <DollarSign className="h-5 w-5" />
+                    Financial Summary
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-500">Total Episode Cost</p>
+                      <p className="text-2xl font-bold text-gray-900">${selectedPatient.totalEpisodeCost.toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-500">Projected Cost</p>
+                      <p className="text-2xl font-bold text-blue-600">${selectedPatient.projectedCost.toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <p className="text-sm text-gray-500 mb-2">LUPA Status</p>
+                    <Badge className={
+                      selectedPatient.lupaStatus === "Over Threshold" ? "bg-red-100 text-red-800" :
+                      selectedPatient.lupaStatus === "At Risk" ? "bg-yellow-100 text-yellow-800" :
+                      "bg-green-100 text-green-800"
+                    }>
+                      {selectedPatient.lupaStatus}
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Patient Goals */}
+              {selectedPatient.patientGoals && selectedPatient.patientGoals.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <CheckCircle className="h-5 w-5" />
+                      Patient Goals ({selectedPatient.patientGoals.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {selectedPatient.patientGoals.map((goal) => (
+                        <div key={goal.id} className="p-3 border rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-medium">{goal.goal}</span>
+                            <Badge className={
+                              goal.status === "Achieved" ? "bg-green-100 text-green-800" :
+                              goal.status === "In Progress" ? "bg-blue-100 text-blue-800" :
+                              "bg-gray-100 text-gray-800"
+                            }>
+                              {goal.status}
+                            </Badge>
+                          </div>
+                          <div className="text-sm text-gray-600 space-y-1">
+                            <p><span className="font-medium">Discipline:</span> {goal.discipline}</p>
+                            <p><span className="font-medium">Target Date:</span> {goal.targetDate}</p>
+                            <p><span className="font-medium">Progress:</span> {goal.progress}%</p>
+                            {goal.notes && (
+                              <p className="mt-2 italic">{goal.notes}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* DME Orders */}
+              {selectedPatient.dmeOrders && selectedPatient.dmeOrders.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Package className="h-5 w-5" />
+                      DME Orders ({selectedPatient.dmeOrders.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {selectedPatient.dmeOrders.map((order) => (
+                        <div key={order.id} className="p-3 border rounded-lg">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <Badge className={getDMEStatusColor(order.status)}>{order.status}</Badge>
+                              {order.supplier && (
+                                <Badge variant="outline">{order.supplier}</Badge>
+                              )}
+                              {order.autoGenerated && (
+                                <Badge variant="outline" className="bg-green-100 text-green-800">
+                                  <Zap className="h-3 w-3 mr-1" />
+                                  Auto
+                                </Badge>
+                              )}
+                            </div>
+                            <span className="font-medium">${order.totalCost.toFixed(2)}</span>
+                          </div>
+                          <div className="text-sm text-gray-600 space-y-1">
+                            <p><span className="font-medium">Order Date:</span> {order.orderDate}</p>
+                            {order.trackingNumber && (
+                              <p><span className="font-medium">Tracking:</span> {order.trackingNumber}</p>
+                            )}
+                            {order.estimatedDelivery && (
+                              <p><span className="font-medium">Est. Delivery:</span> {order.estimatedDelivery}</p>
+                            )}
+                            {order.items && order.items.length > 0 && (
+                              <div className="mt-2">
+                                <p className="font-medium mb-1">Items:</p>
+                                {order.items.map((item, idx) => (
+                                  <p key={idx} className="text-xs">
+                                    {item.name} (x{item.quantity}) - ${(item.cost * item.quantity).toFixed(2)}
+                                  </p>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Wound Care */}
+              {selectedPatient.woundCare && selectedPatient.woundCare.hasWounds && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      Wound Care
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 text-sm">
+                      <p><span className="font-medium">Wound Count:</span> {selectedPatient.woundCare.woundCount}</p>
+                      <p><span className="font-medium">Types:</span> {selectedPatient.woundCare.woundTypes.join(", ")}</p>
+                      <p><span className="font-medium">Last Assessment:</span> {selectedPatient.woundCare.lastAssessment}</p>
+                      <p><span className="font-medium">Healing Progress:</span> {selectedPatient.woundCare.healingProgress}</p>
+                      {selectedPatient.woundCare.nextDressing && (
+                        <p><span className="font-medium">Next Dressing:</span> {selectedPatient.woundCare.nextDressing}</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2 pt-4 border-t">
+            <Button variant="outline" onClick={() => setShowPatientDetails(false)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

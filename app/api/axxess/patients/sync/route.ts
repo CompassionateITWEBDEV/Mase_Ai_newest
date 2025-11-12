@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { createServiceClient } from "@/lib/supabase/service"
 
 interface AxxessPatient {
   id: string
@@ -44,11 +45,249 @@ export async function POST(request: NextRequest): Promise<NextResponse<SyncRespo
 
     console.log(`Starting Axxess patient sync - Last Sync: ${lastSync}`)
 
+    const supabase = createServiceClient()
+
+    // Fetch Axxess configuration from database
+    const { data: axxessConfig, error: configError } = await supabase
+      .from("integrations_config")
+      .select("*")
+      .eq("integration_name", "axxess")
+      .single()
+
+    if (configError || !axxessConfig) {
+      return NextResponse.json(
+        {
+          success: false,
+          patients: [],
+          message: "Axxess configuration not found. Please configure Axxess integration first.",
+          syncTimestamp: new Date().toISOString(),
+          recordsProcessed: 0,
+          errors: ["Axxess configuration not found"],
+        },
+        { status: 400 }
+      )
+    }
+
+    if (axxessConfig.status !== "connected") {
+      return NextResponse.json(
+        {
+          success: false,
+          patients: [],
+          message: `Axxess integration status: ${axxessConfig.status}. Please check configuration.`,
+          syncTimestamp: new Date().toISOString(),
+          recordsProcessed: 0,
+          errors: [`Integration status: ${axxessConfig.status}`],
+        },
+        { status: 400 }
+      )
+    }
+
+    // Decrypt credentials (in production, use proper decryption)
+    // For now, we'll use the stored credentials
+    const credentials = {
+      username: axxessConfig.username?.replace("encrypted_", "") || "",
+      password: axxessConfig.password || "",
+      agencyId: axxessConfig.agency_id || "",
+      environment: axxessConfig.environment || "sandbox",
+      apiUrl: axxessConfig.api_url || "https://api.axxess.com/v1",
+    }
+
+    console.log(`Connecting to Axxess API for agency: ${credentials.agencyId}`)
+
+    // TODO: Replace with actual Axxess API call
+    // For now, we'll use mock data but structure it for real API integration
+    // In production, you would:
+    // 1. Authenticate with Axxess API using credentials
+    // 2. Fetch patient data from Axxess
+    // 3. Transform Axxess data format to our format
+    
     // Simulate API call delay
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    await new Promise((resolve) => setTimeout(resolve, 1000))
 
     // Mock Axxess patient data with enhanced visit frequency and LUPA information
     const mockAxxessPatients: AxxessPatient[] = [
+      {
+        id: "PT-2024-001",
+        axxessId: "AX-12345",
+        name: "John Smith",
+        referralDate: "2024-01-15",
+        currentStatus: "Active",
+        dischargeStatus: "N/A",
+        referralAccepted: true,
+        assignedStaff: "Sarah Johnson, RN",
+        socDueDate: "2024-01-22",
+        location: "Main Campus",
+        referralType: "Hospital",
+        priority: "High",
+        diagnosis: "Post-surgical wound care, diabetes management",
+        age: 72,
+        insurance: "Medicare",
+        phoneNumber: "(555) 123-4567",
+        address: "123 Main Street, City, ST 12345",
+        emergencyContact: "Jane Smith (Wife) - (555) 123-4568",
+        episodeStartDate: "2024-01-15",
+        episodeEndDate: "2024-03-15",
+        nextReEvalDate: "2024-02-14",
+        lupaStatus: "Safe",
+        totalEpisodeCost: 1850.0,
+        projectedCost: 2200.0,
+        visitFrequencies: [
+          {
+            discipline: "RN",
+            authorized: 20,
+            used: 5,
+            remaining: 15,
+            weeklyFrequency: "2x/week",
+            lastVisit: "2024-01-20",
+            nextScheduled: "2024-01-22",
+            lupaThreshold: 10,
+            isOverThreshold: false,
+            costPerVisit: 125.0,
+            totalCost: 625.0,
+          },
+          {
+            discipline: "HHA",
+            authorized: 30,
+            used: 8,
+            remaining: 22,
+            weeklyFrequency: "3x/week",
+            lastVisit: "2024-01-21",
+            nextScheduled: "2024-01-23",
+            lupaThreshold: 15,
+            isOverThreshold: false,
+            costPerVisit: 65.0,
+            totalCost: 520.0,
+          },
+        ],
+        patientGoals: [
+          {
+            id: "G001",
+            discipline: "RN",
+            goal: "Wound healing and infection prevention",
+            targetDate: "2024-02-28",
+            status: "In Progress",
+            progress: 60,
+            notes: "Wound showing good healing progress",
+          },
+        ],
+      },
+      {
+        id: "PT-2024-002",
+        axxessId: "AX-12346",
+        name: "Maria Garcia",
+        referralDate: "2024-01-18",
+        currentStatus: "Active",
+        dischargeStatus: "N/A",
+        referralAccepted: true,
+        assignedStaff: "Michael Brown, PT",
+        socDueDate: "2024-01-25",
+        location: "West Branch",
+        referralType: "Facility",
+        priority: "Medium",
+        diagnosis: "Hip replacement rehabilitation",
+        age: 65,
+        insurance: "Medicare Advantage",
+        phoneNumber: "(555) 234-5678",
+        address: "456 Park Avenue, City, ST 12345",
+        emergencyContact: "Carlos Garcia (Son) - (555) 234-5679",
+        episodeStartDate: "2024-01-18",
+        episodeEndDate: "2024-03-18",
+        nextReEvalDate: "2024-02-17",
+        lupaStatus: "Safe",
+        totalEpisodeCost: 2100.0,
+        projectedCost: 2500.0,
+        visitFrequencies: [
+          {
+            discipline: "PT",
+            authorized: 18,
+            used: 6,
+            remaining: 12,
+            weeklyFrequency: "3x/week",
+            lastVisit: "2024-01-21",
+            nextScheduled: "2024-01-23",
+            lupaThreshold: 10,
+            isOverThreshold: false,
+            costPerVisit: 150.0,
+            totalCost: 900.0,
+          },
+          {
+            discipline: "RN",
+            authorized: 12,
+            used: 4,
+            remaining: 8,
+            weeklyFrequency: "1x/week",
+            lastVisit: "2024-01-20",
+            nextScheduled: "2024-01-24",
+            lupaThreshold: 10,
+            isOverThreshold: false,
+            costPerVisit: 125.0,
+            totalCost: 500.0,
+          },
+        ],
+        patientGoals: [
+          {
+            id: "G002",
+            discipline: "PT",
+            goal: "Restore mobility and strength",
+            targetDate: "2024-03-01",
+            status: "In Progress",
+            progress: 50,
+            notes: "Patient making steady progress with exercises",
+          },
+        ],
+      },
+      {
+        id: "PT-2024-003",
+        axxessId: "AX-12347",
+        name: "Robert Lee",
+        referralDate: "2024-01-20",
+        currentStatus: "Active",
+        dischargeStatus: "N/A",
+        referralAccepted: true,
+        assignedStaff: "Emily Davis, RN",
+        socDueDate: "2024-01-27",
+        location: "South Clinic",
+        referralType: "Clinic",
+        priority: "Low",
+        diagnosis: "Hypertension management, medication compliance",
+        age: 58,
+        insurance: "Private Insurance",
+        phoneNumber: "(555) 345-6789",
+        address: "789 Broadway, City, ST 12345",
+        emergencyContact: "Susan Lee (Wife) - (555) 345-6790",
+        episodeStartDate: "2024-01-20",
+        episodeEndDate: "2024-03-20",
+        nextReEvalDate: "2024-02-19",
+        lupaStatus: "Safe",
+        totalEpisodeCost: 1200.0,
+        projectedCost: 1500.0,
+        visitFrequencies: [
+          {
+            discipline: "RN",
+            authorized: 8,
+            used: 2,
+            remaining: 6,
+            weeklyFrequency: "1x/week",
+            lastVisit: "2024-01-19",
+            nextScheduled: "2024-01-26",
+            lupaThreshold: 10,
+            isOverThreshold: false,
+            costPerVisit: 125.0,
+            totalCost: 250.0,
+          },
+        ],
+        patientGoals: [
+          {
+            id: "G003",
+            discipline: "RN",
+            goal: "Maintain blood pressure within target range",
+            targetDate: "2024-02-28",
+            status: "In Progress",
+            progress: 75,
+            notes: "BP readings consistently within target range",
+          },
+        ],
+      },
       {
         id: "PT-2024-004",
         axxessId: "AX-12348",
@@ -253,10 +492,89 @@ export async function POST(request: NextRequest): Promise<NextResponse<SyncRespo
       }
     })
 
+    // Save synced patients to database
+    const savedPatients = []
+    const errors: string[] = []
+
+    for (const patient of filteredPatients) {
+      try {
+        // Check if patient already exists by axxess_id
+        const { data: existingPatient } = await supabase
+          .from("patients")
+          .select("id")
+          .eq("axxess_id", patient.axxessId)
+          .single()
+
+        const patientData = {
+          axxess_id: patient.axxessId,
+          name: patient.name,
+          referral_date: patient.referralDate || null,
+          current_status: patient.currentStatus,
+          discharge_status: patient.dischargeStatus || null,
+          referral_accepted: patient.referralAccepted,
+          soc_due_date: patient.socDueDate || null,
+          location: patient.location || null,
+          referral_type: patient.referralType,
+          priority: patient.priority,
+          diagnosis: patient.diagnosis || null,
+          age: patient.age || null,
+          insurance: patient.insurance || null,
+          phone_number: patient.phoneNumber || null,
+          address: patient.address || null,
+          emergency_contact: patient.emergencyContact || null,
+          episode_start_date: patient.episodeStartDate || null,
+          episode_end_date: patient.episodeEndDate || null,
+          next_re_eval_date: patient.nextReEvalDate || null,
+          lupa_status: patient.lupaStatus,
+          total_episode_cost: patient.totalEpisodeCost || 0,
+          projected_cost: patient.projectedCost || 0,
+          visit_frequencies: patient.visitFrequencies || [],
+          patient_goals: patient.patientGoals || [],
+          dme_orders: [],
+          wound_care: null,
+          updated_at: new Date().toISOString(),
+        }
+
+        if (existingPatient) {
+          // Update existing patient
+          const { error: updateError } = await supabase
+            .from("patients")
+            .update(patientData)
+            .eq("id", existingPatient.id)
+
+          if (updateError) throw updateError
+          savedPatients.push({ ...patient, id: existingPatient.id })
+        } else {
+          // Insert new patient
+          const { data: newPatient, error: insertError } = await supabase
+            .from("patients")
+            .insert(patientData)
+            .select()
+            .single()
+
+          if (insertError) throw insertError
+          savedPatients.push({ ...patient, id: newPatient.id })
+        }
+      } catch (error: any) {
+        console.error(`Error saving patient ${patient.axxessId}:`, error)
+        errors.push(`Failed to save patient ${patient.name} (${patient.axxessId}): ${error.message}`)
+      }
+    }
+
+    // Update last sync time in configuration
+    await supabase
+      .from("integrations_config")
+      .update({ 
+        last_sync_time: new Date().toISOString(),
+        status: errors.length > 0 ? "error" : "connected",
+        error_message: errors.length > 0 ? errors.join("; ") : null,
+      })
+      .eq("integration_name", "axxess")
+
     // Update the response format to match referral dashboard expectations
     const response: SyncResponse = {
-      success: true,
-      patients: filteredPatients.map((patient) => ({
+      success: errors.length === 0 || savedPatients.length > 0,
+      patients: savedPatients.map((patient) => ({
         ...patient,
         // Convert to referral format for dashboard integration
         referralData: {
@@ -274,13 +592,13 @@ export async function POST(request: NextRequest): Promise<NextResponse<SyncRespo
           assignedTo: patient.assignedStaff,
         },
       })),
-      message: `Successfully synced ${filteredPatients.length} patients from Axxess`,
+      message: `Successfully synced ${savedPatients.length} of ${filteredPatients.length} patients from Axxess${errors.length > 0 ? ` (${errors.length} errors)` : ""}`,
       syncTimestamp: new Date().toISOString(),
-      recordsProcessed: filteredPatients.length,
-      errors: [],
+      recordsProcessed: savedPatients.length,
+      errors: errors.length > 0 ? errors : undefined,
     }
 
-    console.log(`Axxess patient sync completed: ${filteredPatients.length} records processed`)
+    console.log(`Axxess patient sync completed: ${savedPatients.length} records saved${errors.length > 0 ? `, ${errors.length} errors` : ""}`)
 
     return NextResponse.json(response)
   } catch (error) {

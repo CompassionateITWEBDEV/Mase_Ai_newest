@@ -40,15 +40,26 @@ export async function POST(request: NextRequest) {
     const startTime = new Date(visit.start_time)
     const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000)
 
-    // Update visit
+    // Update visit - save cancel reason in dedicated column
+    const updateData: any = {
+      end_time: endTime.toISOString(),
+      duration: durationMinutes,
+      status: 'cancelled'
+    }
+    
+    // Save cancel reason in dedicated column
+    if (reason && reason.trim()) {
+      updateData.cancel_reason = reason.trim()
+      // Also keep it in notes for backward compatibility
+      updateData.notes = reason.trim()
+    } else {
+      updateData.cancel_reason = 'No reason provided'
+      updateData.notes = 'CANCELLED'
+    }
+    
     const { data: updatedVisit, error: updateError } = await supabase
       .from('staff_visits')
-      .update({
-        end_time: endTime.toISOString(),
-        duration: durationMinutes,
-        notes: reason ? `CANCELLED: ${reason}` : 'CANCELLED',
-        status: 'cancelled'
-      })
+      .update(updateData)
       .eq('id', visitId)
       .select()
       .single()

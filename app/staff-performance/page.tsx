@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,8 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Clock, Route, Users, Timer, Search, Filter, Download, Target, Award, BookOpen, Navigation, MapPin, ExternalLink, RefreshCw, AlertCircle } from "lucide-react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Clock, Route, Users, Timer, Search, Filter, Download, MapPin, ExternalLink, RefreshCw, AlertCircle } from "lucide-react"
 
 interface StaffPerformance {
   id: string
@@ -64,20 +62,6 @@ export default function StaffPerformancePage() {
   const [timeRange, setTimeRange] = useState("today")
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState("all")
-  const [activeTab, setActiveTab] = useState("performance")
-  
-  // Professional Development Plan state
-  const [pipGoals, setPipGoals] = useState<{
-    performanceGoals: any[]
-    competencyGoals: any[]
-    totalPips: number
-  }>({
-    performanceGoals: [],
-    competencyGoals: [],
-    totalPips: 0
-  })
-  const [pipLoading, setPipLoading] = useState(false)
-  const [pipError, setPipError] = useState<string | null>(null)
   
   // Staff location tracking state
   const [staffLocation, setStaffLocation] = useState<{
@@ -195,47 +179,6 @@ export default function StaffPerformancePage() {
     }
     loadStaffPerformance()
   }, [])
-  
-  // Load Professional Development Plan data when staff is selected
-  useEffect(() => {
-    const loadPipGoals = async () => {
-      if (!selectedStaff?.id) {
-        setPipGoals({ performanceGoals: [], competencyGoals: [], totalPips: 0 })
-        return
-      }
-      
-      try {
-        setPipLoading(true)
-        setPipError(null)
-        
-        const res = await fetch(`/api/staff-performance/pip-goals?staffId=${encodeURIComponent(selectedStaff.id)}`)
-        if (res.ok) {
-          const data = await res.json()
-          if (data.success) {
-            setPipGoals({
-              performanceGoals: data.performanceGoals || [],
-              competencyGoals: data.competencyGoals || [],
-              totalPips: data.totalPips || 0
-            })
-          } else {
-            setPipError(data.message || "Failed to load development plan")
-            setPipGoals({ performanceGoals: [], competencyGoals: [], totalPips: 0 })
-          }
-        } else {
-          setPipError("Failed to load development plan")
-          setPipGoals({ performanceGoals: [], competencyGoals: [], totalPips: 0 })
-        }
-      } catch (e: any) {
-        console.error("Error loading PIP goals:", e)
-        setPipError(e.message || "Failed to load development plan")
-        setPipGoals({ performanceGoals: [], competencyGoals: [], totalPips: 0 })
-      } finally {
-        setPipLoading(false)
-      }
-    }
-    
-    loadPipGoals()
-  }, [selectedStaff?.id])
 
   // Auto-refresh stats every 30 seconds to show updated visit/drive times
   useEffect(() => {
@@ -395,14 +338,6 @@ export default function StaffPerformancePage() {
                 <SelectItem value="week">This Week</SelectItem>
               </SelectContent>
             </Select>
-            {selectedStaff?.id && (
-              <Link href={`/track/${selectedStaff.id}`}>
-                <Button variant="outline" className="bg-blue-50 hover:bg-blue-100 border-blue-200">
-                  <Navigation className="h-4 w-4 mr-2" />
-                  View GPS Tracking
-                </Button>
-              </Link>
-            )}
             <Button variant="outline">
               <Download className="h-4 w-4 mr-2" />
               Export
@@ -478,13 +413,6 @@ export default function StaffPerformancePage() {
         {/* Main Content */}
         <div className="lg:col-span-3">
           {selectedStaff && (
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="performance">Performance Metrics</TabsTrigger>
-                <TabsTrigger value="development">Professional Development Plan</TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="performance" className="space-y-6">
             <div className="space-y-6">
               {/* Staff Header */}
               <Card>
@@ -679,7 +607,16 @@ export default function StaffPerformancePage() {
                               if (status === 'completed') {
                                 return <Badge className="bg-green-500 hover:bg-green-600">Completed</Badge>
                               } else if (status === 'cancelled') {
-                                return <Badge variant="destructive">Cancelled</Badge>
+                                return (
+                                  <div className="flex flex-col gap-1">
+                                    <Badge variant="destructive">Cancelled</Badge>
+                                    {(visit as any).cancelReason && (
+                                      <div className="text-xs text-gray-600 italic mt-1 max-w-[200px]">
+                                        Reason: {(visit as any).cancelReason}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
                               } else {
                                 return <Badge className="bg-blue-500 hover:bg-blue-600">In Progress</Badge>
                               }
@@ -704,209 +641,6 @@ export default function StaffPerformancePage() {
                 </CardContent>
               </Card>
             </div>
-              </TabsContent>
-              
-              <TabsContent value="development" className="space-y-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <BookOpen className="h-5 w-5 mr-2" />
-                      Professional Development Plan
-                    </CardTitle>
-                    <CardDescription>
-                      Performance Improvement Plans and development goals for {selectedStaff.name}
-                      {pipGoals.totalPips > 0 && ` • ${pipGoals.totalPips} active PIP${pipGoals.totalPips !== 1 ? 's' : ''}`}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {pipLoading && (
-                      <div className="text-center py-8">
-                        <div className="text-sm text-gray-600">Loading development plan...</div>
-                      </div>
-                    )}
-                    
-                    {pipError && (
-                      <div className="text-center py-8">
-                        <div className="text-sm text-red-600">{pipError}</div>
-                      </div>
-                    )}
-                    
-                    {!pipLoading && !pipError && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {/* Performance Goals */}
-                        <Card>
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base flex items-center">
-                              <Award className="h-4 w-4 mr-2" />
-                              Performance Goals
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-3">
-                              {pipGoals.performanceGoals.length > 0 ? (
-                                pipGoals.performanceGoals.map((goal: any, idx: number) => (
-                                  <div 
-                                    key={goal.id || idx} 
-                                    className={`p-3 border rounded-lg ${
-                                      goal.completed ? 'bg-green-50 border-green-200' :
-                                      goal.progress >= 75 ? 'bg-blue-50 border-blue-200' :
-                                      goal.progress >= 50 ? 'bg-yellow-50 border-yellow-200' :
-                                      'bg-gray-50 border-gray-200'
-                                    }`}
-                                  >
-                                    <h4 className="font-medium text-sm">{goal.description || 'Performance Goal'}</h4>
-                                    <p className="text-xs text-gray-600 mt-1">
-                                      {goal.targetDate ? (
-                                        <>Target: {new Date(goal.targetDate).toLocaleDateString()}</>
-                                      ) : (
-                                        <>Target: Not set</>
-                                      )}
-                                      {goal.completed && <span className="ml-2 text-green-600 font-medium">✓ Completed</span>}
-                                    </p>
-                                    <div className="mt-2">
-                                      <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                        <span>Progress</span>
-                                        <span>{goal.progress || 0}%</span>
-                                      </div>
-                                      <Progress value={goal.progress || 0} className="h-2" />
-                                    </div>
-                                    {goal.actions && Array.isArray(goal.actions) && goal.actions.length > 0 && (
-                                      <div className="mt-2">
-                                        <p className="text-xs font-medium text-gray-700 mb-1">Action Items:</p>
-                                        <ul className="text-xs text-gray-600 space-y-1">
-                                          {goal.actions.slice(0, 3).map((action: string, actionIdx: number) => (
-                                            <li key={actionIdx} className="flex items-start">
-                                              <span className="mr-1">•</span>
-                                              <span>{action}</span>
-                                            </li>
-                                          ))}
-                                          {goal.actions.length > 3 && (
-                                            <li className="text-gray-500 italic">+ {goal.actions.length - 3} more</li>
-                                          )}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    {goal.supervisor && (
-                                      <div className="mt-2 flex items-center space-x-1">
-                                        <span className="text-xs font-medium text-gray-700">Supervisor:</span>
-                                        <span className="text-xs text-gray-600">{goal.supervisor}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                  <p className="text-xs text-gray-600">
-                                    No active performance improvement goals at this time.
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          </CardContent>
-                        </Card>
-                        
-                        {/* Competency Goals */}
-                        <Card>
-                          <CardHeader className="pb-3">
-                            <CardTitle className="text-base flex items-center">
-                              <Target className="h-4 w-4 mr-2" />
-                              Competency Goals
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-3">
-                              {pipGoals.competencyGoals.length > 0 ? (
-                                pipGoals.competencyGoals.map((goal: any, idx: number) => (
-                                  <div 
-                                    key={goal.id || idx} 
-                                    className={`p-3 border rounded-lg ${
-                                      goal.completed ? 'bg-green-50 border-green-200' :
-                                      goal.progress >= 75 ? 'bg-blue-50 border-blue-200' :
-                                      goal.progress >= 50 ? 'bg-yellow-50 border-yellow-200' :
-                                      'bg-gray-50 border-gray-200'
-                                    }`}
-                                  >
-                                    <h4 className="font-medium text-sm">{goal.description || 'Competency Goal'}</h4>
-                                    <p className="text-xs text-gray-600 mt-1">
-                                      {goal.targetDate ? (
-                                        <>Target: {new Date(goal.targetDate).toLocaleDateString()}</>
-                                      ) : (
-                                        <>Target: Not set</>
-                                      )}
-                                      {goal.completed && <span className="ml-2 text-green-600 font-medium">✓ Completed</span>}
-                                    </p>
-                                    <div className="mt-2">
-                                      <div className="flex justify-between text-xs text-gray-600 mb-1">
-                                        <span>Progress</span>
-                                        <span>{goal.progress || 0}%</span>
-                                      </div>
-                                      <Progress value={goal.progress || 0} className="h-2" />
-                                    </div>
-                                    {goal.actions && Array.isArray(goal.actions) && goal.actions.length > 0 && (
-                                      <div className="mt-2">
-                                        <p className="text-xs font-medium text-gray-700 mb-1">Action Items:</p>
-                                        <ul className="text-xs text-gray-600 space-y-1">
-                                          {goal.actions.slice(0, 3).map((action: string, actionIdx: number) => (
-                                            <li key={actionIdx} className="flex items-start">
-                                              <span className="mr-1">•</span>
-                                              <span>{action}</span>
-                                            </li>
-                                          ))}
-                                          {goal.actions.length > 3 && (
-                                            <li className="text-gray-500 italic">+ {goal.actions.length - 3} more</li>
-                                          )}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    {goal.supervisor && (
-                                      <div className="mt-2 flex items-center space-x-1">
-                                        <span className="text-xs font-medium text-gray-700">Supervisor:</span>
-                                        <span className="text-xs text-gray-600">{goal.supervisor}</span>
-                                      </div>
-                                    )}
-                                  </div>
-                                ))
-                              ) : (
-                                <div className="p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                                  <p className="text-xs text-gray-600">
-                                    No active competency improvement goals at this time.
-                                  </p>
-                                </div>
-                              )}
-                            </div>
-                          </CardContent>
-                        </Card>
-                      </div>
-                    )}
-                    
-                    {/* Summary Stats */}
-                    {!pipLoading && !pipError && (pipGoals.performanceGoals.length > 0 || pipGoals.competencyGoals.length > 0) && (
-                      <Card className="mt-6">
-                        <CardHeader>
-                          <CardTitle className="text-base">Development Plan Summary</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="grid grid-cols-3 gap-4">
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-blue-600">{pipGoals.totalPips}</div>
-                              <div className="text-xs text-gray-600">Active PIPs</div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-purple-600">{pipGoals.performanceGoals.length}</div>
-                              <div className="text-xs text-gray-600">Performance Goals</div>
-                            </div>
-                            <div className="text-center">
-                              <div className="text-2xl font-bold text-green-600">{pipGoals.competencyGoals.length}</div>
-                              <div className="text-xs text-gray-600">Competency Goals</div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )}
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
           )}
         </div>
       </div>
