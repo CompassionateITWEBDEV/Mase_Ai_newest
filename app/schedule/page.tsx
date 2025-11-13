@@ -1259,39 +1259,253 @@ function StaffScheduleView() {
 // Availability Manager Component
 function AvailabilityManager() {
   const [selectedStaff, setSelectedStaff] = useState("all")
+  const [availabilityData, setAvailabilityData] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [currentUserDepartment, setCurrentUserDepartment] = useState<string | null>(null)
 
-  const availabilityData = [
-    {
-      name: "Dr. Wilson",
-      status: "available",
-      nextUnavailable: "2024-01-20 (Vacation)",
-      workingHours: "8:00 AM - 5:00 PM",
-      timezone: "EST",
-    },
-    {
-      name: "Sarah Johnson",
-      status: "busy",
-      currentActivity: "Patient Visit",
-      nextAvailable: "2:00 PM",
-      workingHours: "7:00 AM - 7:00 PM",
-      timezone: "EST",
-    },
-    {
-      name: "Michael Chen",
-      status: "available",
-      nextUnavailable: "4:00 PM (End of shift)",
-      workingHours: "9:00 AM - 5:00 PM",
-      timezone: "EST",
-    },
-    {
-      name: "Emily Davis",
-      status: "off",
-      reason: "Scheduled Day Off",
-      nextAvailable: "Tomorrow 8:00 AM",
-      workingHours: "8:00 AM - 4:00 PM",
-      timezone: "EST",
-    },
-  ]
+  // Days mapping
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+  // Format time helper
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(":")
+    const hour = Number.parseInt(hours)
+    const ampm = hour >= 12 ? "PM" : "AM"
+    const displayHour = hour % 12 || 12
+    return `${displayHour}:${minutes} ${ampm}`
+  }
+
+  // Calculate availability status
+  const calculateAvailability = async (staff: any, shifts: any[]) => {
+    const now = new Date()
+    const currentDay = days[now.getDay() === 0 ? 6 : now.getDay() - 1] // Convert Sunday=0 to Sunday=6
+    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+    
+    // Get today's shift
+    const todayShift = shifts.find((s: any) => s.day_of_week === (now.getDay() === 0 ? 6 : now.getDay() - 1))
+    
+    // Get real-time status
+    let realTimeStatus = 'offline'
+    let currentActivity = null
+    try {
+      const statusRes = await fetch(`/api/gps/staff-location?staff_id=${encodeURIComponent(staff.id)}`, { cache: 'no-store' })
+      const statusData = await statusRes.json()
+      if (statusData.success) {
+        realTimeStatus = statusData.status || 'offline'
+        if (statusData.currentVisit) {
+          currentActivity = `Patient Visit: ${statusData.currentVisit.patient_name}`
+        } else if (statusData.status === 'driving') {
+          currentActivity = 'Driving'
+        } else if (statusData.status === 'active') {
+          currentActivity = 'Active'
+        }
+      }
+    } catch (e) {
+      console.error(`Error fetching status for ${staff.id}:`, e)
+    }
+
+    // Determine availability
+    let status = 'off'
+    let workingHours = 'Not scheduled'
+    let nextAvailable = null
+    let nextUnavailable = null
+    let reason = null
+
+    if (!todayShift) {
+      // No shift today - check next shift
+      const sortedShifts = [...shifts].sort((a, b) => a.day_of_week - b.day_of_week)
+      const nextShift = sortedShifts.find((s: any) => s.day_of_week > (now.getDay() === 0 ? 6 : now.getDay() - 1)) || sortedShifts[0]
+      if (nextShift) {
+        const nextDayIndex = nextShift.day_of_week
+        const nextDayName = days[nextDayIndex]
+        nextAvailable = `${nextDayName} ${formatTime(nextShift.start_time)}`
+      }
+      reason = 'No shift scheduled today'
+    } else {
+      // Has shift today
+      const startTime = todayShift.start_time
+      const endTime = todayShift.end_time
+      workingHours = `${formatTime(startTime)} - ${formatTime(endTime)}`
+      
+      // Check if currently within working hours
+      if (currentTime >= startTime && currentTime <= endTime) {
+        // Within working hours
+        if (realTimeStatus === 'on_visit' || realTimeStatus === 'driving') {
+          status = 'busy'
+          if (realTimeStatus === 'on_visit' && currentActivity) {
+            // Calculate next available (estimate visit end in 30-60 min)
+            const visitStart = new Date()
+            const estimatedEnd = new Date(visitStart.getTime() + 45 * 60000) // 45 min estimate
+            nextAvailable = estimatedEnd.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+          } else if (realTimeStatus === 'driving') {
+            // Estimate arrival in 15-30 min
+            const estimatedArrival = new Date(now.getTime() + 20 * 60000)
+            nextAvailable = estimatedArrival.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+          }
+        } else if (realTimeStatus === 'active' || realTimeStatus === 'offline') {
+          status = 'available'
+        }
+        
+        // Next unavailable is end of shift
+        nextUnavailable = `${formatTime(endTime)} (End of shift)`
+      } else if (currentTime < startTime) {
+        // Before shift starts
+        status = 'off'
+        nextAvailable = `${formatTime(startTime)}`
+        reason = 'Shift not started'
+      } else {
+        // After shift ended
+        status = 'off'
+        const sortedShifts = [...shifts].sort((a, b) => a.day_of_week - b.day_of_week)
+        const nextShift = sortedShifts.find((s: any) => s.day_of_week > (now.getDay() === 0 ? 6 : now.getDay() - 1)) || sortedShifts[0]
+        if (nextShift) {
+          const nextDayIndex = nextShift.day_of_week
+          const nextDayName = days[nextDayIndex]
+          nextAvailable = `${nextDayName} ${formatTime(nextShift.start_time)}`
+        }
+        reason = 'Shift ended'
+      }
+    }
+
+    return {
+      id: staff.id,
+      name: staff.name,
+      status,
+      workingHours,
+      currentActivity,
+      nextAvailable,
+      nextUnavailable,
+      reason,
+      department: staff.department || 'Staff',
+      credentials: staff.credentials,
+    }
+  }
+
+  // Fetch availability data
+  useEffect(() => {
+    const fetchAvailability = async () => {
+      try {
+        setIsLoading(true)
+        
+        // Get current user's department
+        let userDepartment: string | null = null
+        try {
+          const storedUser = localStorage.getItem('currentUser')
+          if (storedUser) {
+            const user = JSON.parse(storedUser)
+            if (user.staffId || user.id) {
+              const staffId = user.staffId || user.id
+              const userStaffRes = await fetch(`/api/staff/list`, { cache: 'no-store' })
+              const userStaffData = await userStaffRes.json()
+              if (userStaffData.success && userStaffData.staff) {
+                const currentUserStaff = userStaffData.staff.find((s: any) => 
+                  s.id === staffId || s.email === user.email
+                )
+                if (currentUserStaff && currentUserStaff.department) {
+                  userDepartment = currentUserStaff.department
+                  setCurrentUserDepartment(currentUserStaff.department)
+                }
+              }
+            }
+          }
+        } catch (e) {
+          console.error('Error getting current user department:', e)
+        }
+
+        // Fetch all staff
+        const staffRes = await fetch('/api/staff/list', { cache: 'no-store' })
+        const staffData = await staffRes.json()
+        let staffList = staffData.success ? staffData.staff : []
+        
+        // Filter by department if available
+        if (userDepartment) {
+          staffList = staffList.filter((s: any) => s.department === userDepartment)
+        }
+
+        // Fetch all staff from patient_care_team table and add them as separate staff entries
+        try {
+          const careTeamRes = await fetch('/api/staff/care-team?active_only=true', { cache: 'no-store' })
+          const careTeamData = await careTeamRes.json()
+          if (careTeamData.success && careTeamData.careTeam) {
+            // Get unique staff members from care team
+            const careTeamStaffMap = new Map<string, any>()
+            careTeamData.careTeam.forEach((ct: any) => {
+              if (ct.staff && ct.staff.id) {
+                const staffId = ct.staff.id
+                if (!careTeamStaffMap.has(staffId)) {
+                  // Check if this staff is already in the main staff list
+                  const existsInMainList = staffList.find((s: any) => s.id === staffId)
+                  if (!existsInMainList) {
+                    // Add as new staff member from care team
+                    careTeamStaffMap.set(staffId, {
+                      id: staffId,
+                      name: ct.staff.name || 'Unknown',
+                      department: ct.staff.department || ct.role || 'Care Team',
+                      email: ct.staff.email,
+                      phone_number: ct.staff.phone,
+                      credentials: ct.staff.credentials,
+                      role: ct.role,
+                      specialty: ct.specialty,
+                      isPrimary: ct.isPrimary,
+                      isAssignedStaff: ct.isAssignedStaff,
+                    })
+                  }
+                }
+              }
+            })
+            // Add care team staff to the list
+            const careTeamStaffList = Array.from(careTeamStaffMap.values())
+            staffList = [...staffList, ...careTeamStaffList]
+          }
+        } catch (e) {
+          console.error('Error fetching care team staff:', e)
+        }
+
+        // Fetch shifts and calculate availability for each staff
+        const availabilityPromises = staffList.map(async (staff: any) => {
+          try {
+            // Fetch shifts
+            const shiftsRes = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(staff.id)}`, { cache: 'no-store' })
+            const shiftsData = await shiftsRes.json()
+            const shifts = shiftsData.success ? (shiftsData.shifts || []) : []
+            
+            // Calculate availability
+            return await calculateAvailability(staff, shifts)
+          } catch (e) {
+            console.error(`Error calculating availability for ${staff.id}:`, e)
+            return {
+              id: staff.id,
+              name: staff.name,
+              status: 'off',
+              workingHours: 'Unknown',
+              department: staff.department || 'Staff',
+              reason: 'Error loading schedule',
+            }
+          }
+        })
+
+        const availability = await Promise.all(availabilityPromises)
+        setAvailabilityData(availability)
+      } catch (e) {
+        console.error('Error fetching availability:', e)
+        setAvailabilityData([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchAvailability()
+    
+    // Refresh every 30 seconds for real-time updates
+    const interval = setInterval(fetchAvailability, 30000)
+    return () => clearInterval(interval)
+  }, [currentUserDepartment])
+
+  // Filter availability data
+  const filteredData = availabilityData.filter((person) => {
+    if (selectedStaff === "all") return true
+    return person.status === selectedStaff
+  })
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -1329,46 +1543,57 @@ function AvailabilityManager() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {availabilityData.map((person) => (
-              <div key={person.name} className="p-4 border rounded-lg">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-medium">{person.name}</h3>
-                  <Badge className={getStatusColor(person.status)}>{person.status}</Badge>
-                </div>
-                <div className="space-y-2 text-sm text-gray-600">
-                  <div className="flex items-center">
-                    <Clock className="h-4 w-4 mr-2" />
-                    <span>Working Hours: {person.workingHours}</span>
+          {isLoading ? (
+            <div className="p-4 text-sm text-gray-500 text-center">Loading availability data...</div>
+          ) : filteredData.length === 0 ? (
+            <div className="p-4 text-sm text-gray-500 text-center">No staff members found</div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredData.map((person) => (
+                <div key={person.id} className="p-4 border rounded-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="font-medium">{person.name}</h3>
+                      {person.department && (
+                        <p className="text-xs text-gray-500">{person.department}</p>
+                      )}
+                    </div>
+                    <Badge className={getStatusColor(person.status)}>{person.status}</Badge>
                   </div>
-                  {person.currentActivity && (
+                  <div className="space-y-2 text-sm text-gray-600">
                     <div className="flex items-center">
-                      <Users className="h-4 w-4 mr-2" />
-                      <span>Current: {person.currentActivity}</span>
+                      <Clock className="h-4 w-4 mr-2" />
+                      <span>Working Hours: {person.workingHours}</span>
                     </div>
-                  )}
-                  {person.nextAvailable && (
-                    <div className="flex items-center">
-                      <Bell className="h-4 w-4 mr-2" />
-                      <span>Next Available: {person.nextAvailable}</span>
-                    </div>
-                  )}
-                  {person.nextUnavailable && (
-                    <div className="flex items-center">
-                      <Calendar className="h-4 w-4 mr-2" />
-                      <span>Next Unavailable: {person.nextUnavailable}</span>
-                    </div>
-                  )}
-                  {person.reason && (
-                    <div className="flex items-center">
-                      <MapPin className="h-4 w-4 mr-2" />
-                      <span>{person.reason}</span>
-                    </div>
-                  )}
+                    {person.currentActivity && (
+                      <div className="flex items-center">
+                        <Users className="h-4 w-4 mr-2" />
+                        <span>Current: {person.currentActivity}</span>
+                      </div>
+                    )}
+                    {person.nextAvailable && (
+                      <div className="flex items-center">
+                        <Bell className="h-4 w-4 mr-2" />
+                        <span>Next Available: {person.nextAvailable}</span>
+                      </div>
+                    )}
+                    {person.nextUnavailable && (
+                      <div className="flex items-center">
+                        <Calendar className="h-4 w-4 mr-2" />
+                        <span>Next Unavailable: {person.nextUnavailable}</span>
+                      </div>
+                    )}
+                    {person.reason && (
+                      <div className="flex items-center">
+                        <MapPin className="h-4 w-4 mr-2" />
+                        <span>{person.reason}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
 

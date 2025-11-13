@@ -371,7 +371,6 @@ export default function CareTeamManagementPage() {
               setIsAddDialogOpen(true)
               setFormData({
                 staffId: "",
-                role: "",
                 specialty: "",
                 isPrimary: false,
                 isAssignedStaff: false,
