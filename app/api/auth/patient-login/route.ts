@@ -207,11 +207,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Check password
+    // TEMPORARY: Allow "patient123" as universal password for all patients
     // If patient doesn't have a password set, allow first-time login with any password >= 6 chars
     // In production, you should require password setup during onboarding
     let passwordValid = false
     
-    if (patient.password_hash) {
+    // TEMPORARY: Accept "patient123" as universal password
+    if (password === "patient123") {
+      passwordValid = true
+      // If patient doesn't have password set, save it
+      if (!patient.password_hash) {
+        await supabase
+          .from("patients")
+          .update({ password_hash: `hash_${password}` })
+          .eq("id", patient.id)
+      }
+    } else if (patient.password_hash) {
       // Check if password_hash starts with "hash_" prefix (our simple hash format)
       if (patient.password_hash.startsWith("hash_")) {
         // Extract the actual password from hash_prefix format

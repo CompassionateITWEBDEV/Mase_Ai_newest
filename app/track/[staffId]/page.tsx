@@ -46,7 +46,34 @@ export default function StaffTrackingPage() {
   const [tripMetrics, setTripMetrics] = useState<{ distance: number; avgSpeed: number; maxSpeed: number; duration: number } | null>(null)
   const [scheduledAppointments, setScheduledAppointments] = useState<any[]>([])
   const [loadingAppointments, setLoadingAppointments] = useState(false)
+  const [selectedAppointment, setSelectedAppointment] = useState<any | null>(null)
+  const [patientLocations, setPatientLocations] = useState<Array<{ id: string; name: string; address: string; lat: number; lng: number; visitType?: string; scheduledTime?: string }>>([])
+  const [visitDuration, setVisitDuration] = useState<number>(0) // Current visit duration in minutes
   const { toast } = useToast()
+  
+  // Update visit duration in real-time
+  useEffect(() => {
+    if (!currentVisit || !currentVisit.startTime) {
+      setVisitDuration(0)
+      return
+    }
+    
+    // Calculate initial duration
+    const calculateDuration = () => {
+      const startTime = new Date(currentVisit.startTime)
+      const now = new Date()
+      const minutes = Math.max(0, Math.round((now.getTime() - startTime.getTime()) / 60000))
+      setVisitDuration(minutes)
+    }
+    
+    // Calculate immediately
+    calculateDuration()
+    
+    // Update every 10 seconds for real-time display (more frequent for better UX)
+    const interval = setInterval(calculateDuration, 10000) // Update every 10 seconds
+    
+    return () => clearInterval(interval)
+  }, [currentVisit])
 
   // Fetch staff cost per mile
   useEffect(() => {
@@ -106,7 +133,36 @@ export default function StaffTrackingPage() {
     checkActiveTrip()
   }, [staffId])
 
-  // Fetch scheduled appointments
+  // Geocode patient address
+  const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
+    if (!address || address === "Home Visit") return null
+    
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1&addressdetails=1`,
+        {
+          headers: {
+            'User-Agent': 'MASE-AI-Intelligence/1.0'
+          }
+        }
+      )
+      
+      if (!response.ok) return null
+      
+      const data = await response.json()
+      if (Array.isArray(data) && data.length > 0 && data[0].lat && data[0].lon) {
+        return {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon)
+        }
+      }
+    } catch (e) {
+      console.error('Error geocoding address:', e)
+    }
+    return null
+  }
+
+  // Fetch scheduled appointments and geocode addresses
   useEffect(() => {
     const fetchScheduledAppointments = async () => {
       if (!staffId) return
@@ -116,7 +172,118 @@ export default function StaffTrackingPage() {
         const res = await fetch(`/api/visits/scheduled?staff_id=${staffId}`)
         const data = await res.json()
         if (data.success) {
-          setScheduledAppointments(data.appointments || [])
+          const appointments = data.appointments || []
+          setScheduledAppointments(appointments)
+          
+          // Geocode patient addresses for map display
+          const locations: Array<{ id: string; name: string; address: string; lat: number; lng: number; visitType?: string; scheduledTime?: string }> = []
+          
+          for (const appointment of appointments) {
+            console.log('🔍 Processing appointment:', appointment.patient_name, {
+              hasVisitLocation: !!appointment.visit_location,
+              visitLocation: appointment.visit_location,
+              patientAddress: appointment.patient_address
+            })
+            
+            // Priority 1: Use live patient location if available (from location sharing)
+            if (appointment.visit_location && appointment.visit_location.lat && appointment.visit_location.lng) {
+              // Check if it's a live location (from patient device)
+              const locationTimestamp = appointment.visit_location.timestamp 
+                ? new Date(appointment.visit_location.timestamp).getTime() 
+                : null
+              const isRecent = locationTimestamp && (Date.now() - locationTimestamp < 600000) // Within last 10 minutes
+              const isLiveLocation = appointment.visit_location.source === 'patient_live_location' || 
+                                    (isRecent && !appointment.visit_location.address) // Recent and no address = live
+              
+              if (isLiveLocation) {
+                // Use live location from patient device
+                console.log('✅ Using LIVE patient location for:', appointment.patient_name, {
+                  lat: appointment.visit_location.lat,
+                  lng: appointment.visit_location.lng,
+                  accuracy: appointment.visit_location.accuracy,
+                  timestamp: appointment.visit_location.timestamp
+                })
+                locations.push({
+                  id: appointment.id,
+                  name: appointment.patient_name,
+                  address: appointment.patient_address,
+                  lat: appointment.visit_location.lat,
+                  lng: appointment.visit_location.lng,
+                  visitType: appointment.visit_type,
+                  scheduledTime: appointment.scheduled_time,
+                  isLiveLocation: true
+                })
+                continue // Skip geocoding if we have live location
+              } else {
+                // Use geocoded address location (fallback)
+                console.log('✅ Using geocoded address location for:', appointment.patient_name)
+                locations.push({
+                  id: appointment.id,
+                  name: appointment.patient_name,
+                  address: appointment.patient_address,
+                  lat: appointment.visit_location.lat,
+                  lng: appointment.visit_location.lng,
+                  visitType: appointment.visit_type,
+                  scheduledTime: appointment.scheduled_time,
+                  isLiveLocation: false
+                })
+                continue
+              }
+            }
+            
+            // Priority 2: Geocode address if no live location available
+            if (appointment.patient_address && appointment.patient_address !== "Home Visit") {
+              console.log('🔄 Geocoding address for:', appointment.patient_name, appointment.patient_address)
+              // Geocode the address
+              const coords = await geocodeAddress(appointment.patient_address)
+              if (coords) {
+                console.log('✅ Geocoded successfully:', coords)
+                locations.push({
+                  id: appointment.id,
+                  name: appointment.patient_name,
+                  address: appointment.patient_address,
+                  lat: coords.lat,
+                  lng: coords.lng,
+                  visitType: appointment.visit_type,
+                  scheduledTime: appointment.scheduled_time,
+                  isLiveLocation: false
+                })
+              } else {
+                console.warn('⚠️ Failed to geocode address for:', appointment.patient_name)
+              }
+              // Add delay to respect Nominatim rate limit (1 req/sec)
+              await new Promise(resolve => setTimeout(resolve, 1100))
+            } else {
+              console.warn('⚠️ No address to geocode for:', appointment.patient_name, '- Address:', appointment.patient_address)
+            }
+          }
+          
+          console.log('📊 Final patient locations:', locations.map(l => ({
+            name: l.name,
+            lat: l.lat,
+            lng: l.lng,
+            hasCoords: !!(l.lat && l.lng)
+          })))
+          
+          // Merge with existing locations to prevent losing patient markers
+          setPatientLocations(prev => {
+            const existingMap = new Map(prev.map(p => [p.id, p]))
+            
+            // Update or add new locations
+            locations.forEach(loc => {
+              if (loc.lat && loc.lng) {
+                existingMap.set(loc.id, loc)
+              }
+            })
+            
+            const merged = Array.from(existingMap.values())
+            console.log('🔄 Merged patient locations:', {
+              previous: prev.length,
+              new: locations.length,
+              merged: merged.length
+            })
+            return merged
+          })
         }
       } catch (e) {
         console.error('Error fetching scheduled appointments:', e)
@@ -126,10 +293,141 @@ export default function StaffTrackingPage() {
     }
 
     fetchScheduledAppointments()
-    // Refresh every 30 seconds
-    const interval = setInterval(fetchScheduledAppointments, 30000)
+    // Refresh every 10 seconds to get live patient location updates more frequently
+    const interval = setInterval(fetchScheduledAppointments, 10000)
     return () => clearInterval(interval)
   }, [staffId])
+  
+  // Effect to update patient location when appointment is selected - FORCE UPDATE
+  useEffect(() => {
+    if (!selectedAppointment || !staffId) {
+      console.log('⚠️ Cannot refresh patient location:', { hasAppointment: !!selectedAppointment, hasStaffId: !!staffId })
+      return
+    }
+    
+    console.log('🔄 Refreshing patient location for selected appointment:', selectedAppointment.patient_name, selectedAppointment.id)
+    
+    const refreshPatientLocation = async () => {
+      try {
+        // First, try to get patient's live location from the location API
+        console.log('📍 Fetching patient live location from API...')
+        const locationRes = await fetch(`/api/patients/location?patient_name=${encodeURIComponent(selectedAppointment.patient_name)}`)
+        const locationData = await locationRes.json()
+        
+        if (locationData.success && locationData.location && locationData.location.lat && locationData.location.lng) {
+          console.log('✅ Found live patient location:', locationData.location)
+          
+          setPatientLocations(prev => {
+            const updated = [...prev]
+            const existingIndex = updated.findIndex(p => p.id === selectedAppointment.id)
+            
+            const locationInfo = {
+              id: selectedAppointment.id,
+              name: selectedAppointment.patient_name,
+              address: selectedAppointment.patient_address,
+              lat: locationData.location.lat,
+              lng: locationData.location.lng,
+              visitType: selectedAppointment.visit_type,
+              scheduledTime: selectedAppointment.scheduled_time,
+              isLiveLocation: locationData.location.source === 'patient_live_location' || 
+                            (locationData.location.timestamp && 
+                             new Date(locationData.location.timestamp).getTime() > Date.now() - 600000)
+            }
+            
+            if (existingIndex >= 0) {
+              updated[existingIndex] = locationInfo
+            } else {
+              updated.push(locationInfo)
+            }
+            
+            console.log('✅✅✅ Patient location added to map:', locationInfo)
+            return updated
+          })
+          return // Success, exit early
+        }
+        
+        // Fallback: Try to get from scheduled appointments
+        console.log('📍 Live location not found, trying scheduled appointments...')
+        const res = await fetch(`/api/visits/scheduled?staff_id=${staffId}`)
+        const data = await res.json()
+        console.log('📥 Fetched appointments:', data.success, data.appointments?.length)
+        
+        if (data.success && data.appointments) {
+          const updatedAppointment = data.appointments.find((a: any) => a.id === selectedAppointment.id)
+          console.log('🔍 Found appointment:', updatedAppointment ? 'YES' : 'NO', {
+            appointmentId: selectedAppointment.id,
+            hasVisitLocation: !!updatedAppointment?.visit_location,
+            visitLocation: updatedAppointment?.visit_location
+          })
+          
+          if (updatedAppointment) {
+            // Try to get location from visit_location first
+            let patientLat = null
+            let patientLng = null
+            let isLive = false
+            
+            if (updatedAppointment.visit_location && updatedAppointment.visit_location.lat && updatedAppointment.visit_location.lng) {
+              patientLat = updatedAppointment.visit_location.lat
+              patientLng = updatedAppointment.visit_location.lng
+              isLive = updatedAppointment.visit_location.source === 'patient_live_location' || 
+                      (updatedAppointment.visit_location.timestamp && 
+                       new Date(updatedAppointment.visit_location.timestamp).getTime() > Date.now() - 600000)
+              console.log('✅ Using visit_location:', { lat: patientLat, lng: patientLng, isLive })
+            } else if (updatedAppointment.patient_address && updatedAppointment.patient_address !== "Home Visit") {
+              // If no visit_location, try to geocode the address with better error handling
+              console.log('🔄 Geocoding address for selected patient:', updatedAppointment.patient_address)
+              try {
+                const coords = await geocodeAddress(updatedAppointment.patient_address)
+                if (coords) {
+                  patientLat = coords.lat
+                  patientLng = coords.lng
+                  console.log('✅ Geocoded address successfully:', coords)
+                } else {
+                  console.warn('⚠️ Geocoding returned null for:', updatedAppointment.patient_address)
+                }
+              } catch (geoError) {
+                console.error('❌ Geocoding error:', geoError)
+              }
+            }
+            
+            if (patientLat && patientLng) {
+              setPatientLocations(prev => {
+                const updated = [...prev]
+                const existingIndex = updated.findIndex(p => p.id === selectedAppointment.id)
+                
+                const locationData = {
+                  id: selectedAppointment.id,
+                  name: selectedAppointment.patient_name,
+                  address: selectedAppointment.patient_address,
+                  lat: patientLat,
+                  lng: patientLng,
+                  visitType: selectedAppointment.visit_type,
+                  scheduledTime: selectedAppointment.scheduled_time,
+                  isLiveLocation: isLive
+                }
+                
+                if (existingIndex >= 0) {
+                  updated[existingIndex] = locationData
+                  console.log('✅ Updated existing patient location (will persist):', locationData)
+                } else {
+                  updated.push(locationData)
+                  console.log('✅ Added new patient location (will persist):', locationData)
+                }
+                
+                return updated // Return updated array - this ensures it persists
+              })
+            } else {
+              console.warn('⚠️ No coordinates found for patient:', selectedAppointment.patient_name)
+            }
+          }
+        }
+      } catch (e) {
+        console.error('❌ Error refreshing patient location:', e)
+      }
+    }
+    
+    refreshPatientLocation()
+  }, [selectedAppointment?.id, staffId])
 
   // Get current location from device GPS (not IP geolocation) - Enhanced for accuracy
   const getCurrentLocation = (options?: PositionOptions) => {
@@ -829,12 +1127,78 @@ export default function StaffTrackingPage() {
     visitType: 'Wound Care'
   })
 
-  // Start scheduled appointment
-  const startScheduledAppointment = async (appointment: any) => {
+  // Select appointment to start trip - immediately show on map with route guideline
+  const selectAppointment = (appointment: any) => {
+    console.log('🎯 SELECTING APPOINTMENT:', {
+      patientName: appointment.patient_name,
+      appointmentId: appointment.id,
+      patientAddress: appointment.patient_address,
+      hasVisitLocation: !!appointment.visit_location
+    })
+    
+    setSelectedAppointment(appointment)
+    
+    // Check if patient location already exists
+    const existingLocation = patientLocations.find(p => p.id === appointment.id)
+    console.log('📍 Existing patient location:', existingLocation ? {
+      name: existingLocation.name,
+      lat: existingLocation.lat,
+      lng: existingLocation.lng
+    } : 'NOT FOUND')
+    
+    // Show toast
+    if (existingLocation && existingLocation.lat && existingLocation.lng) {
+      toast({
+        title: "Appointment Selected",
+        description: `Selected ${appointment.patient_name}. Route guideline will appear on map.`,
+      })
+    } else {
+      toast({
+        title: "Appointment Selected",
+        description: `Selected ${appointment.patient_name}. Loading patient location...`,
+      })
+    }
+  }
+
+  // Start trip to selected appointment
+  const startTripToAppointment = async () => {
+    if (!selectedAppointment) {
+      toast({
+        title: "No Appointment Selected",
+        description: "Please select an appointment first",
+        variant: "destructive"
+      })
+      return
+    }
+
     if (!location) {
       toast({
         title: "Location Required",
-        description: "Please enable GPS location to start the appointment",
+        description: "Please enable GPS location to start the trip",
+        variant: "destructive"
+      })
+      return
+    }
+
+    // Start the trip (same as regular startTrip but with appointment context)
+    await startTrip()
+  }
+
+  // Start visit after ending trip (for selected appointment)
+  const startVisitForSelectedAppointment = async () => {
+    if (!selectedAppointment) {
+      toast({
+        title: "No Appointment Selected",
+        description: "Please select an appointment first",
+        variant: "destructive"
+      })
+      return
+    }
+
+    if (!location) {
+      toast({
+        title: "Location Required",
+        description: "Please enable GPS location to start the visit",
         variant: "destructive"
       })
       return
@@ -848,18 +1212,20 @@ export default function StaffTrackingPage() {
         body: JSON.stringify({
           staffId,
           tripId: currentTrip?.id || null,
-          patientName: appointment.patient_name,
-          patientAddress: appointment.patient_address,
-          visitType: appointment.visit_type,
-          scheduledVisitId: appointment.id, // Pass the scheduled visit ID
+          patientName: selectedAppointment.patient_name,
+          patientAddress: selectedAppointment.patient_address,
+          visitType: selectedAppointment.visit_type,
+          scheduledVisitId: selectedAppointment.id,
           latitude: location.lat,
           longitude: location.lng,
+          driveTimeFromLastTrip: lastTripDuration
         })
       })
 
       const data = await res.json()
       if (data.success) {
         setCurrentVisit(data.visit)
+        setSelectedAppointment(null) // Clear selection after starting visit
         // Refresh scheduled appointments list
         const refreshRes = await fetch(`/api/visits/scheduled?staff_id=${staffId}`)
         const refreshData = await refreshRes.json()
@@ -867,20 +1233,20 @@ export default function StaffTrackingPage() {
           setScheduledAppointments(refreshData.appointments || [])
         }
         toast({
-          title: "Appointment Started",
-          description: `Visit to ${appointment.patient_name} has started`,
+          title: "Visit Started",
+          description: `Visit to ${selectedAppointment.patient_name} has started`,
         })
       } else {
         toast({
-          title: "Failed to Start Appointment",
-          description: data.error || 'Failed to start appointment',
+          title: "Failed to Start Visit",
+          description: data.error || 'Failed to start visit',
           variant: "destructive"
         })
       }
     } catch (e: any) {
       toast({
         title: "Error",
-        description: 'Failed to start appointment: ' + e.message,
+        description: 'Failed to start visit: ' + e.message,
         variant: "destructive"
       })
     } finally {
@@ -965,6 +1331,13 @@ export default function StaffTrackingPage() {
       if (data.success) {
         setCurrentVisit(null)
         setVisitNotes('')
+        setSelectedAppointment(null) // Clear selection after visit ends
+        // Refresh scheduled appointments list
+        const refreshRes = await fetch(`/api/visits/scheduled?staff_id=${staffId}`)
+        const refreshData = await refreshRes.json()
+        if (refreshData.success) {
+          setScheduledAppointments(refreshData.appointments || [])
+        }
         toast({
           title: "Visit Completed",
           description: `Visit duration: ${data.visit.duration} minutes`,
@@ -1013,6 +1386,13 @@ export default function StaffTrackingPage() {
         setCurrentVisit(null)
         setCancelReason('')
         setShowCancelDialog(false)
+        setSelectedAppointment(null) // Clear selection after visit cancelled
+        // Refresh scheduled appointments list
+        const refreshRes = await fetch(`/api/visits/scheduled?staff_id=${staffId}`)
+        const refreshData = await refreshRes.json()
+        if (refreshData.success) {
+          setScheduledAppointments(refreshData.appointments || [])
+        }
         toast({
           title: "Visit Cancelled",
           description: "The visit has been cancelled successfully",
@@ -1128,6 +1508,8 @@ export default function StaffTrackingPage() {
                   }}
                   routePoints={routePoints}
                   isTracking={isTracking}
+                  patientLocations={patientLocations}
+                  selectedPatientId={selectedAppointment?.id || null}
                 />
                 {/* Enhanced Map Overlay Info */}
                 <div className="absolute top-4 left-4 bg-white/98 backdrop-blur-md rounded-xl shadow-2xl p-4 border-2 border-gray-200/50 z-[1000] min-w-[200px]">
@@ -1341,23 +1723,125 @@ export default function StaffTrackingPage() {
 
               {/* Enhanced Trip Status */}
               {!currentTrip ? (
-                <Button 
-                  className="w-full h-14 text-base font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
-                  onClick={startTrip} 
-                  disabled={!location || isLoading}
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                      Starting Trip...
-                    </>
+                <div className="space-y-4">
+                  {selectedAppointment ? (
+                    <div className="p-4 bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 rounded-xl border-2 border-blue-300 shadow-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold text-gray-600 mb-1">Selected Appointment</div>
+                          <div className="text-lg font-bold text-gray-900">{selectedAppointment.patient_name}</div>
+                          <div className="text-sm text-gray-600 flex items-center gap-1 mt-1">
+                            <MapPin className="h-3.5 w-3.5" />
+                            {selectedAppointment.patient_address}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSelectedAppointment(null)}
+                          className="text-gray-500 hover:text-gray-700"
+                        >
+                          <XCircle className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      
+                      {/* Route Info Card - Like Grab/Food Delivery */}
+                      {location && patientLocations.find(p => p.id === selectedAppointment.id) && (() => {
+                        const patientLoc = patientLocations.find(p => p.id === selectedAppointment.id)
+                        if (patientLoc && patientLoc.lat && patientLoc.lng) {
+                          // Calculate distance
+                          const R = 3959 // Earth radius in miles
+                          const dLat = (patientLoc.lat - location.lat) * Math.PI / 180
+                          const dLng = (patientLoc.lng - location.lng) * Math.PI / 180
+                          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                                    Math.cos(location.lat * Math.PI / 180) * Math.cos(patientLoc.lat * Math.PI / 180) *
+                                    Math.sin(dLng/2) * Math.sin(dLng/2)
+                          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+                          const distance = R * c
+                          const etaMinutes = Math.round((distance / 30) * 60) // Assume 30 mph average
+                          
+                          return (
+                            <div className="bg-white rounded-lg p-3 border-2 border-blue-400 shadow-md mt-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="text-center flex-1">
+                                  <div className="text-xs text-gray-600 mb-1">Distance</div>
+                                  <div className="text-xl font-bold text-blue-700">{distance.toFixed(1)} mi</div>
+                                </div>
+                                <div className="w-px h-12 bg-gray-300 mx-2"></div>
+                                <div className="text-center flex-1">
+                                  <div className="text-xs text-gray-600 mb-1">Est. Time</div>
+                                  <div className="text-xl font-bold text-indigo-700">~{etaMinutes} min</div>
+                                </div>
+                                <div className="w-px h-12 bg-gray-300 mx-2"></div>
+                                <Button
+                                  size="sm"
+                                  onClick={() => {
+                                    // Open in Google Maps for navigation
+                                    const url = `https://www.google.com/maps/dir/?api=1&destination=${patientLoc.lat},${patientLoc.lng}`
+                                    window.open(url, '_blank')
+                                  }}
+                                  className="bg-blue-600 hover:bg-blue-700 text-white px-4"
+                                >
+                                  <Navigation className="h-4 w-4 mr-1" />
+                                  Navigate
+                                </Button>
+                              </div>
+                              {patientLoc.isLiveLocation && (
+                                <div className="mt-2 flex items-center justify-center gap-1 text-xs text-green-600 font-semibold">
+                                  <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse"></div>
+                                  Live Location Active
+                                </div>
+                              )}
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
+                    </div>
+                  ) : null}
+                  
+                  {/* Show Start Visit button if trip ended (tripStats exists) and has selected appointment */}
+                  {tripStats && selectedAppointment && !currentVisit ? (
+                    <Button 
+                      className="w-full h-14 text-base font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
+                      onClick={startVisitForSelectedAppointment} 
+                      disabled={!location || isLoading}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          Starting Visit...
+                        </>
+                      ) : (
+                        <>
+                          <Users className="h-5 w-5 mr-2" />
+                          Start Visit - {selectedAppointment.patient_name}
+                        </>
+                      )}
+                    </Button>
                   ) : (
-                    <>
-                      <Play className="h-5 w-5 mr-2" />
-                      Start New Trip
-                    </>
+                    /* Show Start Trip button only if trip hasn't ended yet */
+                    !tripStats && (
+                      <Button 
+                        className="w-full h-14 text-base font-bold bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-700 hover:via-purple-700 hover:to-pink-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
+                        onClick={selectedAppointment ? startTripToAppointment : startTrip} 
+                        disabled={!location || isLoading}
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                            Starting Trip...
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-5 w-5 mr-2" />
+                            {selectedAppointment ? `Start Trip to ${selectedAppointment.patient_name}` : 'Start New Trip'}
+                          </>
+                        )}
+                      </Button>
+                    )
                   )}
-                </Button>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {/* Enhanced Active Trip Header */}
@@ -1465,24 +1949,47 @@ export default function StaffTrackingPage() {
                     </div>
                   )}
                   
-                  <Button 
-                    variant="destructive" 
-                    className="w-full h-14 text-base font-bold bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
-                    onClick={endTrip}
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                        Ending Trip...
-                      </>
-                    ) : (
-                      <>
-                        <Square className="h-5 w-5 mr-2" />
-                        End Trip
-                      </>
+                  <div className="space-y-3">
+                    <Button 
+                      variant="destructive" 
+                      className="w-full h-14 text-base font-bold bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
+                      onClick={endTrip}
+                      disabled={isLoading}
+                    >
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                          Ending Trip...
+                        </>
+                      ) : (
+                        <>
+                          <Square className="h-5 w-5 mr-2" />
+                          End Trip
+                        </>
+                      )}
+                    </Button>
+                    
+                    {/* Show Start Visit button when trip is active and has selected appointment */}
+                    {selectedAppointment && !currentVisit && (
+                      <Button 
+                        className="w-full h-14 text-base font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
+                        onClick={startVisitForSelectedAppointment}
+                        disabled={isLoading || !location}
+                      >
+                        {isLoading ? (
+                          <>
+                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                            Starting Visit...
+                          </>
+                        ) : (
+                          <>
+                            <Users className="h-5 w-5 mr-2" />
+                            Start Visit - {selectedAppointment.patient_name}
+                          </>
+                        )}
+                      </Button>
                     )}
-                  </Button>
+                  </div>
                   
                   {currentVisit && (
                     <Alert className="border-blue-200 bg-blue-50">
@@ -1554,19 +2061,23 @@ export default function StaffTrackingPage() {
                         </div>
                         <Button
                           size="sm"
-                          onClick={() => startScheduledAppointment(appointment)}
-                          disabled={isLoading || !!currentVisit}
-                          className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-md"
+                          onClick={() => selectAppointment(appointment)}
+                          disabled={isLoading || !!currentVisit || !!currentTrip}
+                          className={`shadow-md ${
+                            selectedAppointment?.id === appointment.id
+                              ? 'bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700 text-white'
+                              : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white'
+                          }`}
                         >
-                          {isLoading ? (
+                          {selectedAppointment?.id === appointment.id ? (
                             <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Starting...
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Selected
                             </>
                           ) : (
                             <>
-                              <Play className="h-4 w-4 mr-2" />
-                              Start Visit
+                              <Navigation className="h-4 w-4 mr-2" />
+                              Select
                             </>
                           )}
                         </Button>
@@ -1578,91 +2089,13 @@ export default function StaffTrackingPage() {
             </Card>
           )}
 
-          {/* Enhanced Visit Management Section */}
-          <Card className="shadow-2xl border-0 hover:shadow-3xl transition-all duration-300">
-            <CardHeader className="bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 text-white p-6 relative overflow-hidden">
-              <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent"></div>
-              <div className="relative z-10">
-                <CardTitle className="text-xl font-bold text-white flex items-center gap-3 mb-2 drop-shadow-lg">
-                  <div className="p-2.5 bg-white/20 rounded-xl backdrop-blur-sm shadow-lg">
-                    <Users className="h-5 w-5" />
-                  </div>
-                  Patient Visit Management
-                </CardTitle>
-                <CardDescription className="text-emerald-100 font-medium">Track patient visits independently from trip tracking</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="p-6 space-y-5">
-              {!currentVisit ? (
-                <div className="space-y-5">
-                  <div>
-                    <Label className="text-sm font-semibold text-gray-700 mb-2 block">Patient Name *</Label>
-                    <Input
-                      value={visitForm.patientName}
-                      onChange={(e) => setVisitForm({ ...visitForm, patientName: e.target.value })}
-                      placeholder="Enter patient name"
-                      className="h-11"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-sm font-semibold text-gray-700 mb-2 block">Patient Address *</Label>
-                    <Input
-                      value={visitForm.patientAddress}
-                      onChange={(e) => setVisitForm({ ...visitForm, patientAddress: e.target.value })}
-                      placeholder="Enter real address (e.g., 123 Main St, City, State ZIP)"
-                      className="h-11"
-                    />
-                    <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <p className="text-xs text-blue-800 flex items-start gap-2">
-                        <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                        <span>Real address required for accurate route optimization. AI will validate using free OpenStreetMap (no API key needed).</span>
-                      </p>
-                    </div>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-semibold text-gray-700 mb-2 block">Visit Type</Label>
-                    <Select value={visitForm.visitType} onValueChange={(v) => setVisitForm({ ...visitForm, visitType: v })}>
-                      <SelectTrigger className="h-11">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Wound Care">Wound Care</SelectItem>
-                        <SelectItem value="Medication Management">Medication Management</SelectItem>
-                        <SelectItem value="Physical Assessment">Physical Assessment</SelectItem>
-                        <SelectItem value="Physical Therapy">Physical Therapy</SelectItem>
-                        <SelectItem value="Occupational Therapy">Occupational Therapy</SelectItem>
-                        <SelectItem value="ADL Training">ADL Training</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Button 
-                    className="w-full h-14 text-base font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
-                    onClick={startVisit} 
-                    disabled={isLoading}
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                        Starting Visit...
-                      </>
-                    ) : (
-                      <>
-                        <Play className="h-5 w-5 mr-2" />
-                        Start New Visit
-                      </>
-                    )}
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-5">
+          {/* Active Visit Status Section */}
+          {currentVisit && (
+                <div className="space-y-5" key={currentVisit.id}>
                   {/* Enhanced Active Visit Header */}
                   <div className="p-5 bg-gradient-to-br from-emerald-50 via-teal-50 to-cyan-50 rounded-xl border-2 border-emerald-300 shadow-lg hover:shadow-xl transition-shadow">
                     <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
                       <Badge className="bg-emerald-600 text-white px-4 py-1.5 text-sm font-semibold shadow-md">Visit In Progress</Badge>
-                      <div className="text-sm text-gray-700 font-medium flex items-center">
-                        <Clock className="h-4 w-4 inline mr-1.5" />
-                        Started: {new Date(currentVisit.startTime).toLocaleTimeString()}
-                      </div>
                     </div>
                     <div className="space-y-3">
                       <div className="p-3 bg-white rounded-lg border border-emerald-200 shadow-sm">
@@ -1673,6 +2106,48 @@ export default function StaffTrackingPage() {
                         <div className="text-xs text-gray-500 font-medium mb-1 uppercase tracking-wide">Address</div>
                         <div className="text-sm text-gray-800 font-medium">{currentVisit.patientAddress}</div>
                       </div>
+                      
+                      {/* Arrival Time - when staff arrived at patient location */}
+                      <div className="p-3 bg-blue-50 rounded-lg border-2 border-blue-200 shadow-sm">
+                        <div className="text-xs text-blue-600 font-medium mb-1 uppercase tracking-wide flex items-center gap-1">
+                          <MapPin className="h-3 w-3" />
+                          Arrival Time
+                        </div>
+                        <div className="text-base font-bold text-blue-900">
+                          {new Date(currentVisit.startTime).toLocaleString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                        <div className="text-xs text-blue-600 mt-1">
+                          Staff arrived at patient location
+                        </div>
+                      </div>
+                      
+                      {/* Visit Duration - current duration in minutes */}
+                      <div className="p-3 bg-emerald-50 rounded-lg border-2 border-emerald-200 shadow-sm">
+                        <div className="text-xs text-emerald-600 font-medium mb-1 uppercase tracking-wide flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          Visit Duration
+                        </div>
+                        <div className="text-2xl font-bold text-emerald-900">
+                          {visitDuration} 
+                          <span className="text-sm font-normal text-emerald-700 ml-1">minutes</span>
+                        </div>
+                        <div className="text-xs text-emerald-600 mt-1">
+                          Time spent visiting patient
+                        </div>
+                      </div>
+                      
+                      {/* Drive Time if available */}
+                      {currentVisit.driveTime && (
+                        <div className="p-3 bg-purple-50 rounded-lg border border-purple-200 shadow-sm">
+                          <div className="text-xs text-purple-600 font-medium mb-1 uppercase tracking-wide">Drive Time</div>
+                          <div className="text-base font-bold text-purple-900">{currentVisit.driveTime} minutes</div>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div>
@@ -1783,9 +2258,7 @@ export default function StaffTrackingPage() {
                     </Card>
                   )}
                 </div>
-              )}
-            </CardContent>
-          </Card>
+          )}
         </div>
       </div>
     </div>

@@ -62,6 +62,8 @@ export async function POST(request: NextRequest) {
       visitType,
       location,
       notes,
+      date, // Date field from form (for validation)
+      time, // Time field from form (for validation)
     } = body
 
     // Validate required fields
@@ -154,17 +156,42 @@ export async function POST(request: NextRequest) {
     }
 
     // Create appointment in staff_visits table
+    // Save ALL fields from the form to database
+    // Priority for address: location field from form > patientAddress > "Home Visit"
+    const finalAddress = location && location.trim() && location !== "Home Visit" 
+      ? location.trim() 
+      : (patientAddress && patientAddress.trim() ? patientAddress.trim() : "Home Visit")
+    
     const visitData: any = {
       staff_id: finalStaffId,
       patient_name: patientName,
-      patient_address: patientAddress || location || "Home Visit",
-      visit_type: visitType,
-      scheduled_time: scheduledTime,
+      patient_address: finalAddress, // Location field from form - SAVED TO DATABASE
+      visit_type: visitType, // Visit Type from form - SAVED TO DATABASE
+      scheduled_time: scheduledTime, // Combined date + time from form - SAVED TO DATABASE
       start_time: null, // Will be set when visit actually starts
       status: "scheduled",
-      visit_location: visitLocation, // GPS coordinates for route optimization
-      notes: notes || null,
+      visit_location: visitLocation, // GPS coordinates (geocoded from location field) - SAVED TO DATABASE
+      notes: notes && notes.trim() ? notes.trim() : null, // Notes from form - SAVED TO DATABASE (null if empty)
     }
+    
+    // Log all fields being saved for debugging
+    console.log("✅ Saving appointment with ALL form fields to database:", {
+      staff_id: visitData.staff_id,
+      patient_name: visitData.patient_name,
+      patient_address: visitData.patient_address,
+      visit_type: visitData.visit_type,
+      scheduled_time: visitData.scheduled_time,
+      notes: visitData.notes,
+      visit_location: visitData.visit_location,
+      form_fields: {
+        date: date,
+        time: time,
+        location: location,
+        notes: notes,
+        visitType: visitType,
+        staffId: staffId
+      }
+    })
 
     const { data: newVisit, error: visitError } = await supabase
       .from("staff_visits")

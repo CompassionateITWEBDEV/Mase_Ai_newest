@@ -42,12 +42,15 @@ interface StaffPerformance {
     patientName: string
     address: string
     startTime: string
-    endTime: string
+    endTime: string | null
+    start_time?: string | null // ISO string for real-time calculation
+    end_time?: string | null // ISO string
     duration: number // minutes
     driveTime: number // minutes
     distance: number // miles
     visitType: string
     notes?: string
+    status?: string
   }>
   currentLocation?: {
     lat: number
@@ -62,6 +65,16 @@ export default function StaffPerformancePage() {
   const [timeRange, setTimeRange] = useState("today")
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState("all")
+  const [currentTime, setCurrentTime] = useState(new Date()) // For real-time time display
+  
+  // Update current time every second for real-time display
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(new Date())
+    }, 1000) // Update every second
+    
+    return () => clearInterval(interval)
+  }, [])
   
   // Staff location tracking state
   const [staffLocation, setStaffLocation] = useState<{
@@ -598,7 +611,11 @@ export default function StaffPerformancePage() {
                           </TableCell>
                           <TableCell>
                             <div className="text-sm">
-                              {visit.startTime} {visit.endTime ? `- ${visit.endTime}` : visit.endTime === 'In Progress' ? '- In Progress' : ''}
+                              {visit.startTime} - {
+                                (visit as any).status === 'in_progress' && !visit.endTime
+                                  ? currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+                                  : visit.endTime || 'N/A'
+                              }
                             </div>
                           </TableCell>
                           <TableCell>

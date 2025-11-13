@@ -80,6 +80,9 @@ export default function PatientPortal() {
   const [showScheduleDialog, setShowScheduleDialog] = useState(false)
   const [schedulingAppointment, setSchedulingAppointment] = useState(false)
   const [availableStaff, setAvailableStaff] = useState<any[]>([])
+  const [patientLocation, setPatientLocation] = useState<{lat: number, lng: number, accuracy?: number} | null>(null)
+  const [sharingLocation, setSharingLocation] = useState(false)
+  const [locationWatchId, setLocationWatchId] = useState<number | null>(null)
   const { toast } = useToast()
   const [scheduleForm, setScheduleForm] = useState({
     date: "",
@@ -597,6 +600,162 @@ export default function PatientPortal() {
     fetchAssignedStaff()
   }, [showScheduleDialog, assignedStaffId, currentPatientData.assignedStaff?.id])
 
+  // Share patient's live location
+  const sharePatientLocation = async () => {
+    if (!navigator.geolocation) {
+      toast({
+        title: "Location Not Supported",
+        description: "Your browser does not support location sharing. Please use a device with GPS.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    setSharingLocation(true)
+
+    const getAndShareLocation = async (position: GeolocationPosition) => {
+      const location = {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: position.coords.accuracy
+      }
+      
+      setPatientLocation(location)
+
+      try {
+        const res = await fetch('/api/patients/location', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            patientId: currentPatientData?.id,
+            patientName: currentPatientData?.name,
+            latitude: location.lat,
+            longitude: location.lng,
+            accuracy: location.accuracy
+          })
+        })
+
+        const data = await res.json()
+        if (data.success) {
+          // Only show toast on first share, not on every update
+          if (!locationWatchId) {
+            console.log('✅ Location shared successfully:', {
+              lat: location.lat,
+              lng: location.lng,
+              accuracy: location.accuracy,
+              visitId: data.visitId
+            })
+          }
+        } else {
+          throw new Error(data.error || "Failed to share location")
+        }
+      } catch (e: any) {
+        console.error('❌ Error sharing location:', e)
+        // Only show error toast if it's a critical error, not on every update
+        if (!locationWatchId || e.message?.includes('No scheduled appointment')) {
+          toast({
+            title: "Failed to Share Location",
+            description: e.message || "Please try again",
+            variant: "destructive"
+          })
+        }
+      }
+    }
+
+    // Get initial location
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        await getAndShareLocation(position)
+        
+        // Start continuous location sharing with more frequent updates
+        const watchId = navigator.geolocation.watchPosition(
+          async (pos) => {
+            // Only share if location changed significantly (at least 10 meters) or every 10 seconds
+            const newLocation = {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              accuracy: pos.coords.accuracy
+            }
+            
+            // Always update and share for accuracy
+            await getAndShareLocation(pos)
+          },
+          (err) => {
+            console.error('Location watch error:', err)
+            toast({
+              title: "Location Error",
+              description: "Failed to update location. Please check your location permissions.",
+              variant: "destructive"
+            })
+            setSharingLocation(false)
+            setLocationWatchId(null)
+          },
+          { 
+            enableHighAccuracy: true, // Use GPS for best accuracy
+            timeout: 15000, // Allow more time for GPS to acquire
+            maximumAge: 0 // Always get fresh location, don't use cached
+          }
+        )
+        
+        setLocationWatchId(watchId)
+        setSharingLocation(false)
+        
+        // Show success message
+        toast({
+          title: "Location Sharing Started",
+          description: "Your live location is being shared. Updates every few seconds.",
+        })
+      },
+      (error) => {
+        let errorMessage = "Failed to get location"
+        switch (error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = "Location permission denied. Please enable location access in your browser settings."
+            break
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = "Location unavailable. Please check your device GPS settings."
+            break
+          case error.TIMEOUT:
+            errorMessage = "Location request timed out. Please try again."
+            break
+        }
+        toast({
+          title: "Location Error",
+          description: errorMessage,
+          variant: "destructive"
+        })
+        setSharingLocation(false)
+      },
+      { 
+        enableHighAccuracy: true, // Force GPS, not WiFi/IP
+        timeout: 15000, // Allow more time
+        maximumAge: 0 // Don't use cached location
+      }
+    )
+  }
+
+  // Stop sharing location
+  const stopSharingLocation = () => {
+    if (locationWatchId !== null) {
+      navigator.geolocation.clearWatch(locationWatchId)
+      setLocationWatchId(null)
+    }
+    setPatientLocation(null)
+    toast({
+      title: "Location Sharing Stopped",
+      description: "Your location is no longer being shared.",
+    })
+  }
+
+  // Cleanup location watch on unmount
+  useEffect(() => {
+    return () => {
+      if (locationWatchId !== null) {
+        navigator.geolocation.clearWatch(locationWatchId)
+      }
+    }
+  }, [locationWatchId])
+
   const handleScheduleAppointment = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -648,15 +807,21 @@ export default function PatientPortal() {
         return
       }
 
+      // Prepare request body with ALL form fields
       const requestBody = {
         patientId: currentPatientData.id,
         patientName: currentPatientData.name,
-        patientAddress: currentPatientData.address || currentPatientData.location || scheduleForm.location || "Home Visit",
+        patientAddress: scheduleForm.location && scheduleForm.location !== "Home Visit" 
+          ? scheduleForm.location 
+          : (currentPatientData.address || currentPatientData.location || scheduleForm.location || "Home Visit"),
         staffId: finalStaffId,
         scheduledTime: scheduledDateTime.toISOString(),
         visitType: scheduleForm.visitType,
-        location: scheduleForm.location || "Home Visit",
-        notes: scheduleForm.notes || null,
+        location: scheduleForm.location || "Home Visit", // Location field from form
+        notes: scheduleForm.notes || null, // Notes from form
+        // Ensure all fields are included
+        date: scheduleForm.date,
+        time: scheduleForm.time,
       }
 
       const response = await fetch("/api/patients/appointments/schedule", {
@@ -1746,7 +1911,7 @@ export default function PatientPortal() {
                       </div>
                       <div className="flex items-center space-x-3">
                         <Badge
-                          className={
+                          className={                                                                                                                                                                                                                                                                
                             appointment.status === "Confirmed"
                               ? "bg-red-100 text-red-700 hover:bg-red-200 border-red-300"
                               : appointment.status === "Scheduled"
@@ -2353,13 +2518,46 @@ export default function PatientPortal() {
               <div className="lg:col-span-2">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Navigation className="h-5 w-5 mr-2" />
-                      Track Your Healthcare Provider
-                    </CardTitle>
-                    <CardDescription>
-                      Real-time location and estimated arrival time for your assigned staff member (home visit provider)
-                    </CardDescription>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="flex items-center">
+                          <Navigation className="h-5 w-5 mr-2" />
+                          Track Your Healthcare Provider
+                        </CardTitle>
+                        <CardDescription>
+                          Real-time location and estimated arrival time for your assigned staff member (home visit provider)
+                        </CardDescription>
+                      </div>
+                      {upcomingAppointments.length > 0 && (
+                        <div className="flex flex-col gap-2">
+                          {!sharingLocation && locationWatchId === null ? (
+                            <Button 
+                              onClick={sharePatientLocation}
+                              size="sm"
+                              className="bg-green-600 hover:bg-green-700 text-white"
+                            >
+                              <MapPin className="h-4 w-4 mr-2" />
+                              Share My Location
+                            </Button>
+                          ) : (
+                            <Button 
+                              onClick={stopSharingLocation}
+                              size="sm"
+                              variant="destructive"
+                            >
+                              <MapPin className="h-4 w-4 mr-2" />
+                              Stop Sharing
+                            </Button>
+                          )}
+                          {patientLocation && (
+                            <Badge className="bg-green-100 text-green-700 border-green-300">
+                              <div className="h-2 w-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
+                              Location Active
+                            </Badge>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </CardHeader>
                   <CardContent>
                     {loadingPatient ? (
@@ -2370,7 +2568,9 @@ export default function PatientPortal() {
                     ) : assignedStaffId || currentPatientData.assignedStaff?.id ? (
                       <PatientETAView 
                         staffId={assignedStaffId || currentPatientData.assignedStaff?.id || ""} 
-                        patientId={currentPatientData.id || currentPatientData.medicalRecordNumber || "patient-id"} 
+                        patientId={currentPatientData.id || currentPatientData.medicalRecordNumber || "patient-id"}
+                        patientName={currentPatientData.name}
+                        patientLocation={patientLocation}
                       />
                     ) : (
                       <div className="text-center p-8">
@@ -2411,6 +2611,27 @@ export default function PatientPortal() {
                         <MessageSquare className="h-4 w-4 mr-2" />
                         Send Message
                       </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Location Sharing Info */}
+                <Card className="border-blue-200 bg-blue-50">
+                  <CardContent className="p-4">
+                    <div className="flex items-start space-x-3">
+                      <MapPin className="h-5 w-5 text-blue-600 mt-0.5" />
+                      <div className="text-sm">
+                        <p className="font-medium text-blue-800 mb-1">Live Location Sharing</p>
+                        <p className="text-blue-700">
+                          Share your live GPS location so your provider can navigate accurately to your location. 
+                          This helps ensure accurate arrival time and route optimization.
+                        </p>
+                        {patientLocation && (
+                          <p className="text-xs text-blue-600 mt-2">
+                            Accuracy: ±{patientLocation.accuracy?.toFixed(0) || 'N/A'}m
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </CardContent>
                 </Card>

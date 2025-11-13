@@ -156,6 +156,7 @@ export async function GET(request: NextRequest) {
       activeTrip: activeTrip ? {
         id: activeTrip.id,
         startTime: activeTrip.start_time,
+        startLocation: activeTrip.start_location,
         routePoints: activeTrip.route_points || []
       } : null,
       currentVisit: currentVisit ? {

@@ -199,7 +199,9 @@ export async function GET(request: NextRequest) {
           patientName: v.patient_name,
           address: v.patient_address,
           startTime: new Date(v.start_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
-          endTime: v.end_time ? new Date(v.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : (v.status === 'in_progress' ? 'In Progress' : null),
+          endTime: v.end_time ? new Date(v.end_time).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : null,
+          start_time: v.start_time ? new Date(v.start_time).toISOString() : null, // Include raw start_time for real-time calculation
+          end_time: v.end_time ? new Date(v.end_time).toISOString() : null, // Include raw end_time
           duration: visitDuration,
           driveTime: driveTime, // Use saved drive_time_to_visit (calculated when Start Visit was clicked)
           distance: parseFloat(v.distance_to_visit?.toString() || '0'),
