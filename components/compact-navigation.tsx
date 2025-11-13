@@ -128,6 +128,12 @@ const navigationSections: NavigationSection[] = [
         icon: Stethoscope,
         description: "Patient self-service portal",
       },
+      {
+        name: "Care Team Management",
+        href: "/care-team-management",
+        icon: Users,
+        description: "Manage patient care teams",
+      },
       { name: "Patient Reviews", href: "/patient-reviews", icon: Star, description: "Patient feedback management" },
       { name: "Nurse Scanner", href: "/nurse-scanner", icon: Package, description: "Medication scanning system" },
       { name: "Wound Care Supplies", href: "/wound-care-supplies", icon: Package, description: "Supply management" },

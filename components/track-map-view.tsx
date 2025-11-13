@@ -49,6 +49,66 @@ const fixLeafletIcons = () => {
   }
 }
 
+// Function to fetch actual road route from OpenStreetMap OSRM routing service
+async function getRoadRoute(
+  fromLat: number, 
+  fromLng: number, 
+  toLat: number, 
+  toLng: number
+): Promise<{ routePoints: Array<[number, number]>, distance: number, duration: number } | null> {
+  try {
+    // Use OpenStreetMap's OSRM routing service (FREE, no API key needed)
+    // Format: /route/v1/{profile}/{coordinates}?overview=full&geometries=geojson
+    const response = await fetch(
+      `https://router.project-osrm.org/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=full&geometries=geojson`,
+      {
+        headers: {
+          'User-Agent': 'MASE-AI-Intelligence/1.0'
+        }
+      }
+    )
+    
+    if (!response.ok) {
+      console.warn('⚠️ OSRM routing failed, will use straight line fallback')
+      return null
+    }
+    
+    const data = await response.json()
+    
+    if (data.code === 'Ok' && data.routes && data.routes.length > 0) {
+      const route = data.routes[0]
+      const coordinates = route.geometry.coordinates
+      // Convert from [lng, lat] to [lat, lng] for Leaflet
+      const routePoints: Array<[number, number]> = coordinates.map((coord: [number, number]) => [coord[1], coord[0]])
+      
+      // Get distance in meters, convert to miles
+      const distanceMeters = route.distance || 0
+      const distanceMiles = distanceMeters / 1609.34
+      
+      // Get duration in seconds, convert to minutes
+      const durationSeconds = route.duration || 0
+      const durationMinutes = Math.round(durationSeconds / 60)
+      
+      console.log('✅ Road route fetched:', {
+        points: routePoints.length,
+        distance: distanceMiles.toFixed(2) + ' mi',
+        duration: durationMinutes + ' min'
+      })
+      
+      return {
+        routePoints,
+        distance: distanceMiles,
+        duration: durationMinutes
+      }
+    }
+    
+    return null
+  } catch (error) {
+    console.error('❌ Error fetching road route:', error)
+    return null
+  }
+}
+
 export default function TrackMapView({ currentLocation, routePoints = [], isTracking, patientLocations = [], selectedPatientId = null }: TrackMapViewProps) {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
@@ -725,190 +785,285 @@ export default function TrackMapView({ currentLocation, routePoints = [], isTrac
       if (currentLocation && currentLocation.lat && currentLocation.lng) {
         boundsPoints.push([currentLocation.lat, currentLocation.lng])
         
-        // Draw route guideline from staff to patient
-        try {
-          console.log('✅ Drawing route guideline from staff to patient')
-          
-          // Remove existing route guideline if any
-          if (routeLineRef.current) {
-            try {
-              if (map.hasLayer(routeLineRef.current)) {
-                map.removeLayer(routeLineRef.current)
-              }
-              if (routeLineRef.current._distanceLabel && map.hasLayer(routeLineRef.current._distanceLabel)) {
-                map.removeLayer(routeLineRef.current._distanceLabel)
-              }
-              if (routeLineRef.current._arrows) {
-                routeLineRef.current._arrows.forEach((arrow: any) => {
-                  if (map.hasLayer(arrow)) map.removeLayer(arrow)
-                })
-              }
-            } catch (e) {
-              console.warn('Error removing old route guideline:', e)
-            }
-            routeLineRef.current = null
-          }
-          
-          // Create route guideline (solid prominent BLUE line) from staff to patient - like navigation apps
-          const routeGuideline = L.polyline([
-            [currentLocation.lat, currentLocation.lng],
-            [selectedPatient.lat, selectedPatient.lng]
-          ], {
-            color: '#3b82f6', // BLUE route line like navigation apps
-            weight: 8, // Thicker line for better visibility
-            opacity: 0.85, // Slightly transparent but visible
-            smoothFactor: 1,
-            lineCap: 'round',
-            lineJoin: 'round'
-          }).addTo(map)
-          
-          console.log('✅ Route guideline line drawn:', {
-            from: { lat: currentLocation.lat, lng: currentLocation.lng },
-            to: { lat: selectedPatient.lat, lng: selectedPatient.lng }
-          })
-          
-          // Add animated pulse effect to route line (like navigation apps)
-          routeGuideline.on('add', function() {
-            const path = this._path
-            if (path) {
-              path.style.animation = 'routePulse 2s ease-in-out infinite'
-            }
-          })
-          
-          routeLineRef.current = routeGuideline
-          
-          // Add direction arrow markers along the route (like navigation apps) - RED ARROWS
-          const numArrows = 5 // More arrows for better visibility
-          routeLineRef.current._arrows = []
-          
-          for (let i = 1; i < numArrows; i++) {
-            const t = i / numArrows
-            const arrowLat = currentLocation.lat + (selectedPatient.lat - currentLocation.lat) * t
-            const arrowLng = currentLocation.lng + (selectedPatient.lng - currentLocation.lng) * t
+        // Draw route guideline from staff to patient using actual road routing
+        const drawRoute = async () => {
+          try {
+            console.log('✅ Drawing route guideline from staff to patient (using road routing)')
             
-            // Calculate bearing for arrow direction
-            const dLng = (selectedPatient.lng - currentLocation.lng) * Math.PI / 180
-            const lat1 = currentLocation.lat * Math.PI / 180
-            const lat2 = selectedPatient.lat * Math.PI / 180
-            const y = Math.sin(dLng) * Math.cos(lat2)
-            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
-            const bearing = Math.atan2(y, x) * 180 / Math.PI
+            // Remove existing route guideline if any
+            if (routeLineRef.current) {
+              try {
+                if (map.hasLayer(routeLineRef.current)) {
+                  map.removeLayer(routeLineRef.current)
+                }
+                if (routeLineRef.current._distanceLabel && map.hasLayer(routeLineRef.current._distanceLabel)) {
+                  map.removeLayer(routeLineRef.current._distanceLabel)
+                }
+                if (routeLineRef.current._arrows) {
+                  routeLineRef.current._arrows.forEach((arrow: any) => {
+                    if (map.hasLayer(arrow)) map.removeLayer(arrow)
+                  })
+                }
+              } catch (e) {
+                console.warn('Error removing old route guideline:', e)
+              }
+              routeLineRef.current = null
+            }
             
-            const arrowMarker = L.marker([arrowLat, arrowLng], {
-              icon: L.divIcon({
-                className: 'route-arrow-marker',
-                html: `
-                  <div style="
-                    transform: rotate(${bearing}deg);
-                    font-size: 24px;
-                    color: #ef4444;
-                    filter: drop-shadow(0 3px 6px rgba(0,0,0,0.5));
-                    font-weight: bold;
-                  ">
-                    ➤
-                  </div>
-                `,
-                iconSize: [24, 24],
-                iconAnchor: [12, 12]
-              }),
-              interactive: false,
-              zIndexOffset: 450
+            // Try to get actual road route first
+            const roadRoute = await getRoadRoute(
+              currentLocation.lat,
+              currentLocation.lng,
+              selectedPatient.lat,
+              selectedPatient.lng
+            )
+            
+            // Use road route if available, otherwise fall back to straight line
+            let routePoints: Array<[number, number]>
+            let distance: number
+            let etaMinutes: number
+            
+            if (roadRoute && roadRoute.routePoints.length > 0) {
+              routePoints = roadRoute.routePoints
+              distance = roadRoute.distance
+              etaMinutes = roadRoute.duration
+              console.log('✅ Using actual road route:', routePoints.length, 'points')
+            } else {
+              // Fallback to straight line
+              routePoints = [
+                [currentLocation.lat, currentLocation.lng],
+                [selectedPatient.lat, selectedPatient.lng]
+              ]
+              
+              // Calculate distance using Haversine formula
+              const R = 3959 // Earth radius in miles
+              const dLat = (selectedPatient.lat - currentLocation.lat) * Math.PI / 180
+              const dLng = (selectedPatient.lng - currentLocation.lng) * Math.PI / 180
+              const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                        Math.cos(currentLocation.lat * Math.PI / 180) * Math.cos(selectedPatient.lat * Math.PI / 180) *
+                        Math.sin(dLng/2) * Math.sin(dLng/2)
+              const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
+              distance = R * c
+              
+              // Calculate ETA (estimated time of arrival) - assume average speed of 30 mph
+              const averageSpeed = 30 // mph
+              etaMinutes = Math.round((distance / averageSpeed) * 60)
+              
+              console.log('⚠️ Using straight line fallback')
+            }
+            
+            // Create route guideline following actual roads
+            const routeGuideline = L.polyline(routePoints, {
+              color: '#3b82f6', // BLUE route line like navigation apps
+              weight: 8, // Thicker line for better visibility
+              opacity: 0.85, // Slightly transparent but visible
+              smoothFactor: 1,
+              lineCap: 'round',
+              lineJoin: 'round'
             }).addTo(map)
             
-            routeLineRef.current._arrows.push(arrowMarker)
-          }
-          
-          console.log('✅ Added', routeLineRef.current._arrows.length, 'direction arrows along route')
-          
-          // Add distance label at midpoint
-          const midLat = (currentLocation.lat + selectedPatient.lat) / 2
-          const midLng = (currentLocation.lng + selectedPatient.lng) / 2
-          
-          // Calculate distance using Haversine formula
-          const R = 3959 // Earth radius in miles
-          const dLat = (selectedPatient.lat - currentLocation.lat) * Math.PI / 180
-          const dLng = (selectedPatient.lng - currentLocation.lng) * Math.PI / 180
-          const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                    Math.cos(currentLocation.lat * Math.PI / 180) * Math.cos(selectedPatient.lat * Math.PI / 180) *
-                    Math.sin(dLng/2) * Math.sin(dLng/2)
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-          const distance = R * c
-          
-          // Calculate ETA (estimated time of arrival) - assume average speed of 30 mph
-          const averageSpeed = 30 // mph
-          const etaMinutes = Math.round((distance / averageSpeed) * 60)
-          
-          const distanceLabel = L.marker([midLat, midLng], {
-            icon: L.divIcon({
-              className: 'route-distance-label',
-              html: `
-                <div style="
-                  background: ${selectedPatient.isLiveLocation ? '#10b981' : '#3b82f6'};
-                  color: white;
-                  padding: 6px 12px;
-                  border-radius: 16px;
-                  font-size: 12px;
-                  font-weight: bold;
-                  white-space: nowrap;
-                  box-shadow: 0 4px 8px rgba(0,0,0,0.4);
-                  border: 3px solid white;
-                  text-align: center;
-                  min-width: 80px;
-                ">
-                  <div style="font-size: 14px; margin-bottom: 2px;">${distance.toFixed(1)} mi</div>
-                  <div style="font-size: 10px; opacity: 0.9;">~${etaMinutes} min</div>
-                </div>
-              `,
-              iconSize: [90, 50],
-              iconAnchor: [45, 25]
-            }),
-            interactive: false,
-            zIndexOffset: 500
-          }).addTo(map)
-          
-          // Store reference for cleanup
-          routeLineRef.current._distanceLabel = distanceLabel
-          
-          // Add CSS animation for route pulse effect
-          if (typeof document !== 'undefined') {
-            const style = document.createElement('style')
-            style.textContent = `
-              @keyframes routePulse {
-                0%, 100% { 
-                  stroke-opacity: 0.9;
-                  stroke-width: 8;
-                }
-                50% { 
-                  stroke-opacity: 0.6;
-                  stroke-width: 10;
-                }
+            console.log('✅ Route guideline line drawn:', {
+              from: { lat: currentLocation.lat, lng: currentLocation.lng },
+              to: { lat: selectedPatient.lat, lng: selectedPatient.lng },
+              routeType: roadRoute ? 'road' : 'straight',
+              points: routePoints.length
+            })
+            
+            // Add animated pulse effect to route line (like navigation apps)
+            routeGuideline.on('add', function() {
+              const path = this._path
+              if (path) {
+                path.style.animation = 'routePulse 2s ease-in-out infinite'
               }
-            `
-            if (!document.getElementById('route-pulse-style')) {
-              style.id = 'route-pulse-style'
-              document.head.appendChild(style)
+            })
+            
+            routeLineRef.current = routeGuideline
+            
+            // Add direction arrow markers along the route (like navigation apps) - RED ARROWS
+            const numArrows = Math.min(5, Math.max(2, Math.floor(routePoints.length / 10))) // Adjust based on route points
+            routeLineRef.current._arrows = []
+            
+            for (let i = 1; i < numArrows; i++) {
+              const t = i / numArrows
+              let arrowLat: number
+              let arrowLng: number
+              let nextPointIndex: number
+              
+              if (roadRoute && routePoints.length > 1) {
+                // Use actual route points for arrow placement
+                nextPointIndex = Math.floor(t * (routePoints.length - 1))
+                const currentPoint = routePoints[nextPointIndex]
+                const nextPoint = routePoints[Math.min(nextPointIndex + 1, routePoints.length - 1)]
+                arrowLat = currentPoint[0]
+                arrowLng = currentPoint[1]
+                
+                // Calculate bearing from current point to next point
+                const dLng = (nextPoint[1] - currentPoint[1]) * Math.PI / 180
+                const lat1 = currentPoint[0] * Math.PI / 180
+                const lat2 = nextPoint[0] * Math.PI / 180
+                const y = Math.sin(dLng) * Math.cos(lat2)
+                const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+                const bearing = Math.atan2(y, x) * 180 / Math.PI
+                
+                const arrowMarker = L.marker([arrowLat, arrowLng], {
+                  icon: L.divIcon({
+                    className: 'route-arrow-marker',
+                    html: `
+                      <div style="
+                        transform: rotate(${bearing}deg);
+                        font-size: 24px;
+                        color: #ef4444;
+                        filter: drop-shadow(0 3px 6px rgba(0,0,0,0.5));
+                        font-weight: bold;
+                      ">
+                        ➤
+                      </div>
+                    `,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                  }),
+                  interactive: false,
+                  zIndexOffset: 450
+                }).addTo(map)
+                
+                routeLineRef.current._arrows.push(arrowMarker)
+              } else {
+                // Fallback: straight line arrow placement
+                arrowLat = currentLocation.lat + (selectedPatient.lat - currentLocation.lat) * t
+                arrowLng = currentLocation.lng + (selectedPatient.lng - currentLocation.lng) * t
+                
+                // Calculate bearing for arrow direction
+                const dLng = (selectedPatient.lng - currentLocation.lng) * Math.PI / 180
+                const lat1 = currentLocation.lat * Math.PI / 180
+                const lat2 = selectedPatient.lat * Math.PI / 180
+                const y = Math.sin(dLng) * Math.cos(lat2)
+                const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng)
+                const bearing = Math.atan2(y, x) * 180 / Math.PI
+                
+                const arrowMarker = L.marker([arrowLat, arrowLng], {
+                  icon: L.divIcon({
+                    className: 'route-arrow-marker',
+                    html: `
+                      <div style="
+                        transform: rotate(${bearing}deg);
+                        font-size: 24px;
+                        color: #ef4444;
+                        filter: drop-shadow(0 3px 6px rgba(0,0,0,0.5));
+                        font-weight: bold;
+                      ">
+                        ➤
+                      </div>
+                    `,
+                    iconSize: [24, 24],
+                    iconAnchor: [12, 12]
+                  }),
+                  interactive: false,
+                  zIndexOffset: 450
+                }).addTo(map)
+                
+                routeLineRef.current._arrows.push(arrowMarker)
+              }
             }
+            
+            console.log('✅ Added', routeLineRef.current._arrows.length, 'direction arrows along route')
+            
+            // Add distance label at midpoint of route
+            let midLat: number
+            let midLng: number
+            
+            if (roadRoute && routePoints.length > 0) {
+              // Use middle point of route
+              const midIndex = Math.floor(routePoints.length / 2)
+              midLat = routePoints[midIndex][0]
+              midLng = routePoints[midIndex][1]
+            } else {
+              // Fallback: use midpoint of straight line
+              midLat = (currentLocation.lat + selectedPatient.lat) / 2
+              midLng = (currentLocation.lng + selectedPatient.lng) / 2
+            }
+            
+            const distanceLabel = L.marker([midLat, midLng], {
+              icon: L.divIcon({
+                className: 'route-distance-label',
+                html: `
+                  <div style="
+                    background: ${selectedPatient.isLiveLocation ? '#10b981' : '#3b82f6'};
+                    color: white;
+                    padding: 6px 12px;
+                    border-radius: 16px;
+                    font-size: 12px;
+                    font-weight: bold;
+                    white-space: nowrap;
+                    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+                    border: 3px solid white;
+                    text-align: center;
+                    min-width: 80px;
+                  ">
+                    <div style="font-size: 14px; margin-bottom: 2px;">${distance.toFixed(1)} mi</div>
+                    <div style="font-size: 10px; opacity: 0.9;">~${etaMinutes} min</div>
+                  </div>
+                `,
+                iconSize: [90, 50],
+                iconAnchor: [45, 25]
+              }),
+              interactive: false,
+              zIndexOffset: 500
+            }).addTo(map)
+            
+            // Store reference for cleanup
+            routeLineRef.current._distanceLabel = distanceLabel
+            
+            // Add CSS animation for route pulse effect
+            if (typeof document !== 'undefined') {
+              const style = document.createElement('style')
+              style.textContent = `
+                @keyframes routePulse {
+                  0%, 100% { 
+                    stroke-opacity: 0.9;
+                    stroke-width: 8;
+                  }
+                  50% { 
+                    stroke-opacity: 0.6;
+                    stroke-width: 10;
+                  }
+                }
+              `
+              if (!document.getElementById('route-pulse-style')) {
+                style.id = 'route-pulse-style'
+                document.head.appendChild(style)
+              }
+            }
+            
+            console.log('✅✅✅ Route guideline drawn successfully!', {
+              distance: distance.toFixed(2) + ' mi',
+              eta: etaMinutes + ' min',
+              arrows: routeLineRef.current._arrows?.length || 0,
+              routeType: roadRoute ? 'road' : 'straight',
+              from: { lat: currentLocation.lat, lng: currentLocation.lng },
+              to: { lat: selectedPatient.lat, lng: selectedPatient.lng }
+            })
+            
+            // Force map to update and show the route
+            setTimeout(() => {
+              map.invalidateSize()
+              // Fit bounds to all route points if available
+              if (roadRoute && routePoints.length > 0) {
+                const bounds = L.latLngBounds(routePoints)
+                map.fitBounds(bounds.pad(0.2))
+              } else {
+                map.fitBounds(L.latLngBounds([
+                  [currentLocation.lat, currentLocation.lng],
+                  [selectedPatient.lat, selectedPatient.lng]
+                ]).pad(0.2))
+              }
+            }, 100)
+          } catch (e) {
+            console.error('❌ Error drawing route guideline:', e)
           }
-          
-          console.log('✅✅✅ Route guideline drawn successfully!', {
-            distance: distance.toFixed(2) + ' mi',
-            eta: etaMinutes + ' min',
-            arrows: routeLineRef.current._arrows?.length || 0,
-            from: { lat: currentLocation.lat, lng: currentLocation.lng },
-            to: { lat: selectedPatient.lat, lng: selectedPatient.lng }
-          })
-          
-          // Force map to update and show the route
-          setTimeout(() => {
-            map.invalidateSize()
-            map.fitBounds(L.latLngBounds([
-              [currentLocation.lat, currentLocation.lng],
-              [selectedPatient.lat, selectedPatient.lng]
-            ]).pad(0.2))
-          }, 100)
-        } catch (e) {
-          console.error('❌ Error drawing route guideline:', e)
         }
+        
+        // Call async function
+        drawRoute()
       } else {
         console.warn('⚠️ Cannot draw route guideline: Staff location not available - will center on patient only')
       }

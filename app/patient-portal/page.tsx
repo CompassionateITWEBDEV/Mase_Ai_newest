@@ -77,6 +77,8 @@ export default function PatientPortal() {
   const [loadingPatient, setLoadingPatient] = useState(true)
   const [upcomingAppointments, setUpcomingAppointments] = useState<any[]>([])
   const [loadingAppointments, setLoadingAppointments] = useState(false)
+  const [careTeam, setCareTeam] = useState<any[]>([])
+  const [loadingCareTeam, setLoadingCareTeam] = useState(false)
   const [showScheduleDialog, setShowScheduleDialog] = useState(false)
   const [schedulingAppointment, setSchedulingAppointment] = useState(false)
   const [availableStaff, setAvailableStaff] = useState<any[]>([])
@@ -317,64 +319,59 @@ export default function PatientPortal() {
     currentPatientData.nextAppointment = defaultPatientData.nextAppointment
   }
 
-  // Care Team Data
-  const careTeam = [
-    {
-      id: 1,
-      name: "Dr. Michael Chen",
-      role: "Primary Care Physician",
-      specialty: "Internal Medicine",
-      phone: "(555) 123-4567",
-      email: "mchen@healthcare.com",
-      avatar: "/placeholder.svg?height=40&width=40",
-      status: "Available",
-      lastContact: "2024-01-12",
-    },
-    {
-      id: 2,
-      name: "Jennifer Martinez",
-      role: "Registered Nurse",
-      specialty: "Home Health",
-      phone: "(555) 987-6543",
-      email: "jmartinez@healthcare.com",
-      avatar: "/professional-woman-diverse.png",
-      status: "On Route",
-      lastContact: "2024-01-13",
-    },
-    {
-      id: 3,
-      name: "David Thompson",
-      role: "Physical Therapist",
-      specialty: "Orthopedic PT",
-      phone: "(555) 456-7890",
-      email: "dthompson@healthcare.com",
-      avatar: "/placeholder.svg?height=40&width=40",
-      status: "Available",
-      lastContact: "2024-01-10",
-    },
-    {
-      id: 4,
-      name: "Maria Rodriguez",
-      role: "Social Worker",
-      specialty: "Medical Social Work",
-      phone: "(555) 321-0987",
-      email: "mrodriguez@healthcare.com",
-      avatar: "/placeholder.svg?height=40&width=40",
-      status: "Available",
-      lastContact: "2024-01-08",
-    },
-    {
-      id: 5,
-      name: "Dr. Lisa Park",
-      role: "Cardiologist",
-      specialty: "Cardiology",
-      phone: "(555) 654-3210",
-      email: "lpark@cardiology.com",
-      avatar: "/placeholder.svg?height=40&width=40",
-      status: "Available",
-      lastContact: "2024-01-05",
-    },
-  ]
+  // Fetch care team from API
+  useEffect(() => {
+    const fetchCareTeam = async () => {
+      const patient = patientData || defaultPatientData
+      if (!patient?.id) {
+        setCareTeam([])
+        return
+      }
+
+      setLoadingCareTeam(true)
+      try {
+        const response = await fetch(`/api/patients/${patient.id}/care-team`)
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success && data.careTeam) {
+            // Transform API data to match UI format
+            const formattedCareTeam = data.careTeam.map((member: any) => ({
+              id: member.id,
+              staffId: member.staffId || member.staff?.id,
+              name: member.staff?.name || "Unknown",
+              role: member.role,
+              specialty: member.specialty || member.staff?.department || "",
+              phone: member.staff?.phone || member.staff?.phone_number || "",
+              email: member.staff?.email || "",
+              avatar: "/placeholder.svg?height=40&width=40",
+              status: "Available", // Can be enhanced with real-time status
+              lastContact: member.addedDate ? new Date(member.addedDate).toLocaleDateString() : "N/A",
+              isPrimary: member.isPrimary,
+              isAssignedStaff: member.isAssignedStaff,
+              credentials: member.staff?.credentials || "",
+            }))
+            setCareTeam(formattedCareTeam)
+          } else {
+            setCareTeam([])
+          }
+        } else {
+          setCareTeam([])
+        }
+      } catch (error) {
+        console.error("Error fetching care team:", error)
+        setCareTeam([])
+      } finally {
+        setLoadingCareTeam(false)
+      }
+    }
+
+    if (!loadingPatient && patientData?.id) {
+      fetchCareTeam()
+      // Refresh care team every 30 seconds
+      const interval = setInterval(fetchCareTeam, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [loadingPatient, patientData?.id])
 
   // Medicare Non-Coverage Consents
   const medicareConsents = [
@@ -563,42 +560,57 @@ export default function PatientPortal() {
     }
   }, [showScheduleDialog, assignedStaffId, currentPatientData?.assignedStaff?.id])
 
-  // Fetch assigned staff when dialog opens
+  // Use care team members as available staff when dialog opens
   useEffect(() => {
-    const fetchAssignedStaff = async () => {
-      if (!showScheduleDialog) return
+    if (!showScheduleDialog) return
 
-      try {
-        const assignedId = assignedStaffId || currentPatientData.assignedStaff?.id
-        
-        if (assignedId) {
-          // Fetch only the assigned staff
-          const response = await fetch("/api/staff/list")
-          if (response.ok) {
-            const data = await response.json()
-            if (data.staff) {
-              const assignedStaff = data.staff.find((s: any) => s.id === assignedId)
-              if (assignedStaff) {
-                setAvailableStaff([assignedStaff])
-                // Pre-select assigned staff
-                setScheduleForm(prev => ({ ...prev, staffId: assignedId }))
-              } else {
-                setAvailableStaff([])
+    // Use care team members as available staff
+    if (careTeam.length > 0) {
+      const careTeamStaff = careTeam.map((member) => ({
+        id: member.staffId,
+        name: member.name,
+        credentials: member.credentials,
+        department: member.specialty || member.credentials,
+        email: member.email,
+        phone_number: member.phone,
+      }))
+      setAvailableStaff(careTeamStaff)
+      
+      // Pre-select assigned staff if available
+      const assignedStaff = careTeam.find((member) => member.isAssignedStaff)
+      if (assignedStaff && assignedStaff.staffId) {
+        setScheduleForm(prev => ({ ...prev, staffId: assignedStaff.staffId }))
+      }
+    } else {
+      // Fallback to assigned staff if no care team
+      const assignedId = assignedStaffId || currentPatientData?.assignedStaff?.id
+      if (assignedId) {
+        const fetchAssignedStaff = async () => {
+          try {
+            const response = await fetch("/api/staff/list")
+            if (response.ok) {
+              const data = await response.json()
+              if (data.staff) {
+                const assignedStaff = data.staff.find((s: any) => s.id === assignedId)
+                if (assignedStaff) {
+                  setAvailableStaff([assignedStaff])
+                  setScheduleForm(prev => ({ ...prev, staffId: assignedId }))
+                } else {
+                  setAvailableStaff([])
+                }
               }
             }
+          } catch (error) {
+            console.error("Error fetching assigned staff:", error)
+            setAvailableStaff([])
           }
-        } else {
-          // No assigned staff
-          setAvailableStaff([])
         }
-      } catch (error) {
-        console.error("Error fetching assigned staff:", error)
+        fetchAssignedStaff()
+      } else {
         setAvailableStaff([])
       }
     }
-
-    fetchAssignedStaff()
-  }, [showScheduleDialog, assignedStaffId, currentPatientData.assignedStaff?.id])
+  }, [showScheduleDialog, careTeam, assignedStaffId, currentPatientData?.assignedStaff?.id])
 
   // Share patient's live location
   const sharePatientLocation = async () => {
@@ -1257,17 +1269,39 @@ export default function PatientPortal() {
                     </div>
                     <div className="p-4 rounded-lg bg-gradient-to-br from-pink-50/50 to-transparent hover:from-pink-100/50 transition-all">
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Primary Provider</p>
-                      <p className="text-lg font-semibold text-gray-900">{currentPatientData.primaryProvider || currentPatientData.primaryProviderData?.name || "No Provider Assigned"}</p>
-                      {currentPatientData.primaryProviderData?.role && (
-                        <p className="text-xs text-gray-500 mt-1">{currentPatientData.primaryProviderData.role}</p>
-                      )}
+                      {(() => {
+                        const primaryProvider = careTeam.find((member) => member.isPrimary)
+                        return (
+                          <>
+                            <p className="text-lg font-semibold text-gray-900">
+                              {primaryProvider?.name || currentPatientData.primaryProvider || currentPatientData.primaryProviderData?.name || "No Provider Assigned"}
+                            </p>
+                            {(primaryProvider?.role || currentPatientData.primaryProviderData?.role) && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {primaryProvider?.role || currentPatientData.primaryProviderData?.role}
+                              </p>
+                            )}
+                          </>
+                        )
+                      })()}
                     </div>
                     <div className="p-4 rounded-lg bg-gradient-to-br from-indigo-50/50 to-transparent hover:from-indigo-100/50 transition-all">
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Assigned Staff</p>
-                      <p className="text-lg font-semibold text-gray-900">{currentPatientData.assignedStaff?.name || currentPatientData.assignedStaff || "No Staff Assigned"}</p>
-                      {currentPatientData.assignedStaff?.role && (
-                        <p className="text-xs text-gray-500 mt-1">{currentPatientData.assignedStaff.role}</p>
-                      )}
+                      {(() => {
+                        const assignedStaff = careTeam.find((member) => member.isAssignedStaff)
+                        return (
+                          <>
+                            <p className="text-lg font-semibold text-gray-900">
+                              {assignedStaff?.name || currentPatientData.assignedStaff?.name || currentPatientData.assignedStaff || "No Staff Assigned"}
+                            </p>
+                            {(assignedStaff?.role || currentPatientData.assignedStaff?.role) && (
+                              <p className="text-xs text-gray-500 mt-1">
+                                {assignedStaff?.role || currentPatientData.assignedStaff?.role}
+                              </p>
+                            )}
+                          </>
+                        )
+                      })()}
                     </div>
                     <div className="p-4 rounded-lg bg-gradient-to-br from-cyan-50/50 to-transparent hover:from-cyan-100/50 transition-all">
                       <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Phone</p>
@@ -1290,39 +1324,99 @@ export default function PatientPortal() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="pt-6">
-                  <div className="space-y-4">
-                    <div className="p-4 bg-white/60 rounded-lg border border-blue-100">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Date & Time</p>
-                      <p className="text-xl font-bold text-gray-900">{currentPatientData.nextAppointment ? new Date(currentPatientData.nextAppointment.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) : "No upcoming appointment"}</p>
-                      <p className="text-lg font-semibold text-blue-600">{currentPatientData.nextAppointment?.time || ""}</p>
-                    </div>
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Provider (Home Visit)</p>
-                        <p className="text-base font-medium text-gray-900">{currentPatientData.nextAppointment?.provider || currentPatientData.assignedStaff?.name || currentPatientData.assignedStaff || "No Staff Assigned"}</p>
-                        <p className="text-xs text-gray-500 mt-0.5">Staff member who will perform the visit</p>
+                  {(() => {
+                    // Get the next upcoming appointment (first one in sorted array that is future or in-progress)
+                    const now = new Date()
+                    const nextAppointment = upcomingAppointments.length > 0 
+                      ? upcomingAppointments.find((apt: any) => {
+                          // Prioritize in-progress appointments
+                          if (apt.status === 'In Progress') return true
+                          
+                          // Then get future appointments (scheduled, confirmed, or pending)
+                          const aptDateTime = new Date(`${apt.date} ${apt.time}`)
+                          // Include if scheduled in future or today
+                          if (aptDateTime >= now || aptDateTime.toDateString() === now.toDateString()) {
+                            return apt.status === 'Scheduled' || apt.status === 'Confirmed' || apt.status === 'Pending'
+                          }
+                          return false
+                        }) || null
+                      : null
+
+                    if (!nextAppointment) {
+                      return (
+                        <div className="space-y-4">
+                          <div className="p-4 bg-white/60 rounded-lg border border-blue-100 text-center">
+                            <Calendar className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                            <p className="text-lg font-semibold text-gray-700">No upcoming appointment</p>
+                            <p className="text-sm text-gray-500 mt-1">Schedule a visit to see it here</p>
+                          </div>
+                          <Button 
+                            className="w-full mt-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all"
+                            onClick={() => setShowScheduleDialog(true)}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            Schedule Appointment
+                          </Button>
+                        </div>
+                      )
+                    }
+
+                    const appointmentDate = new Date(`${nextAppointment.date} ${nextAppointment.time}`)
+                    const isToday = appointmentDate.toDateString() === new Date().toDateString()
+                    const isInProgress = nextAppointment.status === 'In Progress'
+
+                    return (
+                      <div className="space-y-4">
+                        <div className="p-4 bg-white/60 rounded-lg border border-blue-100">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Date & Time</p>
+                          <p className="text-xl font-bold text-gray-900">
+                            {isToday 
+                              ? "Today" 
+                              : appointmentDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+                            }
+                          </p>
+                          <p className="text-lg font-semibold text-blue-600">{nextAppointment.time}</p>
+                          {isInProgress && (
+                            <Badge className="mt-2 bg-green-500 hover:bg-green-600 text-white">In Progress</Badge>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Provider (Home Visit)</p>
+                            {(() => {
+                              const assignedStaff = careTeam.find((member) => member.isAssignedStaff)
+                              const providerName = nextAppointment.provider || assignedStaff?.name || currentPatientData.assignedStaff?.name || currentPatientData.assignedStaff || "No Staff Assigned"
+                              return (
+                                <>
+                                  <p className="text-base font-medium text-gray-900">{providerName}</p>
+                                  <p className="text-xs text-gray-500 mt-0.5">Staff member who will perform the visit</p>
+                                </>
+                              )
+                            })()}
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Type</p>
+                            <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-200">{nextAppointment.type || "Home Visit"}</Badge>
+                          </div>
+                          <div>
+                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Location</p>
+                            <p className="text-base font-medium text-gray-900 flex items-center">
+                              <MapPin className="h-4 w-4 mr-1 text-blue-500" />
+                              {nextAppointment.location || currentPatientData.location || "Home Visit"}
+                            </p>
+                          </div>
+                        </div>
+                        <Button 
+                          className="w-full mt-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all"
+                          onClick={() => setActiveTab("tracking")}
+                          disabled={!nextAppointment.staffId && !assignedStaffId && !currentPatientData.assignedStaff?.id}
+                        >
+                          <MapPin className="h-4 w-4 mr-2" />
+                          Track Provider
+                        </Button>
                       </div>
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Type</p>
-                        <Badge className="bg-purple-100 text-purple-700 hover:bg-purple-200">{currentPatientData.nextAppointment?.type || "Home Visit"}</Badge>
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Location</p>
-                        <p className="text-base font-medium text-gray-900 flex items-center">
-                          <MapPin className="h-4 w-4 mr-1 text-blue-500" />
-                          {currentPatientData.nextAppointment?.location || currentPatientData.location || "Home Visit"}
-                        </p>
-                      </div>
-                    </div>
-                    <Button 
-                      className="w-full mt-4 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transition-all"
-                      onClick={() => setActiveTab("tracking")}
-                      disabled={!assignedStaffId && !currentPatientData.assignedStaff?.id}
-                    >
-                      <MapPin className="h-4 w-4 mr-2" />
-                      Track Provider
-                    </Button>
-                  </div>
+                    )
+                  })()}
                 </CardContent>
               </Card>
             </div>
@@ -1410,80 +1504,150 @@ export default function PatientPortal() {
                 <CardDescription className="text-base mt-2">Meet the professionals dedicated to your care</CardDescription>
               </CardHeader>
               <CardContent className="pt-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {careTeam.map((member) => (
-                    <Card key={member.id} className="border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/50 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
-                      <CardContent className="p-6">
-                        <div className="flex items-center space-x-4 mb-5">
-                          <Avatar className="h-16 w-16 ring-4 ring-blue-100">
-                            <AvatarImage src={member.avatar || "/placeholder.svg"} />
-                            <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold text-lg">
-                              {member.name
-                                .split(" ")
-                                .map((n) => n[0])
-                                .join("")}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1">
-                            <h3 className="font-bold text-lg text-gray-900 mb-1">{member.name}</h3>
-                            <p className="text-sm font-medium text-gray-700">{member.role}</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{member.specialty}</p>
+                {loadingCareTeam ? (
+                  <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="h-8 w-8 animate-spin text-indigo-600 mr-3" />
+                    <span className="text-gray-600">Loading care team...</span>
+                  </div>
+                ) : careTeam.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Users className="h-16 w-16 mx-auto mb-4 text-gray-300" />
+                    <p className="text-gray-600 text-lg mb-2">No care team members assigned</p>
+                    <p className="text-gray-500 text-sm">
+                      Your care team will appear here once assigned
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {careTeam.map((member) => (
+                      <Card key={member.id} className="border-0 shadow-lg bg-gradient-to-br from-white to-gray-50/50 hover:shadow-2xl hover:-translate-y-1 transition-all duration-300">
+                        <CardContent className="p-6">
+                          <div className="flex items-center space-x-4 mb-5">
+                            <Avatar className="h-16 w-16 ring-4 ring-blue-100">
+                              <AvatarImage src={member.avatar || "/placeholder.svg"} />
+                              <AvatarFallback className="bg-gradient-to-r from-blue-500 to-purple-500 text-white font-bold text-lg">
+                                {member.name
+                                  .split(" ")
+                                  .map((n: string) => n[0])
+                                  .join("")}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h3 className="font-bold text-lg text-gray-900">{member.name}</h3>
+                                {member.isPrimary && (
+                                  <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-200 text-xs">
+                                    Primary
+                                  </Badge>
+                                )}
+                                {member.isAssignedStaff && (
+                                  <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-200 text-xs">
+                                    Assigned
+                                  </Badge>
+                                )}
+                              </div>
+                              <p className="text-sm font-medium text-gray-700">{member.role}</p>
+                              {member.specialty && (
+                                <p className="text-xs text-gray-500 mt-0.5">{member.specialty}</p>
+                              )}
+                              {member.credentials && (
+                                <Badge variant="outline" className="mt-1 text-xs">
+                                  {member.credentials}
+                                </Badge>
+                              )}
+                            </div>
+                            <Badge
+                              variant={
+                                member.status === "Available"
+                                  ? "default"
+                                  : member.status === "On Route"
+                                    ? "secondary"
+                                    : "outline"
+                              }
+                              className={`text-xs font-semibold ${
+                                member.status === "Available"
+                                  ? "bg-green-100 text-green-700 hover:bg-green-200"
+                                  : member.status === "On Route"
+                                    ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
+                                    : ""
+                              }`}
+                            >
+                              {member.status}
+                            </Badge>
                           </div>
-                          <Badge
-                            variant={
-                              member.status === "Available"
-                                ? "default"
-                                : member.status === "On Route"
-                                  ? "secondary"
-                                  : "outline"
-                            }
-                            className={`text-xs font-semibold ${
-                              member.status === "Available"
-                                ? "bg-green-100 text-green-700 hover:bg-green-200"
-                                : member.status === "On Route"
-                                  ? "bg-blue-100 text-blue-700 hover:bg-blue-200"
-                                  : ""
-                            }`}
-                          >
-                            {member.status}
-                          </Badge>
-                        </div>
 
-                        <div className="space-y-3 mb-5 p-4 bg-gray-50/50 rounded-lg">
-                          <div className="flex items-center text-sm text-gray-700">
-                            <div className="p-1.5 bg-blue-100 rounded-lg mr-3">
-                              <Phone className="h-3.5 w-3.5 text-blue-600" />
+                          <div className="space-y-3 mb-5 p-4 bg-gray-50/50 rounded-lg">
+                            {member.phone && (
+                              <div className="flex items-center text-sm text-gray-700">
+                                <div className="p-1.5 bg-blue-100 rounded-lg mr-3">
+                                  <Phone className="h-3.5 w-3.5 text-blue-600" />
+                                </div>
+                                <a href={`tel:${member.phone}`} className="font-medium hover:text-blue-600">
+                                  {member.phone}
+                                </a>
+                              </div>
+                            )}
+                            {member.email && (
+                              <div className="flex items-center text-sm text-gray-700">
+                                <div className="p-1.5 bg-purple-100 rounded-lg mr-3">
+                                  <MessageSquare className="h-3.5 w-3.5 text-purple-600" />
+                                </div>
+                                <a href={`mailto:${member.email}`} className="font-medium truncate hover:text-purple-600">
+                                  {member.email}
+                                </a>
+                              </div>
+                            )}
+                            <div className="flex items-center text-sm text-gray-600">
+                              <div className="p-1.5 bg-gray-200 rounded-lg mr-3">
+                                <Clock className="h-3.5 w-3.5 text-gray-600" />
+                              </div>
+                              <span>Added: {member.lastContact}</span>
                             </div>
-                            <span className="font-medium">{member.phone}</span>
                           </div>
-                          <div className="flex items-center text-sm text-gray-700">
-                            <div className="p-1.5 bg-purple-100 rounded-lg mr-3">
-                              <MessageSquare className="h-3.5 w-3.5 text-purple-600" />
-                            </div>
-                            <span className="font-medium truncate">{member.email}</span>
-                          </div>
-                          <div className="flex items-center text-sm text-gray-600">
-                            <div className="p-1.5 bg-gray-200 rounded-lg mr-3">
-                              <Clock className="h-3.5 w-3.5 text-gray-600" />
-                            </div>
-                            <span>Last contact: {member.lastContact}</span>
-                          </div>
-                        </div>
 
-                        <div className="flex space-x-2">
-                          <Button variant="outline" size="sm" className="flex-1 bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 hover:text-blue-800 font-semibold transition-all">
-                            <Phone className="h-4 w-4 mr-2" />
-                            Call
-                          </Button>
-                          <Button variant="outline" size="sm" className="flex-1 bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-700 hover:text-purple-800 font-semibold transition-all">
-                            <MessageSquare className="h-4 w-4 mr-2" />
-                            Message
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
+                          <div className="flex space-x-2">
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className={`flex-1 font-semibold transition-all ${
+                                member.phone 
+                                  ? "bg-blue-50 hover:bg-blue-100 border-blue-200 text-blue-700 hover:text-blue-800 hover:shadow-md" 
+                                  : "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
+                              }`}
+                              onClick={() => {
+                                if (member.phone) {
+                                  window.location.href = `tel:${member.phone}`
+                                }
+                              }}
+                              disabled={!member.phone}
+                            >
+                              <Phone className="h-4 w-4 mr-2" />
+                              {member.phone ? "Call" : "No Phone"}
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className={`flex-1 font-semibold transition-all ${
+                                member.email 
+                                  ? "bg-purple-50 hover:bg-purple-100 border-purple-200 text-purple-700 hover:text-purple-800 hover:shadow-md" 
+                                  : "bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed"
+                              }`}
+                              onClick={() => {
+                                if (member.email) {
+                                  window.location.href = `mailto:${member.email}`
+                                }
+                              }}
+                              disabled={!member.email}
+                            >
+                              <MessageSquare className="h-4 w-4 mr-2" />
+                              {member.email ? "Message" : "No Email"}
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -2032,26 +2196,36 @@ export default function PatientPortal() {
                       </SelectTrigger>
                       <SelectContent>
                         {availableStaff.length > 0 ? (
-                          availableStaff.map((staff) => (
-                            <SelectItem key={staff.id} value={staff.id}>
-                              {staff.name} - {staff.credentials || staff.department || "Healthcare Provider"}
-                            </SelectItem>
-                          ))
+                          availableStaff.map((staff) => {
+                            // Find care team member info for this staff
+                            const careTeamMember = careTeam.find((member) => member.staffId === staff.id)
+                            const displayName = staff.name
+                            const displayRole = careTeamMember?.role || staff.credentials || staff.department || "Healthcare Provider"
+                            return (
+                              <SelectItem key={staff.id} value={staff.id}>
+                                {displayName} - {displayRole}
+                              </SelectItem>
+                            )
+                          })
                         ) : (
                           <SelectItem value="unassigned" disabled>
-                            No provider available
+                            {careTeam.length === 0 
+                              ? "No care team assigned"
+                              : "No provider available"}
                           </SelectItem>
                         )}
                       </SelectContent>
                     </Select>
                     {availableStaff.length > 0 && (
                       <p className="text-xs text-gray-500 mt-1">
-                        Your assigned provider will be used for the appointment
+                        Select a provider from your care team
                       </p>
                     )}
                     {availableStaff.length === 0 && (
                       <p className="text-xs text-red-500 mt-1">
-                        No assigned provider. Please contact your care coordinator.
+                        {careTeam.length === 0 
+                          ? "No care team assigned. Please contact your care coordinator to assign care team members."
+                          : "No provider available. Please contact your care coordinator."}
                       </p>
                     )}
                   </div>
@@ -2565,20 +2739,24 @@ export default function PatientPortal() {
                         <RefreshCw className="h-6 w-6 animate-spin mr-2" />
                         <span>Loading provider information...</span>
                       </div>
-                    ) : assignedStaffId || currentPatientData.assignedStaff?.id ? (
-                      <PatientETAView 
-                        staffId={assignedStaffId || currentPatientData.assignedStaff?.id || ""} 
-                        patientId={currentPatientData.id || currentPatientData.medicalRecordNumber || "patient-id"}
-                        patientName={currentPatientData.name}
-                        patientLocation={patientLocation}
-                      />
-                    ) : (
-                      <div className="text-center p-8">
-                        <MapPin className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                        <p className="text-gray-600 mb-2">No assigned provider</p>
-                        <p className="text-sm text-gray-500">Please contact your care coordinator to assign a provider</p>
-                      </div>
-                    )}
+                    ) : (() => {
+                      const assignedStaff = careTeam.find((member) => member.isAssignedStaff)
+                      const staffId = assignedStaff?.staffId || assignedStaffId || currentPatientData.assignedStaff?.id
+                      return staffId ? (
+                        <PatientETAView 
+                          staffId={staffId} 
+                          patientId={currentPatientData.id || currentPatientData.medicalRecordNumber || "patient-id"}
+                          patientName={currentPatientData.name}
+                          patientLocation={patientLocation}
+                        />
+                      ) : (
+                        <div className="text-center p-8">
+                          <MapPin className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+                          <p className="text-gray-600 mb-2">No assigned provider</p>
+                          <p className="text-sm text-gray-500">Please contact your care coordinator to assign a provider</p>
+                        </div>
+                      )
+                    })()}
                   </CardContent>
                 </Card>
               </div>
@@ -2590,28 +2768,58 @@ export default function PatientPortal() {
                     <CardTitle className="text-lg">Your Provider</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="flex items-center space-x-3 mb-4">
-                      <Avatar>
-                        <AvatarImage src={currentPatientData.assignedStaff?.avatar || "/placeholder.svg"} />
-                        <AvatarFallback>
-                          {currentPatientData.assignedStaff?.name?.split(" ").map((n: string) => n[0]).join("") || "P"}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium">{currentPatientData.assignedStaff?.name || "No Provider Assigned"}</p>
-                        <p className="text-sm text-gray-600">{currentPatientData.assignedStaff?.role || "Provider"}</p>
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Button variant="outline" className="w-full bg-transparent" size="sm">
-                        <Phone className="h-4 w-4 mr-2" />
-                        Call Provider
-                      </Button>
-                      <Button variant="outline" className="w-full bg-transparent" size="sm">
-                        <MessageSquare className="h-4 w-4 mr-2" />
-                        Send Message
-                      </Button>
-                    </div>
+                    {(() => {
+                      const assignedStaff = careTeam.find((member) => member.isAssignedStaff)
+                      const providerName = assignedStaff?.name || currentPatientData.assignedStaff?.name || currentPatientData.assignedStaff || "No Provider Assigned"
+                      const providerRole = assignedStaff?.role || currentPatientData.assignedStaff?.role || "Provider"
+                      const providerPhone = assignedStaff?.phone || currentPatientData.assignedStaff?.phone
+                      const providerEmail = assignedStaff?.email || currentPatientData.assignedStaff?.email
+                      
+                      return (
+                        <>
+                          <div className="flex items-center space-x-3 mb-4">
+                            <Avatar>
+                              <AvatarImage src={assignedStaff?.avatar || currentPatientData.assignedStaff?.avatar || "/placeholder.svg"} />
+                              <AvatarFallback>
+                                {providerName !== "No Provider Assigned" 
+                                  ? providerName.split(" ").map((n: string) => n[0]).join("") 
+                                  : "P"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <p className="font-medium">{providerName}</p>
+                              <p className="text-sm text-gray-600">{providerRole}</p>
+                            </div>
+                          </div>
+                          <div className="space-y-2">
+                            <Button 
+                              variant="outline" 
+                              className="w-full bg-transparent" 
+                              size="sm"
+                              onClick={() => {
+                                if (providerPhone) window.location.href = `tel:${providerPhone}`
+                              }}
+                              disabled={!providerPhone}
+                            >
+                              <Phone className="h-4 w-4 mr-2" />
+                              Call Provider
+                            </Button>
+                            <Button 
+                              variant="outline" 
+                              className="w-full bg-transparent" 
+                              size="sm"
+                              onClick={() => {
+                                if (providerEmail) window.location.href = `mailto:${providerEmail}`
+                              }}
+                              disabled={!providerEmail}
+                            >
+                              <MessageSquare className="h-4 w-4 mr-2" />
+                              Send Message
+                            </Button>
+                          </div>
+                        </>
+                      )
+                    })()}
                   </CardContent>
                 </Card>
 

@@ -477,33 +477,28 @@ export async function GET(request: NextRequest) {
           .limit(1)
           .maybeSingle()
 
-        // Get visits for route optimization - CONNECTED TO GPS TRACKING
-        // Strategy: Get ALL visits for today that have GPS location data
-        // More flexible: Get visits from today regardless of status (as long as not completed/cancelled)
+        // Get visits for route optimization - ONLY USE PATIENT SHARED LOCATION
+        // Strategy: Only get visits that have been started (in_progress or completed) 
+        // AND have patient shared location (source: 'patient_live_location')
+        // Route optimization only reflects after the visit has started
         const today = new Date()
         today.setHours(0, 0, 0, 0)
         const todayISO = today.toISOString()
-        const tomorrow = new Date(today)
-        tomorrow.setDate(tomorrow.getDate() + 1)
-        const tomorrowISO = tomorrow.toISOString()
         
-        // Get ALL visits that are not completed/cancelled - VERY FLEXIBLE
-        // Get ALL in_progress visits regardless of date, plus recent visits (last 30 days)
-        const thirtyDaysAgo = new Date()
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-        const thirtyDaysAgoISO = thirtyDaysAgo.toISOString()
+        // Only get visits that have started (in_progress or completed) - route optimization after visit
+        // Get visits from today and recent past (last 7 days) that have been started
+        const sevenDaysAgo = new Date()
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
+        const sevenDaysAgoISO = sevenDaysAgo.toISOString()
         
-        // Get all visits (even without location) to see what we have
-        // Include: in_progress, completed (from today), and scheduled/future visits
-        // Priority: in_progress visits first, then completed (today), then scheduled/future visits, then recent visits
+        // Get only visits that have been started (in_progress or completed) with patient shared location
         const { data: allVisitsRaw, error: visitsError } = await supabase
           .from('staff_visits')
           .select('id, patient_name, patient_address, visit_location, scheduled_time, start_time, status, trip_id')
           .eq('staff_id', staff.id)
-          .neq('status', 'cancelled') // Only exclude cancelled visits
-          .or(`status.eq.in_progress,status.eq.completed,start_time.gte.${thirtyDaysAgoISO},scheduled_time.gte.${thirtyDaysAgoISO},scheduled_time.is.null,start_time.is.null`)
+          .in('status', ['in_progress', 'completed']) // Only visits that have started
+          .gte('start_time', sevenDaysAgoISO) // Only recent visits (last 7 days)
           .order('status', { ascending: false }) // in_progress first, then completed
-          .order('scheduled_time', { ascending: true, nullsFirst: true })
           .order('start_time', { ascending: true, nullsFirst: true })
         
         if (visitsError) {
@@ -512,13 +507,22 @@ export async function GET(request: NextRequest) {
         
         console.log(`Staff ${staff.id} (${staff.name}): Found ${allVisitsRaw?.length || 0} total visits (before location filter)`)
         
-        // Filter to only visits with location data
+        // Filter to only visits with PATIENT SHARED LOCATION (not geocoded addresses)
+        // Only use visits where location source is 'patient_live_location'
         const allVisits = (allVisitsRaw || []).filter(visit => {
           if (!visit.visit_location) {
             console.log(`Visit ${visit.id} (${visit.patient_name}) has no visit_location`)
             return false
           }
           const loc = visit.visit_location as any
+          
+          // CRITICAL: Only use patient shared location, not geocoded addresses
+          const isPatientSharedLocation = loc?.source === 'patient_live_location'
+          if (!isPatientSharedLocation) {
+            console.log(`Visit ${visit.id} (${visit.patient_name}) location is not from patient shared location (source: ${loc?.source || 'unknown'}) - skipping`)
+            return false
+          }
+          
           const lat = loc?.lat || (Array.isArray(loc) ? loc[0] : null)
           const lng = loc?.lng || (Array.isArray(loc) ? loc[1] : null)
           const hasValidLocation = lat && lng && !isNaN(parseFloat(lat.toString())) && !isNaN(parseFloat(lng.toString()))
@@ -584,99 +588,81 @@ export async function GET(request: NextRequest) {
           let lng = 0
           let addressValidated = false
           let validationMethod = ''
-          let actualAddress = visit.patient_address || ''
+          let actualAddress = ''
 
-          // OPTIMIZED: Use GPS coordinates directly if available (fastest path)
+          // ONLY USE PATIENT SHARED LOCATION - Do not use database address or geocode
           if (visit.visit_location) {
             const loc = visit.visit_location as any
+            
+            // CRITICAL: Only use patient shared location
+            if (loc?.source !== 'patient_live_location') {
+              console.warn(`⚠️ Visit ${visit.id} (${visit.patient_name}) location is not from patient shared location (source: ${loc?.source || 'unknown'}) - skipping`)
+              continue
+            }
+            
             const gpsLat = loc.lat || (Array.isArray(loc) ? loc[0] : 0)
             const gpsLng = loc.lng || (Array.isArray(loc) ? loc[1] : 0)
             
             if (gpsLat && gpsLng && !isNaN(parseFloat(gpsLat.toString())) && !isNaN(parseFloat(gpsLng.toString())) && 
                 parseFloat(gpsLat.toString()) !== 0 && parseFloat(gpsLng.toString()) !== 0) {
-              // Use GPS coordinates directly - no geocoding needed
+              // Use patient shared GPS coordinates directly
               lat = parseFloat(gpsLat.toString())
               lng = parseFloat(gpsLng.toString())
               addressValidated = true
-              validationMethod = 'gps'
+              validationMethod = 'patient_shared_location'
               
-              // Only reverse geocode if we don't have an address (optional, non-blocking)
-              if (!actualAddress) {
-                try {
-                  // Don't wait for reverse geocoding - use it asynchronously if it completes
-                  const { reverseGeocode } = await import('@/lib/geocoding')
-                  const realAddress = await Promise.race([
-                    reverseGeocode(lat, lng),
-                    new Promise<string | null>(resolve => setTimeout(() => resolve(null), 2000)) // 2s timeout
-                  ])
-                  
-                  if (realAddress) {
-                    actualAddress = realAddress
-                    validationMethod = 'gps_reverse_geocoded'
-                    console.log(`✅ Using GPS with reverse geocoding: ${lat.toFixed(6)}, ${lng.toFixed(6)} -> "${realAddress}"`)
-                  } else {
-                    console.log(`✅ Using GPS coordinates: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
-                  }
-                } catch (error) {
-                  // Reverse geocoding failed - still use GPS coordinates
-                  console.log(`✅ Using GPS coordinates (reverse geocoding failed): ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+              // Try reverse geocode for display address (optional, non-blocking)
+              try {
+                const { reverseGeocode } = await import('@/lib/geocoding')
+                const realAddress = await Promise.race([
+                  reverseGeocode(lat, lng),
+                  new Promise<string | null>(resolve => setTimeout(() => resolve(null), 2000)) // 2s timeout
+                ])
+                
+                if (realAddress) {
+                  actualAddress = realAddress
+                  console.log(`✅ Using patient shared location with reverse geocoding: ${lat.toFixed(6)}, ${lng.toFixed(6)} -> "${realAddress}"`)
+                } else {
+                  // Use coordinates as address if reverse geocoding fails
+                  actualAddress = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+                  console.log(`✅ Using patient shared location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
                 }
-              } else {
-                console.log(`✅ Using GPS coordinates with existing address: ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
+              } catch (error) {
+                // Reverse geocoding failed - use coordinates as address
+                actualAddress = `${lat.toFixed(6)}, ${lng.toFixed(6)}`
+                console.log(`✅ Using patient shared location (reverse geocoding failed): ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
               }
-            }
-          }
-
-          // If GPS not available, try geocoding address (slower, but fallback)
-          if (!addressValidated && visit.patient_address) {
-            try {
-              console.log(`🔍 Geocoding address for visit ${visit.id} (${visit.patient_name}): "${visit.patient_address}"`)
-              
-              // Add delay to respect Nominatim rate limit (1 req/sec) - only if geocoding
-              if (i > 0) {
-                await new Promise(resolve => setTimeout(resolve, 1100))
-              }
-              
-              const geocoded = await getCoordinates(visit.patient_address)
-              if (geocoded && geocoded.validated) {
-                lat = geocoded.lat
-                lng = geocoded.lng
-                addressValidated = true
-                validationMethod = 'geocoded'
-                actualAddress = visit.patient_address
-                console.log(`✅ Address geocoded: "${visit.patient_address}" -> ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
-              } else {
-                console.warn(`⚠️ Address geocoding failed for "${visit.patient_address}" - skipping visit`)
-                continue
-              }
-            } catch (error) {
-              console.error(`❌ Error geocoding address for visit ${visit.id}:`, error)
+            } else {
+              console.warn(`⚠️ Visit ${visit.id} (${visit.patient_name}) has invalid patient shared location coordinates`)
               continue
             }
+          } else {
+            console.warn(`⚠️ Visit ${visit.id} (${visit.patient_name}) has no visit_location - skipping (route optimization only uses patient shared location)`)
+            continue
           }
 
-          // Add waypoint if we have valid coordinates
+          // Add waypoint if we have valid patient shared coordinates
           if (addressValidated && lat !== 0 && lng !== 0 && !isNaN(lat) && !isNaN(lng)) {
             waypoints.push({
               id: visit.id,
               name: visit.patient_name || `Visit ${waypoints.length + 1}`,
-              address: actualAddress || visit.patient_address || '',
+              address: actualAddress || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
               lat: parseFloat(lat.toString()),
               lng: parseFloat(lng.toString()),
               scheduledTime: visit.scheduled_time,
               originalIndex: i
             })
-            console.log(`✅ Added waypoint: ${visit.patient_name} at ${lat.toFixed(6)}, ${lng.toFixed(6)} (${validationMethod})`)
+            console.log(`✅ Added waypoint from patient shared location: ${visit.patient_name} at ${lat.toFixed(6)}, ${lng.toFixed(6)}`)
           } else {
-            console.error(`❌ REJECTED visit ${visit.id} (${visit.patient_name}): No valid coordinates. Address: "${visit.patient_address || 'N/A'}", GPS: ${visit.visit_location ? 'present' : 'missing'}`)
+            console.error(`❌ REJECTED visit ${visit.id} (${visit.patient_name}): No valid patient shared location coordinates`)
           }
         }
         
         const rejectedCount = visits.length - waypoints.length
-        console.log(`✅ Address validation complete: ${waypoints.length} VALID waypoints, ${rejectedCount} REJECTED (fake/invalid addresses)`)
+        console.log(`✅ Patient shared location validation complete: ${waypoints.length} VALID waypoints, ${rejectedCount} REJECTED (no patient shared location)`)
         
         if (rejectedCount > 0) {
-          console.warn(`⚠️ ${rejectedCount} visits were REJECTED due to invalid/fake addresses. Please use real addresses for route optimization.`)
+          console.warn(`⚠️ ${rejectedCount} visits were REJECTED - route optimization only uses patient shared locations (not database addresses). Patients need to share their location for route optimization.`)
         }
 
         if (waypoints.length < 2) {

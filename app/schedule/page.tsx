@@ -799,6 +799,53 @@ function StaffScheduleView() {
           entries[s.id] = d.success ? (d.shifts || []) : []
         }))
         setShiftsByStaff(entries)
+        // Fetch all staff from patient_care_team table and add them as separate staff entries
+        try {
+          const careTeamRes = await fetch('/api/staff/care-team?active_only=true', { cache: 'no-store' })
+          const careTeamData = await careTeamRes.json()
+          if (careTeamData.success && careTeamData.careTeam) {
+            // Get unique staff members from care team
+            const careTeamStaffMap = new Map<string, any>()
+            careTeamData.careTeam.forEach((ct: any) => {
+              if (ct.staff && ct.staff.id) {
+                const staffId = ct.staff.id
+                if (!careTeamStaffMap.has(staffId)) {
+                  // Check if this staff is already in the main staff list
+                  const existsInMainList = staffList.find((s: any) => s.id === staffId)
+                  if (!existsInMainList) {
+                    // Add as new staff member from care team
+                    careTeamStaffMap.set(staffId, {
+                      id: staffId,
+                      name: ct.staff.name || 'Unknown',
+                      department: ct.staff.department || ct.role || 'Care Team',
+                      email: ct.staff.email,
+                      phone_number: ct.staff.phone,
+                      credentials: ct.staff.credentials,
+                      role: ct.role,
+                      specialty: ct.specialty,
+                      isPrimary: ct.isPrimary,
+                      isAssignedStaff: ct.isAssignedStaff,
+                    })
+                  }
+                }
+              }
+            })
+            // Add care team staff to the list
+            const careTeamStaffList = Array.from(careTeamStaffMap.values())
+            const combinedStaffList = [...staffList, ...careTeamStaffList]
+            setStaff(combinedStaffList)
+            // Fetch shifts for care team staff
+            const careTeamShiftEntries: Record<string, any[]> = {}
+            await Promise.all(careTeamStaffList.map(async (s: any) => {
+              const r = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(s.id)}`, { cache: 'no-store' })
+              const d = await r.json()
+              careTeamShiftEntries[s.id] = d.success ? (d.shifts || []) : []
+            }))
+            setShiftsByStaff(prev => ({ ...prev, ...careTeamShiftEntries }))
+          }
+        } catch (e) {
+          console.error('Error fetching care team staff:', e)
+        }
         // load pending cancellation requests
         try {
           const reqRes = await fetch('/api/staff/cancel-requests?status=pending', { cache: 'no-store' })
@@ -997,52 +1044,55 @@ function StaffScheduleView() {
             </div>
           )}
           {isLoading && <div className="p-4 text-sm text-gray-500">Loading staff schedules...</div>}
-          {staff.map((s) => (
-            <div key={s.id} className="border rounded-lg p-4">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="font-medium">{s.name}</h3>
-                  <p className="text-sm text-gray-600">{s.department || 'Staff'}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline" onClick={() => openAddShift(s)}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Shift
-                  </Button>
-                <Button size="sm" variant="outline" onClick={() => openEditSchedule(s)}>
-                  <Edit className="h-4 w-4 mr-2" />
-                  Edit Schedule
-                </Button>
-                </div>
-              </div>
-              <div className="grid grid-cols-5 gap-2">
-                {days.map((day, idx) => {
-                  const dayShifts = (shiftsByStaff[s.id] || []).filter((sh) => sh.day_of_week === idx)
-                  return (
-                    <div key={day} className="text-center">
-                      <div className="text-sm font-medium mb-2">{day.slice(0, 3)}</div>
-                    <div className="space-y-1">
-                        {dayShifts.length > 0 ? (
-                          dayShifts.map((shift) => (
-                            <div key={shift.id} onClick={() => openEditShift(s, shift)} className={`cursor-pointer text-xs p-2 rounded ${shift.shift_type === 'office' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
-                              {shift.start_time} - {shift.end_time}
-                              {shift.location && (
-                                <div className="text-[10px] text-gray-700 mt-0.5">
-                                  {formatFacilityUnit(shift.location)}
-                                </div>
-                              )}
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-xs p-2 bg-gray-100 text-gray-600 rounded">Off</div>
-                      )}
-                    </div>
+          {staff.map((s) => {
+            return (
+              <div key={s.id} className="border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="font-medium">{s.name}</h3>
+                    <p className="text-sm text-gray-600">{s.department || 'Staff'}</p>
                   </div>
-                  )
-                })}
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={() => openAddShift(s)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add Shift
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => openEditSchedule(s)}>
+                      <Edit className="h-4 w-4 mr-2" />
+                      Edit Schedule
+                    </Button>
+                  </div>
+                </div>
+                {/* Schedule Grid */}
+                <div className="grid grid-cols-5 gap-2">
+                  {days.map((day, idx) => {
+                    const dayShifts = (shiftsByStaff[s.id] || []).filter((sh) => sh.day_of_week === idx)
+                    return (
+                      <div key={day} className="text-center">
+                        <div className="text-sm font-medium mb-2">{day.slice(0, 3)}</div>
+                        <div className="space-y-1">
+                          {dayShifts.length > 0 ? (
+                            dayShifts.map((shift) => (
+                              <div key={shift.id} onClick={() => openEditShift(s, shift)} className={`cursor-pointer text-xs p-2 rounded ${shift.shift_type === 'office' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'}`}>
+                                {shift.start_time} - {shift.end_time}
+                                {shift.location && (
+                                  <div className="text-[10px] text-gray-700 mt-0.5">
+                                    {formatFacilityUnit(shift.location)}
+                                  </div>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-xs p-2 bg-gray-100 text-gray-600 rounded">Off</div>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       </CardContent>
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

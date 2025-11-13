@@ -88,6 +88,9 @@ export default function StaffDashboard() {
   // Load upcoming shifts for selected staff from staff_shifts table
   const [upcomingShifts, setUpcomingShifts] = useState<Array<{ id: string; date: string; time: string; location: string; unit: string; day_of_week: number; start_time: string; end_time: string; shift_type: string; notes?: string }>>([])
   const [isLoadingShifts, setIsLoadingShifts] = useState<boolean>(false)
+  // Patient reviews state
+  const [patientReviews, setPatientReviews] = useState<Array<{ patient: string; rating: number; comment: string; date: string }>>([])
+  const [isLoadingReviews, setIsLoadingReviews] = useState<boolean>(false)
   const { toast } = useToast()
   const [pendingCancelShiftIds, setPendingCancelShiftIds] = useState<string[]>([])
   const [isCancelOpen, setIsCancelOpen] = useState<boolean>(false)
@@ -375,6 +378,56 @@ export default function StaffDashboard() {
       }
     }
     loadShifts()
+  }, [selectedStaff?.id])
+
+  // Load patient reviews for selected staff
+  useEffect(() => {
+    const loadPatientReviews = async () => {
+      try {
+        setIsLoadingReviews(true)
+        setPatientReviews([]) // Always clear previous reviews
+        
+        if (!selectedStaff?.id) {
+          setPatientReviews([])
+          setIsLoadingReviews(false)
+          return
+        }
+
+        const response = await fetch(`/api/patient-reviews?staff_id=${encodeURIComponent(selectedStaff.id)}&status=published`, {
+          cache: 'no-store'
+        })
+        
+        if (!response.ok) {
+          throw new Error(`Failed to fetch reviews: ${response.status}`)
+        }
+        
+        const data = await response.json()
+        
+        if (data.success && Array.isArray(data.reviews)) {
+          // Transform API data to match display format
+          const formattedReviews = data.reviews
+            .slice(0, 5) // Show only recent 5 reviews
+            .map((review: any) => ({
+              patient: review.patient_name || "Anonymous",
+              rating: review.rating || 5,
+              comment: review.comment || "",
+              date: review.created_at ? new Date(review.created_at).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+            }))
+          setPatientReviews(formattedReviews)
+        } else {
+          // If API call succeeded but no reviews, set empty array
+          setPatientReviews([])
+        }
+      } catch (error) {
+        console.error('Failed to load patient reviews:', error)
+        setPatientReviews([]) // Always set to empty array on error, never use mock data
+      } finally {
+        setIsLoadingReviews(false)
+      }
+    }
+
+    // Always call loadPatientReviews when selectedStaff changes
+    loadPatientReviews()
   }, [selectedStaff?.id])
 
   useEffect(() => {
@@ -1133,7 +1186,7 @@ export default function StaffDashboard() {
     upcomingShifts: upcomingShifts, // Only use real data from API, no mock data fallback
     recentPayStubs: staffData.recentPayStubs,
     trainingModules: realTrainingModules, // Only show real data from API, no mock data fallback
-    patientReviews: staffData.patientReviews,
+    patientReviews: patientReviews, // Always use real data from API, no mock data fallback
     supplyTransactions: staffData.supplyTransactions,
   }
   const certificationsToShow = certsFromDocs
@@ -2246,27 +2299,42 @@ export default function StaffDashboard() {
                 <CardDescription>Feedback from your recent patients</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {displayStaff.patientReviews.map((review, index) => (
-                    <div key={index} className="p-4 border rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          <div className="flex">
-                            {[...Array(5)].map((_, i) => (
-                              <Star
-                                key={i}
-                                className={`h-4 w-4 ${i < review.rating ? "text-yellow-400 fill-current" : "text-gray-300"}`}
-                              />
-                            ))}
+                {isLoadingReviews ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-indigo-600 mr-2" />
+                    <span className="text-sm text-gray-600">Loading reviews...</span>
+                  </div>
+                ) : displayStaff.patientReviews.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Star className="h-12 w-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-sm text-gray-600">No patient reviews yet</p>
+                    <p className="text-xs text-gray-500 mt-1">Reviews will appear here once patients submit feedback</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {displayStaff.patientReviews.map((review, index) => (
+                      <div key={index} className="p-4 border rounded-lg hover:bg-gray-50 transition-colors">
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <div className="flex">
+                              {[...Array(5)].map((_, i) => (
+                                <Star
+                                  key={i}
+                                  className={`h-4 w-4 ${i < review.rating ? "text-yellow-400 fill-current" : "text-gray-300"}`}
+                                />
+                              ))}
+                            </div>
+                            <span className="text-sm font-medium text-gray-900">{review.patient}</span>
                           </div>
-                          <span className="text-sm font-medium">{review.patient}</span>
+                          <span className="text-sm text-gray-600">{new Date(review.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
                         </div>
-                        <span className="text-sm text-gray-600">{review.date}</span>
+                        {review.comment && (
+                          <p className="text-sm text-gray-700 mt-2 leading-relaxed">{review.comment}</p>
+                        )}
                       </div>
-                      <p className="text-sm text-gray-700">{review.comment}</p>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

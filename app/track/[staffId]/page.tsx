@@ -1127,7 +1127,7 @@ export default function StaffTrackingPage() {
     visitType: 'Wound Care'
   })
 
-  // Select appointment to start trip - immediately show on map with route guideline
+  // Select appointment to start trip - immediately show on map with road route
   const selectAppointment = (appointment: any) => {
     console.log('🎯 SELECTING APPOINTMENT:', {
       patientName: appointment.patient_name,
@@ -1150,7 +1150,7 @@ export default function StaffTrackingPage() {
     if (existingLocation && existingLocation.lat && existingLocation.lng) {
       toast({
         title: "Appointment Selected",
-        description: `Selected ${appointment.patient_name}. Route guideline will appear on map.`,
+        description: `Selected ${appointment.patient_name}. Road route will appear on map.`,
       })
     } else {
       toast({
