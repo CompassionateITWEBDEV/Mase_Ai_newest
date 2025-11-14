@@ -7,89 +7,38 @@ export async function POST(request: NextRequest) {
     // Simulate CAQH API call with realistic delay
     await new Promise((resolve) => setTimeout(resolve, 2000))
 
-    // Mock verification result based on physician data
-    const mockResults = {
-      "1": {
-        success: true,
-        verificationId: `CAQH_${Date.now()}_${physicianId}`,
-        status: "verified",
-        caqhId: "CAQH123456",
-        details: {
-          medicalLicense: "active",
-          boardCertification: "current",
-          malpracticeInsurance: "active",
-          deaRegistration: "active",
-        },
-        expirationDates: {
-          license: "2024-12-31",
-          board: "2025-06-30",
-          malpractice: "2024-08-15",
-          dea: "2025-03-20",
-        },
-        lastUpdated: new Date().toISOString(),
-        providerInfo: {
-          npi: "1234567890",
-          firstName: "Sarah",
-          lastName: "Johnson",
-          specialty: "Internal Medicine",
-          licenseNumber: "MD123456",
-          licenseState: "MI",
-        },
-      },
-      "2": {
-        success: false,
-        verificationId: `CAQH_${Date.now()}_${physicianId}`,
-        status: "expired",
-        caqhId: "CAQH789012",
-        details: {
-          medicalLicense: "expired",
-          boardCertification: "current",
-          malpracticeInsurance: "active",
-          deaRegistration: "active",
-        },
-        expirationDates: {
-          license: "2024-03-15",
-          board: "2024-12-31",
-          malpractice: "2024-11-30",
-          dea: "2025-01-15",
-        },
-        lastUpdated: new Date().toISOString(),
-        errors: ["Medical license has expired"],
-        providerInfo: {
-          npi: "0987654321",
-          firstName: "Michael",
-          lastName: "Chen",
-          specialty: "Cardiology",
-          licenseNumber: "MD789012",
-          licenseState: "MI",
-        },
-      },
-    }
-
-    // Return mock result or generate new one
-    const result = mockResults[physicianId as keyof typeof mockResults] || {
-      success: true,
+    // Generate dynamic verification result based on actual physician data
+    // In production, this would call the real CAQH API
+    
+    // Simulate 90% success rate, 10% error for realistic testing
+    const isSuccess = Math.random() > 0.1
+    const verificationStatus = isSuccess ? "verified" : "error"
+    
+    const result = {
+      success: isSuccess,
       verificationId: `CAQH_${Date.now()}_${physicianId}`,
-      status: "verified",
-      caqhId: `CAQH${Math.random().toString().substr(2, 6)}`,
+      status: verificationStatus,
+      caqhId: isSuccess ? `CAQH${Math.random().toString(36).substr(2, 9).toUpperCase()}` : undefined,
       details: {
-        medicalLicense: "active",
-        boardCertification: "current",
-        malpracticeInsurance: "active",
-        deaRegistration: "active",
+        medicalLicense: isSuccess ? "active" : "verification_failed",
+        boardCertification: isSuccess ? "current" : "verification_failed",
+        malpracticeInsurance: isSuccess ? "active" : "verification_failed",
+        deaRegistration: isSuccess ? "active" : "verification_failed",
       },
-      expirationDates: {
+      expirationDates: isSuccess ? {
+        // Generate future dates dynamically (1-3 years from now)
         license: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
         board: new Date(Date.now() + 730 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
         malpractice: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
         dea: new Date(Date.now() + 1095 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-      },
+      } : undefined,
       lastUpdated: new Date().toISOString(),
       providerInfo: {
         npi: npi || "Unknown",
         licenseNumber: licenseNumber || "Unknown",
         licenseState: licenseState || "Unknown",
       },
+      ...(isSuccess ? {} : { errors: ["Verification failed - Please check credentials and try again"] }),
     }
 
     // Log verification attempt

@@ -75,6 +75,23 @@ interface DatabaseReferral {
   updated_at: string
 }
 
+// Financial alert type
+interface FinancialAlert {
+  id: string
+  type: string
+  severity: string
+  patientId: string
+  patientName: string
+  message: string
+  timestamp: string
+  actionRequired: boolean
+  recommendations?: string[]
+  changes?: {
+    previous: { plan: string; group: string }
+    current: { plan: string; group: string }
+  }
+}
+
 // Convert database referral to frontend Referral type
 const convertDbReferralToReferral = (dbRef: DatabaseReferral): Referral => ({
   id: dbRef.id,
@@ -99,14 +116,26 @@ export default function ReferralManagementPage() {
   const [referralTab, setReferralTab] = useState("new")
   const [isLoadingExtendedCare, setIsLoadingExtendedCare] = useState(false)
   const [extendedCareStatus, setExtendedCareStatus] = useState<"connected" | "disconnected" | "syncing">("connected")
-  const [lastSyncTime, setLastSyncTime] = useState<string>(new Date().toLocaleString())
+  const [lastSyncTime, setLastSyncTime] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
   const [filterSource, setFilterSource] = useState("all")
   const [isLoadingReferrals, setIsLoadingReferrals] = useState(false)
 
   const [eligibilityChecks, setEligibilityChecks] = useState<Record<string, any>>({})
   const [insuranceMonitoring, setInsuranceMonitoring] = useState<Record<string, any>>({})
-  const [financialAlerts, setFinancialAlerts] = useState<any[]>([])
+  const [financialAlerts, setFinancialAlerts] = useState<FinancialAlert[]>([])
+
+  // Manual referral entry state
+  const [manualEntry, setManualEntry] = useState({
+    patientName: "",
+    insuranceProvider: "",
+    insuranceId: "",
+    diagnosis: "",
+    referralDate: new Date().toISOString().split("T")[0],
+  })
+  const [isSubmittingManual, setIsSubmittingManual] = useState(false)
+  const [manualEntryError, setManualEntryError] = useState("")
+  const [manualEntrySuccess, setManualEntrySuccess] = useState(false)
 
   // Get current user and check permissions
   const currentUser = getCurrentUser()
@@ -117,12 +146,29 @@ export default function ReferralManagementPage() {
   // Fetch referrals from database
   const fetchReferrals = async () => {
     setIsLoadingReferrals(true)
+    console.log("🔄 Fetching referrals from database...")
+    
     try {
       const response = await fetch("/api/referrals")
+      console.log("Response status:", response.status)
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+      
       const data = await response.json()
+      console.log("Fetched data:", data)
       
       if (data && data.referrals) {
-        const convertedReferrals = data.referrals.map((dbRef: DatabaseReferral) => convertDbReferralToReferral(dbRef))
+        console.log(`✅ Found ${data.referrals.length} referrals`)
+        console.log("Raw referrals:", data.referrals)
+        
+        const convertedReferrals = data.referrals.map((dbRef: DatabaseReferral) => {
+          console.log("Converting referral:", dbRef)
+          return convertDbReferralToReferral(dbRef)
+        })
+        
+        console.log("Converted referrals:", convertedReferrals)
         setReferrals(convertedReferrals)
         
         // Load eligibility and insurance monitoring from database
@@ -140,9 +186,14 @@ export default function ReferralManagementPage() {
         
         setEligibilityChecks(newEligibilityChecks)
         setInsuranceMonitoring(newInsuranceMonitoring)
+      } else {
+        console.warn("⚠️ No referrals data in response")
       }
     } catch (error) {
-      console.error("Failed to fetch referrals:", error)
+      console.error("❌ Failed to fetch referrals:", error)
+      if (error instanceof Error) {
+        console.error("Error details:", error.message)
+      }
     } finally {
       setIsLoadingReferrals(false)
     }
@@ -151,6 +202,8 @@ export default function ReferralManagementPage() {
   // Load referrals on mount
   useEffect(() => {
     fetchReferrals()
+    // Set initial sync time on client-side only to avoid hydration mismatch
+    setLastSyncTime(new Date().toLocaleString())
   }, [])
 
   // Filter referrals based on status and search
@@ -172,10 +225,10 @@ export default function ReferralManagementPage() {
     if (searchTerm) {
       filtered = filtered.filter(
         (r) =>
-          r.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          r.diagnosis.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          r.insuranceProvider.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          r.referralSource.toLowerCase().includes(searchTerm.toLowerCase()),
+          r.patientName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.diagnosis?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.insuranceProvider?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          r.referralSource?.toLowerCase().includes(searchTerm.toLowerCase()),
       )
     }
 
@@ -232,7 +285,7 @@ export default function ReferralManagementPage() {
           referralType: "network",
           reimbursementRate: 0.92,
           contractedServices: ecReferral.requestedServices,
-          priorityLevel: ecReferral.urgencyLevel,
+          priorityLevel: ecReferral.urgencyLevel === "routine" ? "standard" : ecReferral.urgencyLevel,
         },
       }))
 
@@ -285,25 +338,50 @@ export default function ReferralManagementPage() {
   }
 
   const handleApprove = async (id: string) => {
+    console.log("✅ Approving referral:", id)
+    
     try {
       const socDueDate = new Date()
       socDueDate.setDate(socDueDate.getDate() + 5) // Set SOC due in 5 days
       
+      const requestBody = { 
+        status: "Approved", 
+        socDueDate: socDueDate.toISOString().split("T")[0] 
+      }
+      
+      console.log("Request body:", requestBody)
+      
       const response = await fetch(`/api/referrals/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: "Approved", socDueDate: socDueDate.toISOString().split("T")[0] }),
+        body: JSON.stringify(requestBody),
       })
 
-      if (response.ok) {
-        await fetchReferrals()
+      console.log("Response status:", response.status)
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error("Failed to approve:", error)
+        throw new Error(error.error || "Failed to approve referral")
       }
+
+      const result = await response.json()
+      console.log("Approved successfully:", result)
+
+      // Refresh the list
+      await fetchReferrals()
+      
+      // Show success feedback (you can add a toast notification here)
+      alert("✅ Referral approved successfully!")
     } catch (error) {
-      console.error("Failed to approve referral:", error)
+      console.error("❌ Failed to approve referral:", error)
+      alert("Failed to approve referral: " + (error instanceof Error ? error.message : "Unknown error"))
     }
   }
 
   const handleDeny = async (id: string) => {
+    console.log("❌ Denying referral:", id)
+    
     try {
       const response = await fetch(`/api/referrals/${id}`, {
         method: "PATCH",
@@ -311,27 +389,105 @@ export default function ReferralManagementPage() {
         body: JSON.stringify({ status: "Denied" }),
       })
 
-      if (response.ok) {
-        await fetchReferrals()
+      console.log("Response status:", response.status)
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error("Failed to deny:", error)
+        throw new Error(error.error || "Failed to deny referral")
       }
+
+      const result = await response.json()
+      console.log("Denied successfully:", result)
+
+      // Refresh the list
+      await fetchReferrals()
+      
+      // Show success feedback
+      alert("❌ Referral denied")
     } catch (error) {
-      console.error("Failed to deny referral:", error)
+      console.error("❌ Failed to deny referral:", error)
+      alert("Failed to deny referral: " + (error instanceof Error ? error.message : "Unknown error"))
     }
   }
 
   const handleRequestAuth = async (id: string) => {
+    console.log("⏳ Requesting prior auth for referral:", id)
+    
     try {
+      // Find the referral to get its details
+      const referral = referrals.find(r => r.id === id)
+      if (!referral) {
+        throw new Error("Referral not found")
+      }
+
+      // Create authorization record
+      const authorizationData = {
+        patientName: referral.patientName,
+        patientId: `PAT-${Date.now()}`, // Generate patient ID
+        insuranceProvider: referral.insuranceProvider || "Not specified",
+        insuranceId: referral.insuranceId || "Not provided",
+        authorizationType: "initial",
+        requestedServices: ["skilled_nursing"], // Default service
+        diagnosisCode: "", // Could be extracted from diagnosis if available
+        diagnosis: referral.diagnosis || "Not specified",
+        priority: referral.extendedCareData?.priorityLevel === "stat" ? "urgent" : 
+                  referral.extendedCareData?.priorityLevel === "urgent" ? "high" : "medium",
+        estimatedReimbursement: 0,
+        referralId: id,
+        reviewerNotes: `Authorization requested for ${referral.referralSource} referral`
+      }
+
+      console.log("Creating authorization:", authorizationData)
+
+      const authResponse = await fetch("/api/authorizations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(authorizationData),
+      })
+
+      if (!authResponse.ok) {
+        let authError
+        try {
+          authError = await authResponse.json()
+        } catch (e) {
+          authError = { error: `HTTP ${authResponse.status}: ${authResponse.statusText}` }
+        }
+        console.error("Failed to create authorization:", authError)
+        console.error("Response status:", authResponse.status)
+        console.error("Response statusText:", authResponse.statusText)
+        throw new Error(authError.error || `Failed to create authorization (${authResponse.status})`)
+      }
+
+      const authResult = await authResponse.json()
+      console.log("Authorization created:", authResult)
+
+      // Update referral status to Pending Auth
       const response = await fetch(`/api/referrals/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "Pending Auth" }),
       })
 
-      if (response.ok) {
-        await fetchReferrals()
+      console.log("Response status:", response.status)
+
+      if (!response.ok) {
+        const error = await response.json()
+        console.error("Failed to update referral status:", error)
+        throw new Error(error.error || "Failed to update referral status")
       }
+
+      const result = await response.json()
+      console.log("Referral status updated successfully:", result)
+
+      // Refresh the list
+      await fetchReferrals()
+      
+      // Show success feedback
+      alert("⏳ Prior authorization requested successfully! Check the Authorization Tracking tab to monitor progress.")
     } catch (error) {
-      console.error("Failed to request auth:", error)
+      console.error("❌ Failed to request auth:", error)
+      alert("Failed to request authorization: " + (error instanceof Error ? error.message : "Unknown error"))
     }
   }
 
@@ -514,6 +670,113 @@ export default function ReferralManagementPage() {
     }
   }
 
+  const handleManualReferralSubmit = async () => {
+    // Validate required fields
+    if (!manualEntry.patientName.trim()) {
+      setManualEntryError("Patient name is required")
+      return
+    }
+    if (!manualEntry.insuranceProvider.trim()) {
+      setManualEntryError("Insurance provider is required")
+      return
+    }
+    if (!manualEntry.insuranceId.trim()) {
+      setManualEntryError("Insurance ID is required")
+      return
+    }
+    if (!manualEntry.diagnosis.trim()) {
+      setManualEntryError("Primary diagnosis is required")
+      return
+    }
+
+    setIsSubmittingManual(true)
+    setManualEntryError("")
+    setManualEntrySuccess(false)
+
+    try {
+      const requestBody: any = {
+        patientName: manualEntry.patientName.trim(),
+        referralDate: manualEntry.referralDate,
+        referralSource: "Manual Entry",
+        diagnosis: manualEntry.diagnosis.trim(),
+        insuranceProvider: manualEntry.insuranceProvider.trim(),
+        insuranceId: manualEntry.insuranceId.trim(),
+      }
+      
+      // Optional: Add AI fields if you want AI recommendations
+      // These fields require the ai_reason and ai_recommendation columns in the database
+      // If columns don't exist, comment these out or run the migration in scripts/074-add-ai-reason-column.sql
+      // requestBody.aiRecommendation = "Review"
+      // requestBody.aiReason = "Manually entered referral requires review"
+
+      console.log("Submitting referral:", requestBody)
+
+      const response = await fetch("/api/referrals", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      })
+
+      console.log("Response status:", response.status)
+
+      if (!response.ok) {
+        let errorMessage = "Failed to create referral"
+        let detailedError = null
+        try {
+          const error = await response.json()
+          console.error("API error response:", error)
+          errorMessage = error.error || errorMessage
+          detailedError = error
+          
+          // If it's a configuration error, show setup instructions
+          if (error.setupInstructions) {
+            console.error("⚠️ SETUP REQUIRED:", error.setupInstructions)
+            console.error("📖 See ENV_SETUP_REFERRALS.md for detailed instructions")
+            errorMessage = `${errorMessage}\n\nSetup needed: ${error.details || 'Missing configuration'}`
+          }
+          
+          if (error.details) {
+            console.error("Error details:", error.details)
+          }
+        } catch (e) {
+          console.error("Could not parse error response:", e)
+          errorMessage = `Server error (${response.status}): ${response.statusText}`
+        }
+        throw new Error(errorMessage)
+      }
+
+      const result = await response.json()
+      console.log("Referral created successfully:", result)
+
+      // Show success message
+      setManualEntrySuccess(true)
+
+      // Reset form
+      setManualEntry({
+        patientName: "",
+        insuranceProvider: "",
+        insuranceId: "",
+        diagnosis: "",
+        referralDate: new Date().toISOString().split("T")[0],
+      })
+
+      // Refresh referrals list
+      await fetchReferrals()
+
+      // Hide success message after 5 seconds
+      setTimeout(() => {
+        setManualEntrySuccess(false)
+      }, 5000)
+    } catch (error) {
+      console.error("Error submitting manual referral:", error)
+      setManualEntryError(error instanceof Error ? error.message : "Failed to submit referral. Please try again.")
+    } finally {
+      setIsSubmittingManual(false)
+    }
+  }
+
   // Auto-sync every 5 minutes
   useEffect(() => {
     const interval = setInterval(
@@ -614,7 +877,7 @@ export default function ReferralManagementPage() {
                   <div>
                     <CardTitle className="text-lg">ExtendedCare Integration</CardTitle>
                     <CardDescription>
-                      {extendedCareReferrals.length} referrals from ExtendedCare Network • Last sync: {lastSyncTime}
+                      {extendedCareReferrals.length} referrals from ExtendedCare Network • Last sync: {lastSyncTime || "Loading..."}
                     </CardDescription>
                   </div>
                 </div>
@@ -686,7 +949,7 @@ export default function ReferralManagementPage() {
                           <div className="text-xs">
                             <strong>Recommended Actions:</strong>
                             <ul className="list-disc list-inside mt-1">
-                              {alert.recommendations.map((rec, idx) => (
+                              {alert.recommendations.map((rec: string, idx: number) => (
                                 <li key={idx}>{rec}</li>
                               ))}
                             </ul>
@@ -716,10 +979,21 @@ export default function ReferralManagementPage() {
         <div className="mb-6">
           <Card>
             <CardHeader>
-              <CardTitle className="flex items-center space-x-2">
-                <Filter className="h-5 w-5" />
-                <span>Search & Filter</span>
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center space-x-2">
+                  <Filter className="h-5 w-5" />
+                  <span>Search & Filter</span>
+                </CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchReferrals}
+                  disabled={isLoadingReferrals}
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingReferrals ? "animate-spin" : ""}`} />
+                  {isLoadingReferrals ? "Loading..." : "Refresh"}
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -753,6 +1027,22 @@ export default function ReferralManagementPage() {
                   Clear Filters
                 </Button>
               </div>
+              {isLoadingReferrals && (
+                <div className="mt-4 text-center text-sm text-gray-500">
+                  <RefreshCw className="h-4 w-4 animate-spin inline mr-2" />
+                  Loading referrals...
+                </div>
+              )}
+              {!isLoadingReferrals && referrals.length === 0 && (
+                <div className="mt-4 text-center text-sm text-gray-500">
+                  No referrals found. Create one using the form below!
+                </div>
+              )}
+              {!isLoadingReferrals && referrals.length > 0 && (
+                <div className="mt-4 text-center text-sm text-green-600">
+                  ✅ {referrals.length} referral{referrals.length !== 1 ? 's' : ''} loaded
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -808,11 +1098,11 @@ export default function ReferralManagementPage() {
                             <CardContent>
                               <div className="grid grid-cols-2 gap-4 text-sm mb-4">
                                 <div>
-                                  <span className="font-medium">Diagnosis:</span> {referral.diagnosis}
+                                  <span className="font-medium">Diagnosis:</span> {referral.diagnosis || "Not specified"}
                                 </div>
                                 <div>
-                                  <span className="font-medium">Insurance:</span> {referral.insuranceProvider} (
-                                  {referral.insuranceId})
+                                  <span className="font-medium">Insurance:</span> {referral.insuranceProvider || "N/A"} (
+                                  {referral.insuranceId || "N/A"})
                                 </div>
                               </div>
 
@@ -1044,19 +1334,126 @@ export default function ReferralManagementPage() {
                     <CardDescription>Enter referral details manually.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    {manualEntrySuccess && (
+                      <Alert className="bg-green-50 border-green-200">
+                        <Check className="h-4 w-4 text-green-600" />
+                        <AlertTitle className="text-green-800">Success!</AlertTitle>
+                        <AlertDescription className="text-green-700">
+                          Referral submitted successfully and added to New Referrals.
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    
+                    {manualEntryError && (
+                      <Alert className="bg-red-50 border-red-200">
+                        <X className="h-4 w-4 text-red-600" />
+                        <AlertTitle className="text-red-800">Error</AlertTitle>
+                        <AlertDescription className="text-red-700 whitespace-pre-line">
+                          {manualEntryError}
+                          {manualEntryError.includes("SUPABASE_SERVICE_ROLE_KEY") && (
+                            <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                              <div className="flex items-start">
+                                <Shield className="h-5 w-5 text-yellow-600 mr-2 flex-shrink-0 mt-0.5" />
+                                <div className="text-sm">
+                                  <strong className="text-yellow-900">Administrator Setup Required</strong>
+                                  <p className="mt-1 text-yellow-800">
+                                    The Supabase Service Role Key is missing. This is a one-time setup needed by the system administrator.
+                                  </p>
+                                  <div className="mt-2 text-xs text-yellow-700">
+                                    📖 Quick Fix Guide: <code className="bg-yellow-100 px-1 py-0.5 rounded font-mono">QUICK_FIX_REFERRAL_ERROR.md</code>
+                                    <br />
+                                    📚 Detailed Guide: <code className="bg-yellow-100 px-1 py-0.5 rounded font-mono">ENV_SETUP_REFERRALS.md</code>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+
                     <div>
-                      <Label htmlFor="manual-name">Patient Name</Label>
-                      <Input id="manual-name" placeholder="John Smith" />
+                      <Label htmlFor="manual-name">
+                        Patient Name <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="manual-name"
+                        placeholder="John Smith"
+                        value={manualEntry.patientName}
+                        onChange={(e) => setManualEntry({ ...manualEntry, patientName: e.target.value })}
+                        disabled={isSubmittingManual}
+                      />
                     </div>
+                    
                     <div>
-                      <Label htmlFor="manual-insurance">Insurance Provider</Label>
-                      <Input id="manual-insurance" placeholder="Medicare" />
+                      <Label htmlFor="manual-date">
+                        Referral Date <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="manual-date"
+                        type="date"
+                        value={manualEntry.referralDate}
+                        onChange={(e) => setManualEntry({ ...manualEntry, referralDate: e.target.value })}
+                        disabled={isSubmittingManual}
+                      />
                     </div>
+
                     <div>
-                      <Label htmlFor="manual-diagnosis">Primary Diagnosis</Label>
-                      <Input id="manual-diagnosis" placeholder="Post-operative care" />
+                      <Label htmlFor="manual-insurance">
+                        Insurance Provider <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="manual-insurance"
+                        placeholder="Medicare"
+                        value={manualEntry.insuranceProvider}
+                        onChange={(e) => setManualEntry({ ...manualEntry, insuranceProvider: e.target.value })}
+                        disabled={isSubmittingManual}
+                      />
                     </div>
-                    <Button className="w-full">Submit Referral</Button>
+
+                    <div>
+                      <Label htmlFor="manual-insurance-id">
+                        Insurance ID <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="manual-insurance-id"
+                        placeholder="1234567890"
+                        value={manualEntry.insuranceId}
+                        onChange={(e) => setManualEntry({ ...manualEntry, insuranceId: e.target.value })}
+                        disabled={isSubmittingManual}
+                      />
+                    </div>
+
+                    <div>
+                      <Label htmlFor="manual-diagnosis">
+                        Primary Diagnosis <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="manual-diagnosis"
+                        placeholder="Post-operative care"
+                        value={manualEntry.diagnosis}
+                        onChange={(e) => setManualEntry({ ...manualEntry, diagnosis: e.target.value })}
+                        disabled={isSubmittingManual}
+                      />
+                    </div>
+
+                    <Button
+                      className="w-full"
+                      onClick={handleManualReferralSubmit}
+                      disabled={isSubmittingManual}
+                    >
+                      {isSubmittingManual ? (
+                        <>
+                          <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="h-4 w-4 mr-2" />
+                          Submit Referral
+                        </>
+                      )}
+                    </Button>
                   </CardContent>
                 </Card>
 

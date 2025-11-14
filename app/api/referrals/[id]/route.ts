@@ -1,27 +1,87 @@
 import { NextRequest, NextResponse } from "next/server"
-import { createClient } from "@/lib/supabase/server"
+import { createAdminClient } from "@/lib/supabase/server"
 
-// GET /api/referrals/[id] - Get a specific referral
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+// PATCH /api/referrals/[id] - Update referral status
+export async function PATCH(
+  request: NextRequest, 
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createClient()
-    const { id } = params
+    const params = await context.params
+    console.log("=== Updating referral ===")
+    console.log("Referral ID:", params.id)
+
+    const supabase = createAdminClient()
+    const body = await request.json()
+    
+    console.log("Update data:", body)
+
+    const { status, socDueDate } = body
+
+    if (!status) {
+      console.error("❌ Missing status in request")
+      return NextResponse.json({ error: "Status is required" }, { status: 400 })
+    }
+
+    // Build update data
+    const updateData: any = {
+      status: status,
+      updated_at: new Date().toISOString(),
+    }
+
+    if (socDueDate) {
+      updateData.soc_due_date = socDueDate
+    }
+
+    console.log("Updating referral with data:", updateData)
+
+    const { data, error } = await supabase
+      .from("referrals")
+      .update(updateData)
+      .eq("id", params.id)
+      .select()
+      .single()
+
+    if (error) {
+      console.error("❌ Supabase error:", error)
+      return NextResponse.json({ 
+        error: `Database error: ${error.message}`,
+        details: error.details,
+        hint: error.hint
+      }, { status: 500 })
+    }
+
+    if (!data) {
+      console.error("❌ No data returned after update")
+      return NextResponse.json({ error: "Referral not found" }, { status: 404 })
+    }
+
+    console.log("✅ Referral updated successfully:", data)
+    return NextResponse.json({ referral: data, success: true })
+  } catch (error) {
+    console.error("❌ Error updating referral:", error)
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
+    return NextResponse.json({ error: `Internal server error: ${errorMessage}` }, { status: 500 })
+  }
+}
+
+// GET /api/referrals/[id] - Get single referral
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const params = await context.params
+    const supabase = createAdminClient()
 
     const { data, error } = await supabase
       .from("referrals")
       .select("*")
-      .eq("id", id)
+      .eq("id", params.id)
       .single()
 
     if (error) {
       console.error("Error fetching referral:", error)
-      return NextResponse.json({ error: "Failed to fetch referral" }, { status: 500 })
-    }
-
-    if (!data) {
       return NextResponse.json({ error: "Referral not found" }, { status: 404 })
     }
 
@@ -32,59 +92,19 @@ export async function GET(
   }
 }
 
-// PATCH /api/referrals/[id] - Update a referral
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    const supabase = await createClient()
-    const { id } = params
-    const body = await request.json()
-
-    // Map frontend fields to database fields
-    const updateData: any = {}
-    
-    if (body.status !== undefined) updateData.status = body.status
-    if (body.socDueDate !== undefined) updateData.soc_due_date = body.socDueDate
-    if (body.aiRecommendation !== undefined) updateData.ai_recommendation = body.aiRecommendation
-    if (body.aiReason !== undefined) updateData.ai_reason = body.aiReason
-    if (body.eligibilityStatus !== undefined) updateData.eligibility_status = body.eligibilityStatus
-    if (body.insuranceMonitoring !== undefined) updateData.insurance_monitoring = body.insuranceMonitoring
-    if (body.extendedCareData !== undefined) updateData.extendedcare_data = body.extendedCareData
-    
-    // Update the updated_at timestamp
-    updateData.updated_at = new Date().toISOString()
-
-    const { data, error } = await supabase
-      .from("referrals")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single()
-
-    if (error) {
-      console.error("Error updating referral:", error)
-      return NextResponse.json({ error: "Failed to update referral" }, { status: 500 })
-    }
-
-    return NextResponse.json({ referral: data })
-  } catch (error) {
-    console.error("Error in referral PATCH:", error)
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
-  }
-}
-
-// DELETE /api/referrals/[id] - Delete a referral
+// DELETE /api/referrals/[id] - Delete referral
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const supabase = await createClient()
-    const { id } = params
+    const params = await context.params
+    const supabase = createAdminClient()
 
-    const { error } = await supabase.from("referrals").delete().eq("id", id)
+    const { error } = await supabase
+      .from("referrals")
+      .delete()
+      .eq("id", params.id)
 
     if (error) {
       console.error("Error deleting referral:", error)
@@ -97,5 +117,3 @@ export async function DELETE(
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
-
-

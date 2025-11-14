@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -77,79 +77,17 @@ interface VerificationResult {
 }
 
 export default function PhysiciansPage() {
-  const [physicians, setPhysicians] = useState<Physician[]>([
-    {
-      id: "1",
-      npi: "1234567890",
-      firstName: "Dr. Sarah",
-      lastName: "Johnson",
-      specialty: "Internal Medicine",
-      licenseNumber: "MD123456",
-      licenseState: "MI",
-      licenseExpiration: "2024-12-31",
-      caqhId: "CAQH123456",
-      verificationStatus: "verified",
-      lastVerified: "2024-01-15",
-      boardCertification: "Internal Medicine",
-      boardExpiration: "2025-06-30",
-      malpracticeInsurance: true,
-      malpracticeExpiration: "2024-08-15",
-      deaNumber: "BJ1234567",
-      deaExpiration: "2025-03-20",
-      hospitalAffiliations: ["Henry Ford Hospital", "Beaumont Hospital"],
-      addedDate: "2023-06-15",
-      addedBy: "Admin User",
-      notes: "Primary care physician for home health patients",
-    },
-    {
-      id: "2",
-      npi: "0987654321",
-      firstName: "Dr. Michael",
-      lastName: "Chen",
-      specialty: "Cardiology",
-      licenseNumber: "MD789012",
-      licenseState: "MI",
-      licenseExpiration: "2024-03-15",
-      verificationStatus: "expired",
-      lastVerified: "2023-12-01",
-      boardCertification: "Cardiovascular Disease",
-      boardExpiration: "2024-12-31",
-      malpracticeInsurance: true,
-      malpracticeExpiration: "2024-11-30",
-      hospitalAffiliations: ["University of Michigan Hospital"],
-      addedDate: "2023-08-20",
-      addedBy: "Clinical Director",
-      notes: "Specialist for cardiac patients",
-    },
-    {
-      id: "3",
-      npi: "1122334455",
-      firstName: "Dr. Emily",
-      lastName: "Rodriguez",
-      specialty: "Family Medicine",
-      licenseNumber: "MD345678",
-      licenseState: "MI",
-      licenseExpiration: "2025-09-30",
-      verificationStatus: "pending",
-      lastVerified: "Never",
-      boardCertification: "Family Medicine",
-      boardExpiration: "2025-04-15",
-      malpracticeInsurance: true,
-      malpracticeExpiration: "2024-07-31",
-      hospitalAffiliations: ["McLaren Health Care"],
-      addedDate: "2024-01-10",
-      addedBy: "HR Manager",
-      notes: "Recently added physician",
-    },
-  ])
-
+  const [physicians, setPhysicians] = useState<Physician[]>([])
   const [isAddPhysicianOpen, setIsAddPhysicianOpen] = useState(false)
   const [isVerificationOpen, setIsVerificationOpen] = useState(false)
+  const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false)
   const [selectedPhysician, setSelectedPhysician] = useState<Physician | null>(null)
   const [verificationResults, setVerificationResults] = useState<VerificationResult | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [filterStatus, setFilterStatus] = useState("all")
   const [isVerifying, setIsVerifying] = useState<Set<string>>(new Set())
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const [newPhysician, setNewPhysician] = useState({
     npi: "",
@@ -166,6 +104,54 @@ export default function PhysiciansPage() {
     hospitalAffiliations: "",
     notes: "",
   })
+
+  // Fetch physicians from API
+  const fetchPhysicians = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      const response = await fetch("/api/physicians")
+      if (!response.ok) throw new Error("Failed to fetch physicians")
+      
+      const data = await response.json()
+      
+      // Transform snake_case to camelCase for frontend
+      const transformedPhysicians = data.physicians.map((p: any) => ({
+        id: p.id,
+        npi: p.npi,
+        firstName: p.first_name,
+        lastName: p.last_name,
+        specialty: p.specialty || "",
+        licenseNumber: p.license_number || "",
+        licenseState: p.license_state || "",
+        licenseExpiration: p.license_expiration || "",
+        caqhId: p.caqh_id,
+        verificationStatus: p.verification_status,
+        lastVerified: p.last_verified || "Never",
+        boardCertification: p.board_certification,
+        boardExpiration: p.board_expiration,
+        malpracticeInsurance: p.malpractice_insurance,
+        malpracticeExpiration: p.malpractice_expiration,
+        deaNumber: p.dea_number,
+        deaExpiration: p.dea_expiration,
+        hospitalAffiliations: p.hospital_affiliations || [],
+        addedDate: new Date(p.created_at).toISOString().split("T")[0],
+        addedBy: p.added_by || "Unknown",
+        notes: p.notes,
+      }))
+      
+      setPhysicians(transformedPhysicians)
+    } catch (err) {
+      console.error("Error fetching physicians:", err)
+      setError("Failed to load physicians")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPhysicians()
+  }, [])
 
   const filteredPhysicians = physicians.filter((physician) => {
     const matchesSearch =
@@ -242,35 +228,97 @@ export default function PhysiciansPage() {
     setIsVerifying((prev) => new Set(prev).add(physicianId))
 
     try {
+      const physician = physicians.find((p) => p.id === physicianId)
+      if (!physician) return
+
+      // Step 1: Set status to "pending" before verification starts
+      const pendingUpdate = await fetch(`/api/physicians/${physicianId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          verificationStatus: "pending",
+        }),
+      })
+
+      if (pendingUpdate.ok) {
+        // Update local state to show pending immediately
+        setPhysicians((prev) =>
+          prev.map((p) =>
+            p.id === physicianId
+              ? { ...p, verificationStatus: "pending" as const }
+              : p,
+          ),
+        )
+      }
+
+      // Step 2: Call CAQH verification API
       const response = await fetch("/api/caqh/verify-physician", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ physicianId }),
+        body: JSON.stringify({ 
+          physicianId,
+          npi: physician.npi,
+          licenseNumber: physician.licenseNumber,
+          licenseState: physician.licenseState,
+        }),
       })
 
       if (!response.ok) throw new Error("Verification failed")
 
       const result = await response.json()
 
-      // Update physician status
-      setPhysicians((prev) =>
-        prev.map((physician) =>
-          physician.id === physicianId
-            ? {
-                ...physician,
-                verificationStatus: result.status === "verified" ? "verified" : "error",
-                lastVerified: new Date().toISOString().split("T")[0],
-                caqhId: result.caqhId,
-              }
-            : physician,
-        ),
-      )
+      // Step 3: Update physician with verification results
+      const updateResponse = await fetch(`/api/physicians/${physicianId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          verificationStatus: result.status || "error", // Use actual status from API
+          lastVerified: new Date().toISOString().split("T")[0],
+          caqhId: result.caqhId,
+        }),
+      })
+
+      if (updateResponse.ok) {
+        // Update local state with final verification status
+        setPhysicians((prev) =>
+          prev.map((p) =>
+            p.id === physicianId
+              ? {
+                  ...p,
+                  verificationStatus: (result.status || "error") as any,
+                  lastVerified: new Date().toISOString().split("T")[0],
+                  caqhId: result.caqhId,
+                }
+              : p,
+          ),
+        )
+      }
 
       setVerificationResults(result)
       setSelectedPhysician(physicians.find((p) => p.id === physicianId) || null)
       setIsVerificationOpen(true)
     } catch (error) {
       console.error("Verification error:", error)
+      setError("Failed to verify physician")
+      
+      // Set to error status if verification fails
+      const errorUpdate = await fetch(`/api/physicians/${physicianId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          verificationStatus: "error",
+        }),
+      })
+      
+      if (errorUpdate.ok) {
+        setPhysicians((prev) =>
+          prev.map((p) =>
+            p.id === physicianId
+              ? { ...p, verificationStatus: "error" as const }
+              : p,
+          ),
+        )
+      }
     } finally {
       setIsVerifying((prev) => {
         const newSet = new Set(prev)
@@ -281,50 +329,70 @@ export default function PhysiciansPage() {
   }
 
   const addPhysician = async () => {
-    const physician: Physician = {
-      id: Date.now().toString(),
-      npi: newPhysician.npi,
-      firstName: newPhysician.firstName,
-      lastName: newPhysician.lastName,
-      specialty: newPhysician.specialty,
-      licenseNumber: newPhysician.licenseNumber,
-      licenseState: newPhysician.licenseState,
-      licenseExpiration: newPhysician.licenseExpiration,
-      verificationStatus: "not_verified",
-      lastVerified: "Never",
-      boardCertification: newPhysician.boardCertification,
-      boardExpiration: newPhysician.boardExpiration,
-      malpracticeInsurance: true,
-      deaNumber: newPhysician.deaNumber,
-      deaExpiration: newPhysician.deaExpiration,
-      hospitalAffiliations: newPhysician.hospitalAffiliations.split(",").map((s) => s.trim()),
-      addedDate: new Date().toISOString().split("T")[0],
-      addedBy: "Current User",
-      notes: newPhysician.notes,
+    try {
+      const physicianData = {
+        npi: newPhysician.npi,
+        firstName: newPhysician.firstName,
+        lastName: newPhysician.lastName,
+        specialty: newPhysician.specialty,
+        licenseNumber: newPhysician.licenseNumber,
+        licenseState: newPhysician.licenseState,
+        licenseExpiration: newPhysician.licenseExpiration || null,
+        boardCertification: newPhysician.boardCertification,
+        boardExpiration: newPhysician.boardExpiration || null,
+        malpracticeInsurance: true,
+        deaNumber: newPhysician.deaNumber,
+        deaExpiration: newPhysician.deaExpiration || null,
+        hospitalAffiliations: newPhysician.hospitalAffiliations
+          ? newPhysician.hospitalAffiliations.split(",").map((s) => s.trim())
+          : [],
+        notes: newPhysician.notes,
+        addedBy: "Current User",
+      }
+
+      const response = await fetch("/api/physicians", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(physicianData),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to add physician")
+      }
+
+      const result = await response.json()
+      
+      // Refresh the physician list
+      await fetchPhysicians()
+
+      setIsAddPhysicianOpen(false)
+
+      // Reset form
+      setNewPhysician({
+        npi: "",
+        firstName: "",
+        lastName: "",
+        specialty: "",
+        licenseNumber: "",
+        licenseState: "MI",
+        licenseExpiration: "",
+        boardCertification: "",
+        boardExpiration: "",
+        deaNumber: "",
+        deaExpiration: "",
+        hospitalAffiliations: "",
+        notes: "",
+      })
+
+      // Automatically start verification after a short delay
+      if (result.physician?.id) {
+        setTimeout(() => verifyPhysician(result.physician.id), 1000)
+      }
+    } catch (err) {
+      console.error("Error adding physician:", err)
+      setError(err instanceof Error ? err.message : "Failed to add physician")
     }
-
-    setPhysicians((prev) => [...prev, physician])
-    setIsAddPhysicianOpen(false)
-
-    // Reset form
-    setNewPhysician({
-      npi: "",
-      firstName: "",
-      lastName: "",
-      specialty: "",
-      licenseNumber: "",
-      licenseState: "MI",
-      licenseExpiration: "",
-      boardCertification: "",
-      boardExpiration: "",
-      deaNumber: "",
-      deaExpiration: "",
-      hospitalAffiliations: "",
-      notes: "",
-    })
-
-    // Automatically start verification
-    setTimeout(() => verifyPhysician(physician.id), 1000)
   }
 
   const stats = {
@@ -495,7 +563,28 @@ export default function PhysiciansPage() {
                   </div>
                 </DialogContent>
               </Dialog>
-              <Button variant="outline">
+              <Button 
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    const response = await fetch("/api/physicians/export")
+                    if (!response.ok) throw new Error("Export failed")
+                    
+                    const blob = await response.blob()
+                    const url = window.URL.createObjectURL(blob)
+                    const a = document.createElement("a")
+                    a.href = url
+                    a.download = `physicians_export_${new Date().toISOString().split("T")[0]}.csv`
+                    document.body.appendChild(a)
+                    a.click()
+                    window.URL.revokeObjectURL(url)
+                    document.body.removeChild(a)
+                  } catch (err) {
+                    console.error("Export error:", err)
+                    setError("Failed to export physicians")
+                  }
+                }}
+              >
                 <Download className="h-4 w-4 mr-2" />
                 Export Report
               </Button>
@@ -505,7 +594,32 @@ export default function PhysiciansPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
+            <div className="flex items-center">
+              <AlertCircle className="h-5 w-5 mr-2" />
+              <span>{error}</span>
+              <button
+                onClick={() => setError(null)}
+                className="ml-auto text-red-600 hover:text-red-800"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Loading State */}
+        {isLoading && (
+          <div className="flex justify-center items-center py-12">
+            <RefreshCw className="h-8 w-8 animate-spin text-blue-500" />
+            <span className="ml-3 text-gray-600">Loading physicians...</span>
+          </div>
+        )}
+
         {/* Statistics Cards */}
+        {!isLoading && (
         <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
           <Card>
             <CardContent className="p-6">
@@ -567,8 +681,11 @@ export default function PhysiciansPage() {
             </CardContent>
           </Card>
         </div>
+        )}
 
         {/* Search and Filter */}
+        {!isLoading && (
+        <>
         <Card className="mb-6">
           <CardContent className="p-6">
             <div className="flex items-center space-x-4">
@@ -669,7 +786,14 @@ export default function PhysiciansPage() {
                               <UserCheck className="h-4 w-4" />
                             )}
                           </Button>
-                          <Button size="sm" variant="outline">
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => {
+                              setSelectedPhysician(physician)
+                              setIsViewDetailsOpen(true)
+                            }}
+                          >
                             <Eye className="h-4 w-4" />
                           </Button>
                         </div>
@@ -793,6 +917,219 @@ export default function PhysiciansPage() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* View Physician Details Dialog */}
+        <Dialog open={isViewDetailsOpen} onOpenChange={setIsViewDetailsOpen}>
+          <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Physician Details</DialogTitle>
+              <DialogDescription>
+                Complete information for {selectedPhysician?.firstName} {selectedPhysician?.lastName}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedPhysician && (
+              <div className="space-y-6">
+                {/* Basic Information */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-lg border-b pb-2">Basic Information</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-gray-600">Full Name</Label>
+                      <div className="font-medium text-lg">
+                        {selectedPhysician.firstName} {selectedPhysician.lastName}
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">NPI Number</Label>
+                      <div className="font-mono font-medium">{selectedPhysician.npi}</div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Specialty</Label>
+                      <div className="font-medium">{selectedPhysician.specialty || "Not specified"}</div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Verification Status</Label>
+                      <div className="mt-1">{getStatusBadge(selectedPhysician.verificationStatus)}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* License Information */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-lg border-b pb-2">License Information</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-gray-600">License Number</Label>
+                      <div className="font-medium">{selectedPhysician.licenseNumber || "Not provided"}</div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">License State</Label>
+                      <div className="font-medium">{selectedPhysician.licenseState || "Not provided"}</div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">License Expiration</Label>
+                      {selectedPhysician.licenseExpiration ? (
+                        <div className={getExpirationStatus(selectedPhysician.licenseExpiration).color}>
+                          <div className="font-medium">{selectedPhysician.licenseExpiration}</div>
+                          <div className="text-sm">
+                            {getExpirationStatus(selectedPhysician.licenseExpiration).status === "expired"
+                              ? `Expired ${getExpirationStatus(selectedPhysician.licenseExpiration).days} days ago`
+                              : `${getExpirationStatus(selectedPhysician.licenseExpiration).days} days remaining`}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-gray-500">Not provided</div>
+                      )}
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Last Verified</Label>
+                      <div className="font-medium">{selectedPhysician.lastVerified}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CAQH Information */}
+                {selectedPhysician.caqhId && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-lg border-b pb-2">CAQH Information</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-gray-600">CAQH ID</Label>
+                        <div className="font-mono font-medium">{selectedPhysician.caqhId}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Board Certification */}
+                {(selectedPhysician.boardCertification || selectedPhysician.boardExpiration) && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-lg border-b pb-2">Board Certification</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      {selectedPhysician.boardCertification && (
+                        <div>
+                          <Label className="text-gray-600">Certification</Label>
+                          <div className="font-medium">{selectedPhysician.boardCertification}</div>
+                        </div>
+                      )}
+                      {selectedPhysician.boardExpiration && (
+                        <div>
+                          <Label className="text-gray-600">Expiration Date</Label>
+                          <div className="font-medium">{selectedPhysician.boardExpiration}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Malpractice Insurance */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-lg border-b pb-2">Malpractice Insurance</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-gray-600">Status</Label>
+                      <div className="font-medium">
+                        {selectedPhysician.malpracticeInsurance ? (
+                          <Badge className="bg-green-100 text-green-800">Active</Badge>
+                        ) : (
+                          <Badge variant="secondary">Not Active</Badge>
+                        )}
+                      </div>
+                    </div>
+                    {selectedPhysician.malpracticeExpiration && (
+                      <div>
+                        <Label className="text-gray-600">Expiration Date</Label>
+                        <div className="font-medium">{selectedPhysician.malpracticeExpiration}</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* DEA Information */}
+                {(selectedPhysician.deaNumber || selectedPhysician.deaExpiration) && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-lg border-b pb-2">DEA Registration</h4>
+                    <div className="grid grid-cols-2 gap-4">
+                      {selectedPhysician.deaNumber && (
+                        <div>
+                          <Label className="text-gray-600">DEA Number</Label>
+                          <div className="font-mono font-medium">{selectedPhysician.deaNumber}</div>
+                        </div>
+                      )}
+                      {selectedPhysician.deaExpiration && (
+                        <div>
+                          <Label className="text-gray-600">Expiration Date</Label>
+                          <div className="font-medium">{selectedPhysician.deaExpiration}</div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Hospital Affiliations */}
+                {selectedPhysician.hospitalAffiliations && selectedPhysician.hospitalAffiliations.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-lg border-b pb-2">Hospital Affiliations</h4>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedPhysician.hospitalAffiliations.map((hospital, index) => (
+                        <Badge key={index} variant="outline" className="text-sm">
+                          {hospital}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {selectedPhysician.notes && (
+                  <div className="space-y-3">
+                    <h4 className="font-semibold text-lg border-b pb-2">Notes</h4>
+                    <div className="text-sm text-gray-700 bg-gray-50 p-3 rounded">
+                      {selectedPhysician.notes}
+                    </div>
+                  </div>
+                )}
+
+                {/* Audit Information */}
+                <div className="space-y-3">
+                  <h4 className="font-semibold text-lg border-b pb-2">Audit Information</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <Label className="text-gray-600">Added Date</Label>
+                      <div className="font-medium">{selectedPhysician.addedDate}</div>
+                    </div>
+                    <div>
+                      <Label className="text-gray-600">Added By</Label>
+                      <div className="font-medium">{selectedPhysician.addedBy}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end space-x-2 pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setIsViewDetailsOpen(false)
+                      setTimeout(() => {
+                        setSelectedPhysician(selectedPhysician)
+                        verifyPhysician(selectedPhysician.id)
+                      }, 100)
+                    }}
+                  >
+                    <UserCheck className="h-4 w-4 mr-2" />
+                    Verify Credentials
+                  </Button>
+                  <Button onClick={() => setIsViewDetailsOpen(false)}>
+                    Close
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+        </>
+        )}
       </main>
     </div>
   )

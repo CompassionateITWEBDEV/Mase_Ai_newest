@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -9,38 +9,41 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Timeline, TimelineItem } from "@/components/ui/timeline"
-import { CheckCircle, XCircle, FileText, RefreshCw, Search } from "lucide-react"
+import { CheckCircle, XCircle, FileText, RefreshCw, Search, Loader2 } from "lucide-react"
 
 interface Authorization {
   id: string
-  patientName: string
-  patientId: string
-  insuranceProvider: string
-  insuranceId: string
-  authorizationType: "initial" | "recertification" | "additional_services"
-  requestedServices: string[]
-  diagnosisCode: string
+  patient_name: string
+  patient_id?: string
+  insurance_provider: string
+  insurance_id: string
+  authorization_type: "initial" | "recertification" | "additional_services"
+  requested_services: string[]
+  diagnosis_code?: string
   diagnosis: string
   status: "pending" | "approved" | "denied" | "expired" | "in_review"
-  submittedDate: string
-  responseDate?: string
-  expirationDate?: string
-  authorizationNumber?: string
-  approvedVisits?: number
-  approvedServices?: string[]
-  denialReason?: string
-  reviewerNotes?: string
-  assignedTo: string
+  submitted_date: string
+  response_date?: string
+  expiration_date?: string
+  authorization_number?: string
+  approved_visits?: number
+  approved_services?: string[]
+  denial_reason?: string
+  reviewer_notes?: string
+  assigned_to?: string
+  assigned_staff_id?: string
   priority: "low" | "medium" | "high" | "urgent"
-  estimatedReimbursement: number
-  actualReimbursement?: number
-  lastUpdated: string
+  estimated_reimbursement: number
+  actual_reimbursement?: number
   timeline: {
     date: string
     action: string
     user: string
     notes?: string
   }[]
+  referral_id?: string
+  created_at?: string
+  updated_at?: string
 }
 
 interface AuthorizationTrackerProps {
@@ -50,136 +53,57 @@ interface AuthorizationTrackerProps {
   userRole?: string
 }
 
-const mockAuthorizations: Authorization[] = [
-  {
-    id: "AUTH-001",
-    patientName: "Sarah Johnson",
-    patientId: "PAT-001",
-    insuranceProvider: "Medicare Advantage",
-    insuranceId: "MA-78901",
-    authorizationType: "initial",
-    requestedServices: ["skilled_nursing", "physical_therapy", "occupational_therapy"],
-    diagnosisCode: "M79.3",
-    diagnosis: "Post-surgical wound care and mobility training",
-    status: "approved",
-    submittedDate: "2024-07-08",
-    responseDate: "2024-07-09",
-    expirationDate: "2024-09-08",
-    authorizationNumber: "AUTH-MA-2024-001",
-    approvedVisits: 20,
-    approvedServices: ["skilled_nursing", "physical_therapy"],
-    assignedTo: "Jennifer Martinez, RN",
-    priority: "medium",
-    estimatedReimbursement: 3200,
-    actualReimbursement: 3200,
-    lastUpdated: "2024-07-09 14:30",
-    timeline: [
-      { date: "2024-07-08 09:00", action: "Authorization request submitted", user: "System" },
-      { date: "2024-07-08 09:15", action: "Request received by payer", user: "Medicare Advantage" },
-      {
-        date: "2024-07-09 14:30",
-        action: "Authorization approved",
-        user: "Medicare Advantage",
-        notes: "Approved for 20 visits over 60 days",
-      },
-    ],
-  },
-  {
-    id: "AUTH-002",
-    patientName: "Robert Davis",
-    patientId: "PAT-002",
-    insuranceProvider: "Humana",
-    insuranceId: "HUM-45678",
-    authorizationType: "initial",
-    requestedServices: ["skilled_nursing", "medical_social_work"],
-    diagnosisCode: "E11.9",
-    diagnosis: "Diabetes management and education",
-    status: "pending",
-    submittedDate: "2024-07-09",
-    assignedTo: "Michael Chen, RN",
-    priority: "high",
-    estimatedReimbursement: 2800,
-    lastUpdated: "2024-07-09 16:45",
-    timeline: [
-      { date: "2024-07-09 16:45", action: "Authorization request submitted", user: "System" },
-      { date: "2024-07-09 17:00", action: "Request received by payer", user: "Humana" },
-    ],
-  },
-  {
-    id: "AUTH-003",
-    patientName: "Maria Rodriguez",
-    patientId: "PAT-003",
-    insuranceProvider: "Medicare",
-    insuranceId: "MCR-99887",
-    authorizationType: "recertification",
-    requestedServices: ["skilled_nursing", "physical_therapy", "speech_therapy"],
-    diagnosisCode: "I63.9",
-    diagnosis: "Post-stroke rehabilitation",
-    status: "in_review",
-    submittedDate: "2024-07-07",
-    assignedTo: "Lisa Thompson, RN",
-    priority: "urgent",
-    estimatedReimbursement: 4500,
-    lastUpdated: "2024-07-10 08:30",
-    timeline: [
-      { date: "2024-07-07 10:00", action: "Recertification request submitted", user: "System" },
-      { date: "2024-07-07 10:30", action: "Request received by Medicare", user: "Medicare" },
-      {
-        date: "2024-07-10 08:30",
-        action: "Additional documentation requested",
-        user: "Medicare",
-        notes: "Need updated physician orders",
-      },
-    ],
-  },
-  {
-    id: "AUTH-004",
-    patientName: "James Wilson",
-    patientId: "PAT-004",
-    insuranceProvider: "Aetna",
-    insuranceId: "AET-67890",
-    authorizationType: "additional_services",
-    requestedServices: ["occupational_therapy"],
-    diagnosisCode: "S72.001A",
-    diagnosis: "Hip fracture recovery",
-    status: "denied",
-    submittedDate: "2024-07-05",
-    responseDate: "2024-07-08",
-    denialReason: "Medical necessity not established for occupational therapy",
-    assignedTo: "Patricia Lee, RN",
-    priority: "low",
-    estimatedReimbursement: 1200,
-    lastUpdated: "2024-07-08 11:15",
-    timeline: [
-      { date: "2024-07-05 14:00", action: "Additional services request submitted", user: "System" },
-      { date: "2024-07-05 14:30", action: "Request received by payer", user: "Aetna" },
-      {
-        date: "2024-07-08 11:15",
-        action: "Authorization denied",
-        user: "Aetna",
-        notes: "Medical necessity not established",
-      },
-    ],
-  },
-]
-
 export function AuthorizationTracker({
   showAllPatients = false,
   patientId,
   readOnly = false,
   userRole = "Staff Nurse",
 }: AuthorizationTrackerProps) {
-  const [authorizations, setAuthorizations] = useState<Authorization[]>(mockAuthorizations)
+  const [authorizations, setAuthorizations] = useState<Authorization[]>([])
   const [selectedAuth, setSelectedAuth] = useState<Authorization | null>(null)
   const [activeTab, setActiveTab] = useState("pending")
   const [searchTerm, setSearchTerm] = useState("")
   const [filterPriority, setFilterPriority] = useState<string>("all")
   const [isUpdating, setIsUpdating] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Fetch authorizations from database
+  const fetchAuthorizations = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      console.log("Fetching authorizations...")
+
+      const params = new URLSearchParams()
+      if (patientId) params.append("patientId", patientId)
+
+      const response = await fetch(`/api/authorizations?${params}`)
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to fetch authorizations")
+      }
+
+      console.log("Fetched authorizations:", data.authorizations)
+      setAuthorizations(data.authorizations || [])
+    } catch (err) {
+      console.error("Error fetching authorizations:", err)
+      setError(err instanceof Error ? err.message : "Failed to load authorizations")
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Fetch authorizations on mount and when patientId changes
+  useEffect(() => {
+    fetchAuthorizations()
+  }, [patientId])
 
   // Filter authorizations based on patient ID if provided
   const filteredAuths = authorizations.filter((auth) => {
-    if (patientId && auth.patientId !== patientId) return false
-    if (searchTerm && !auth.patientName.toLowerCase().includes(searchTerm.toLowerCase())) return false
+    if (patientId && auth.patient_id !== patientId) return false
+    if (searchTerm && !auth.patient_name.toLowerCase().includes(searchTerm.toLowerCase())) return false
     if (filterPriority !== "all" && auth.priority !== filterPriority) return false
     return true
   })
@@ -229,40 +153,41 @@ export function AuthorizationTracker({
 
     setIsUpdating(true)
     try {
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      console.log(`Updating authorization ${authId} to status: ${newStatus}`)
 
-      setAuthorizations((prev) =>
-        prev.map((auth) => {
-          if (auth.id === authId) {
-            const updatedAuth = {
-              ...auth,
-              status: newStatus as Authorization["status"],
-              lastUpdated: new Date().toLocaleString(),
-              reviewerNotes: notes,
-              timeline: [
-                ...auth.timeline,
-                {
-                  date: new Date().toLocaleString(),
-                  action: `Status updated to ${newStatus}`,
-                  user: userRole,
-                  notes: notes,
-                },
-              ],
-            }
-
-            if (newStatus === "approved") {
-              updatedAuth.responseDate = new Date().toISOString().split("T")[0]
-              updatedAuth.authorizationNumber = `AUTH-${Date.now()}`
-            }
-
-            return updatedAuth
-          }
-          return auth
+      const response = await fetch(`/api/authorizations/${authId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          status: newStatus,
+          reviewerNotes: notes,
+          userRole: userRole,
+          timelineEntry: {
+            date: new Date().toISOString(),
+            action: `Status updated to ${newStatus}`,
+            user: userRole,
+            notes: notes,
+          },
         }),
-      )
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to update authorization")
+      }
+
+      console.log("✅ Authorization updated successfully")
+      
+      // Refresh the authorizations list
+      await fetchAuthorizations()
+      
+      alert(`Authorization ${newStatus} successfully!`)
     } catch (error) {
       console.error("Failed to update authorization:", error)
+      alert(`Error: ${error instanceof Error ? error.message : "Failed to update authorization"}`)
     } finally {
       setIsUpdating(false)
     }
@@ -272,6 +197,15 @@ export function AuthorizationTracker({
 
   return (
     <div className="space-y-6">
+      {/* Error Display */}
+      {error && (
+        <Alert className="border-red-200 bg-red-50">
+          <XCircle className="h-4 w-4 text-red-600" />
+          <AlertTitle className="text-red-800">Error</AlertTitle>
+          <AlertDescription className="text-red-700">{error}</AlertDescription>
+        </Alert>
+      )}
+
       {/* Search and Filter Controls */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="flex-1">
@@ -297,6 +231,15 @@ export function AuthorizationTracker({
             <SelectItem value="low">Low</SelectItem>
           </SelectContent>
         </Select>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={fetchAuthorizations}
+          disabled={isLoading}
+        >
+          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+          Refresh
+        </Button>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -310,18 +253,23 @@ export function AuthorizationTracker({
 
         {Object.entries(authsByStatus).map(([status, auths]) => (
           <TabsContent key={status} value={status} className="space-y-4">
-            {auths.length > 0 ? (
+            {isLoading ? (
+              <div className="text-center py-12">
+                <Loader2 className="h-12 w-12 mx-auto mb-4 animate-spin text-gray-400" />
+                <p className="text-gray-500">Loading authorizations...</p>
+              </div>
+            ) : auths.length > 0 ? (
               auths.map((auth) => (
                 <Card key={auth.id} className="cursor-pointer hover:shadow-md transition-shadow">
                   <CardHeader>
                     <div className="flex justify-between items-start">
                       <div>
                         <CardTitle className="flex items-center gap-2">
-                          {auth.patientName}
+                          {auth.patient_name}
                           <Badge className={getPriorityColor(auth.priority)}>{auth.priority}</Badge>
                         </CardTitle>
                         <CardDescription>
-                          {auth.insuranceProvider} • {auth.diagnosis} • Submitted {auth.submittedDate}
+                          {auth.insurance_provider} • {auth.diagnosis} • Submitted {auth.submitted_date}
                         </CardDescription>
                       </div>
                       <div className="flex items-center gap-2">
@@ -351,25 +299,29 @@ export function AuthorizationTracker({
                               </div>
                               <div className="flex justify-between">
                                 <span className="text-gray-600">Type:</span>
-                                <span className="capitalize">{auth.authorizationType.replace("_", " ")}</span>
+                                <span className="capitalize">{auth.authorization_type.replace("_", " ")}</span>
                               </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Diagnosis Code:</span>
-                                <span className="font-mono">{auth.diagnosisCode}</span>
-                              </div>
-                              <div className="flex justify-between">
-                                <span className="text-gray-600">Assigned To:</span>
-                                <span>{auth.assignedTo}</span>
-                              </div>
+                              {auth.diagnosis_code && (
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Diagnosis Code:</span>
+                                  <span className="font-mono">{auth.diagnosis_code}</span>
+                                </div>
+                              )}
+                              {auth.assigned_to && (
+                                <div className="flex justify-between">
+                                  <span className="text-gray-600">Assigned To:</span>
+                                  <span>{auth.assigned_to}</span>
+                                </div>
+                              )}
                               <div className="flex justify-between">
                                 <span className="text-gray-600">Est. Reimbursement:</span>
-                                <span className="font-semibold">${auth.estimatedReimbursement.toLocaleString()}</span>
+                                <span className="font-semibold">${auth.estimated_reimbursement?.toLocaleString() || "0"}</span>
                               </div>
-                              {auth.actualReimbursement && (
+                              {auth.actual_reimbursement && (
                                 <div className="flex justify-between">
                                   <span className="text-gray-600">Actual Reimbursement:</span>
                                   <span className="font-semibold text-green-600">
-                                    ${auth.actualReimbursement.toLocaleString()}
+                                    ${auth.actual_reimbursement.toLocaleString()}
                                   </span>
                                 </div>
                               )}
@@ -380,37 +332,41 @@ export function AuthorizationTracker({
                           <div>
                             <h4 className="font-semibold mb-2">Requested Services</h4>
                             <div className="flex flex-wrap gap-2">
-                              {auth.requestedServices.map((service) => (
-                                <Badge key={service} variant="outline">
-                                  {service.replace("_", " ")}
-                                </Badge>
-                              ))}
+                              {auth.requested_services && auth.requested_services.length > 0 ? (
+                                auth.requested_services.map((service) => (
+                                  <Badge key={service} variant="outline">
+                                    {service.replace("_", " ")}
+                                  </Badge>
+                                ))
+                              ) : (
+                                <span className="text-sm text-gray-500">No services specified</span>
+                              )}
                             </div>
                           </div>
 
                           {/* Approved Services (if approved) */}
-                          {auth.approvedServices && (
+                          {auth.approved_services && auth.approved_services.length > 0 && (
                             <div>
                               <h4 className="font-semibold mb-2">Approved Services</h4>
                               <div className="flex flex-wrap gap-2">
-                                {auth.approvedServices.map((service) => (
+                                {auth.approved_services.map((service) => (
                                   <Badge key={service} className="bg-green-100 text-green-800">
                                     {service.replace("_", " ")}
                                   </Badge>
                                 ))}
                               </div>
-                              {auth.approvedVisits && (
-                                <p className="text-sm text-gray-600 mt-2">Approved for {auth.approvedVisits} visits</p>
+                              {auth.approved_visits && (
+                                <p className="text-sm text-gray-600 mt-2">Approved for {auth.approved_visits} visits</p>
                               )}
                             </div>
                           )}
 
                           {/* Denial Reason (if denied) */}
-                          {auth.denialReason && (
+                          {auth.denial_reason && (
                             <Alert className="border-red-200 bg-red-50">
                               <XCircle className="h-4 w-4 text-red-600" />
                               <AlertTitle className="text-red-800">Denial Reason</AlertTitle>
-                              <AlertDescription className="text-red-700">{auth.denialReason}</AlertDescription>
+                              <AlertDescription className="text-red-700">{auth.denial_reason}</AlertDescription>
                             </Alert>
                           )}
 

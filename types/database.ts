@@ -299,6 +299,83 @@ export interface Database {
           description?: string | null
         }
       }
+      physicians: {
+        Row: {
+          id: string
+          npi: string
+          first_name: string
+          last_name: string
+          specialty: string | null
+          license_number: string | null
+          license_state: string | null
+          license_expiration: string | null
+          caqh_id: string | null
+          verification_status: string
+          last_verified: string | null
+          board_certification: string | null
+          board_expiration: string | null
+          malpractice_insurance: boolean
+          malpractice_expiration: string | null
+          dea_number: string | null
+          dea_expiration: string | null
+          hospital_affiliations: string[] | null
+          notes: string | null
+          added_by: string | null
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          npi: string
+          first_name: string
+          last_name: string
+          specialty?: string | null
+          license_number?: string | null
+          license_state?: string | null
+          license_expiration?: string | null
+          caqh_id?: string | null
+          verification_status?: string
+          last_verified?: string | null
+          board_certification?: string | null
+          board_expiration?: string | null
+          malpractice_insurance?: boolean
+          malpractice_expiration?: string | null
+          dea_number?: string | null
+          dea_expiration?: string | null
+          hospital_affiliations?: string[] | null
+          notes?: string | null
+          added_by?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          npi?: string
+          first_name?: string
+          last_name?: string
+          specialty?: string | null
+          license_number?: string | null
+          license_state?: string | null
+          license_expiration?: string | null
+          caqh_id?: string | null
+          verification_status?: string
+          last_verified?: string | null
+          board_certification?: string | null
+          board_expiration?: string | null
+          malpractice_insurance?: boolean
+          malpractice_expiration?: string | null
+          dea_number?: string | null
+          dea_expiration?: string | null
+          hospital_affiliations?: string[] | null
+          notes?: string | null
+          added_by?: string | null
+          is_active?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       [_ in never]: never
@@ -317,4 +394,5 @@ export type Employer = Database["public"]["Tables"]["employers"]["Row"]
 export type JobApplication = Database["public"]["Tables"]["job_applications"]["Row"]
 export type SubscriptionPlan = Database["public"]["Tables"]["subscription_plans"]["Row"]
 export type UserSubscription = Database["public"]["Tables"]["user_subscriptions"]["Row"]
+export type Physician = Database["public"]["Tables"]["physicians"]["Row"]
 export type DashboardAccess = Database["public"]["Tables"]["dashboard_access"]["Row"]
