@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -29,6 +29,8 @@ import {
   Heart,
   Activity,
   RefreshCw,
+  Search,
+  Plus,
 } from "lucide-react"
 
 interface Referral {
@@ -80,85 +82,11 @@ interface Message {
 
 export default function FacilityPortalPage() {
   const [activeTab, setActiveTab] = useState("submit")
-  const [referrals, setReferrals] = useState<Referral[]>([
-    {
-      id: "REF-001",
-      patientName: "J.S.",
-      patientInitials: "J.S.",
-      diagnosis: "Post-operative care for hip replacement",
-      submittedDate: "2024-01-15",
-      status: "accepted",
-      facilityName: "Mercy Hospital",
-      caseManager: "Lisa Rodriguez, RN",
-      services: ["Skilled Nursing", "Physical Therapy"],
-      insuranceProvider: "Medicare",
-      estimatedAdmissionDate: "2024-01-18",
-      actualAdmissionDate: "2024-01-18",
-      feedback: "Patient admitted successfully. Excellent documentation provided.",
-    },
-    {
-      id: "REF-002",
-      patientName: "M.J.",
-      patientInitials: "M.J.",
-      diagnosis: "Diabetes management and wound care",
-      submittedDate: "2024-01-16",
-      status: "pending",
-      facilityName: "Mercy Hospital",
-      caseManager: "Lisa Rodriguez, RN",
-      services: ["Skilled Nursing", "Wound Care"],
-      insuranceProvider: "Humana",
-      dmeOrders: [
-        {
-          id: "DME-001",
-          referralId: "REF-002",
-          items: [
-            { name: "Wound Care Dressings", quantity: 30, category: "wound_care", urgency: "urgent" },
-            { name: "Blood Glucose Monitor", quantity: 1, category: "diabetic", urgency: "routine" },
-          ],
-          status: "approved",
-          orderDate: "2024-01-16",
-          estimatedDelivery: "2024-01-19",
-          supplier: "parachute",
-        },
-      ],
-    },
-    {
-      id: "REF-003",
-      patientName: "R.W.",
-      patientInitials: "R.W.",
-      diagnosis: "CHF management",
-      submittedDate: "2024-01-14",
-      status: "denied",
-      facilityName: "Mercy Hospital",
-      caseManager: "Lisa Rodriguez, RN",
-      services: ["Skilled Nursing"],
-      insuranceProvider: "United Healthcare",
-      feedback: "Insurance authorization required. Please submit prior auth documentation.",
-    },
-  ])
-
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: "MSG-001",
-      from: "M.A.S.E. Intake Team",
-      to: "Mercy Hospital",
-      subject: "Referral REF-002 - Additional Information Needed",
-      content: "We need the latest physician orders for patient M.J. Please upload when available.",
-      timestamp: "2024-01-16T10:30:00Z",
-      read: false,
-      type: "message",
-    },
-    {
-      id: "MSG-002",
-      from: "M.A.S.E. DME Team",
-      to: "Mercy Hospital",
-      subject: "DME Order DME-001 Approved and Shipped",
-      content: "Your DME order for patient M.J. has been approved and shipped. Tracking: PH123456789",
-      timestamp: "2024-01-16T14:15:00Z",
-      read: false,
-      type: "notification",
-    },
-  ])
+  const [referrals, setReferrals] = useState<Referral[]>([])
+  const [messages, setMessages] = useState<Message[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const facilityName = "Mercy Hospital" // In production, get from auth context
 
   const [newReferral, setNewReferral] = useState({
     patientInitials: "",
@@ -171,22 +99,107 @@ export default function FacilityPortalPage() {
     dmeItems: [] as DMEItem[],
   })
 
-  const [chatMessages, setChatMessages] = useState<string[]>([])
+  const [chatMessages, setChatMessages] = useState<Array<{text: string, sender: 'user' | 'ai', timestamp: Date}>>([])
   const [chatInput, setChatInput] = useState("")
   const [aiTyping, setAiTyping] = useState(false)
+  const [selectedReferral, setSelectedReferral] = useState<Referral | null>(null)
+  const [showReferralDetails, setShowReferralDetails] = useState(false)
+  
+  // Document upload state
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([])
+  const [documentType, setDocumentType] = useState<string>("medical")
+  const [uploadingDocs, setUploadingDocs] = useState(false)
+  const [uploadForReferralId, setUploadForReferralId] = useState<string | null>(null)
+  const [showUploadDialog, setShowUploadDialog] = useState(false)
+  const [referralDocuments, setReferralDocuments] = useState<any[]>([])
+  const [loadingDocuments, setLoadingDocuments] = useState(false)
+  const [lastSubmittedReferralId, setLastSubmittedReferralId] = useState<string | null>(null)
 
-  // Real-time status updates simulation
+  // Messaging state
+  const [showComposeDialog, setShowComposeDialog] = useState(false)
+  const [messageFilter, setMessageFilter] = useState<'all' | 'unread' | 'alerts'>('all')
+  const [newMessage, setNewMessage] = useState({
+    subject: '',
+    content: '',
+    referralId: ''
+  })
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  const [sendingMessage, setSendingMessage] = useState(false)
+
+  // DME Orders state
+  const [dmeOrders, setDmeOrders] = useState<any[]>([])
+  const [loadingDME, setLoadingDME] = useState(false)
+  const [showOrderDialog, setShowOrderDialog] = useState(false)
+  const [selectedSupplier, setSelectedSupplier] = useState<'parachute' | 'verse'>('parachute')
+  const [orderSearch, setOrderSearch] = useState('')
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
+  const [newDMEOrder, setNewDMEOrder] = useState({
+    patientInitials: '',
+    referralId: '',
+    items: [{ name: '', quantity: 1, category: 'wheelchair' }],
+    notes: ''
+  })
+  const chatContainerRef = useRef<HTMLDivElement>(null)
+
+  // Fetch referrals from API
+  const fetchReferrals = async () => {
+    try {
+      const response = await fetch(`/api/facility-portal/referrals?facilityName=${encodeURIComponent(facilityName)}`)
+      if (!response.ok) throw new Error('Failed to fetch referrals')
+      const data = await response.json()
+      setReferrals(data)
+    } catch (err) {
+      console.error('Error fetching referrals:', err)
+      setError('Failed to load referrals')
+    }
+  }
+
+  // Fetch messages from API
+  const fetchMessages = async () => {
+    try {
+      const response = await fetch(`/api/facility-portal/messages?facilityName=${encodeURIComponent(facilityName)}`)
+      if (!response.ok) throw new Error('Failed to fetch messages')
+      const data = await response.json()
+      setMessages(data)
+    } catch (err) {
+      console.error('Error fetching messages:', err)
+      setError('Failed to load messages')
+    }
+  }
+
+  // Fetch DME orders from API
+  const fetchDMEOrders = async () => {
+    try {
+      setLoadingDME(true)
+      const response = await fetch(`/api/facility-portal/dme?facilityName=${encodeURIComponent(facilityName)}`)
+      if (!response.ok) throw new Error('Failed to fetch DME orders')
+      const data = await response.json()
+      setDmeOrders(data)
+    } catch (err) {
+      console.error('Error fetching DME orders:', err)
+      setError('Failed to load DME orders')
+    } finally {
+      setLoadingDME(false)
+    }
+  }
+
+  // Initial data load
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true)
+      await Promise.all([fetchReferrals(), fetchMessages(), fetchDMEOrders()])
+      setLoading(false)
+    }
+    loadData()
+  }, [])
+
+  // Real-time status updates - refresh every 30 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      setReferrals((prev) =>
-        prev.map((ref) => {
-          if (ref.id === "REF-002" && ref.status === "pending") {
-            return { ...ref, status: "accepted", actualAdmissionDate: "2024-01-17" }
-          }
-          return ref
-        }),
-      )
-    }, 10000) // Update every 10 seconds for demo
+      fetchReferrals()
+      fetchMessages()
+      fetchDMEOrders()
+    }, 30000)
 
     return () => clearInterval(interval)
   }, [])
@@ -226,131 +239,460 @@ export default function FacilityPortalPage() {
   }
 
   const submitReferral = async () => {
-    const referralId = `REF-${Date.now()}`
-    const newRef: Referral = {
-      id: referralId,
-      patientName: newReferral.patientInitials,
-      patientInitials: newReferral.patientInitials,
-      diagnosis: newReferral.diagnosis,
-      submittedDate: new Date().toISOString().split("T")[0],
-      status: "pending",
-      facilityName: "Mercy Hospital",
-      caseManager: "Lisa Rodriguez, RN",
-      services: newReferral.services,
-      insuranceProvider: newReferral.insuranceProvider,
+    try {
+      setLoading(true)
+      
+      const response = await fetch('/api/facility-portal/referrals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patientInitials: newReferral.patientInitials,
+          diagnosis: newReferral.diagnosis,
+          services: newReferral.services,
+          insuranceProvider: newReferral.insuranceProvider,
+          urgency: newReferral.urgency,
+          facilityName: facilityName,
+          caseManager: "Lisa Rodriguez, RN",
+          notes: newReferral.notes,
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to submit referral')
+      }
+
+      const result = await response.json()
+      
+      // Save the referral ID for upload button
+      setLastSubmittedReferralId(result.id)
+      
+      // Show success message
+      alert(`✅ Referral submitted successfully!\n\n${result.message}\n\nYou can now upload documents using the "Upload Documents" button below.`)
+
+      // Reset form
+      setNewReferral({
+        patientInitials: "",
+        diagnosis: "",
+        services: [],
+        insuranceProvider: "",
+        urgency: "routine",
+        notes: "",
+        dmeNeeded: false,
+        dmeItems: [],
+      })
+
+      // Refresh referrals list
+      await fetchReferrals()
+      
+    } catch (err) {
+      console.error('Error submitting referral:', err)
+      alert('Failed to submit referral: ' + (err as Error).message)
+    } finally {
+      setLoading(false)
     }
-
-    // Add DME order if needed
-    if (newReferral.dmeNeeded && newReferral.dmeItems.length > 0) {
-      newRef.dmeOrders = [
-        {
-          id: `DME-${Date.now()}`,
-          referralId: referralId,
-          items: newReferral.dmeItems,
-          status: "pending",
-          orderDate: new Date().toISOString().split("T")[0],
-          supplier: "parachute",
-        },
-      ]
-    }
-
-    setReferrals((prev) => [newRef, ...prev])
-
-    // Reset form
-    setNewReferral({
-      patientInitials: "",
-      diagnosis: "",
-      services: [],
-      insuranceProvider: "",
-      urgency: "routine",
-      notes: "",
-      dmeNeeded: false,
-      dmeItems: [],
-    })
-
-    // Simulate real-time status update
-    setTimeout(() => {
-      setReferrals((prev) => prev.map((ref) => (ref.id === referralId ? { ...ref, status: "accepted" } : ref)))
-    }, 3000)
   }
 
-  const orderDMESupplies = async (referralId: string, items: DMEItem[], supplier: "parachute" | "verse") => {
-    const dmeOrder: DMEOrder = {
-      id: `DME-${Date.now()}`,
-      referralId,
-      items,
-      status: "pending",
-      orderDate: new Date().toISOString().split("T")[0],
-      supplier,
+  const orderDMESupplies = async (referralId: string, patientInitials: string) => {
+    try {
+      setLoading(true)
+      
+      const response = await fetch('/api/facility-portal/dme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          referralId: referralId,
+          patientInitials: patientInitials,
+          facilityName: facilityName,
+          supplier: 'parachute',
+          items: [
+            {
+              name: 'Wound Care Kit',
+              quantity: 1,
+              category: 'wound_care',
+              urgency: 'routine'
+            }
+          ]
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to order DME supplies')
+      }
+
+      const result = await response.json()
+      
+      alert(`DME Order placed successfully!\n\nOrder ID: ${result.orderId}\nTracking: ${result.trackingNumber}\nEstimated Delivery: ${result.estimatedDelivery}`)
+      
+      // Refresh data
+      await Promise.all([fetchReferrals(), fetchDMEOrders()])
+      
+    } catch (err) {
+      console.error('Error ordering DME:', err)
+      alert('Failed to order DME supplies: ' + (err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Create new DME order
+  const createDMEOrder = async () => {
+    try {
+      setLoading(true)
+      
+      const response = await fetch('/api/facility-portal/dme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          referralId: newDMEOrder.referralId || null,
+          patientInitials: newDMEOrder.patientInitials,
+          facilityName: facilityName,
+          supplier: selectedSupplier,
+          items: newDMEOrder.items,
+          notes: newDMEOrder.notes
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Failed to create DME order')
+      }
+
+      const result = await response.json()
+      
+      alert(`DME Order created successfully!\n\nOrder ID: ${result.orderId}\nTracking: ${result.trackingNumber}\nEstimated Delivery: ${result.estimatedDelivery}`)
+      
+      // Reset form and close dialog
+      setNewDMEOrder({
+        patientInitials: '',
+        referralId: '',
+        items: [{ name: '', quantity: 1, category: 'wheelchair' }],
+        notes: ''
+      })
+      setShowOrderDialog(false)
+      
+      // Refresh data
+      await fetchDMEOrders()
+      
+    } catch (err) {
+      console.error('Error creating DME order:', err)
+      alert('Failed to create DME order: ' + (err as Error).message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Filter DME orders
+  const getFilteredDMEOrders = () => {
+    let filtered = dmeOrders
+
+    // Filter by status
+    if (orderStatusFilter !== 'all') {
+      filtered = filtered.filter(order => order.status === orderStatusFilter)
     }
 
-    setReferrals((prev) =>
-      prev.map((ref) => (ref.id === referralId ? { ...ref, dmeOrders: [...(ref.dmeOrders || []), dmeOrder] } : ref)),
-    )
-
-    // Simulate approval and shipping
-    setTimeout(() => {
-      setReferrals((prev) =>
-        prev.map((ref) => ({
-          ...ref,
-          dmeOrders: ref.dmeOrders?.map((order) =>
-            order.id === dmeOrder.id ? { ...order, status: "approved", estimatedDelivery: "2024-01-20" } : order,
-          ),
-        })),
+    // Search filter
+    if (orderSearch) {
+      const searchLower = orderSearch.toLowerCase()
+      filtered = filtered.filter(order => 
+        order.patient_initials?.toLowerCase().includes(searchLower) ||
+        order.order_id?.toLowerCase().includes(searchLower) ||
+        order.tracking_number?.toLowerCase().includes(searchLower)
       )
-    }, 2000)
+    }
 
-    setTimeout(() => {
-      setReferrals((prev) =>
-        prev.map((ref) => ({
-          ...ref,
-          dmeOrders: ref.dmeOrders?.map((order) =>
-            order.id === dmeOrder.id
-              ? { ...order, status: "shipped", trackingNumber: `${supplier.toUpperCase()}123456789` }
-              : order,
-          ),
-        })),
-      )
-    }, 5000)
+    return filtered
+  }
+
+  // Add item to DME order
+  const addDMEItem = () => {
+    setNewDMEOrder({
+      ...newDMEOrder,
+      items: [...newDMEOrder.items, { name: '', quantity: 1, category: 'wheelchair' }]
+    })
+  }
+
+  // Remove item from DME order
+  const removeDMEItem = (index: number) => {
+    setNewDMEOrder({
+      ...newDMEOrder,
+      items: newDMEOrder.items.filter((_, i) => i !== index)
+    })
+  }
+
+  // Update DME item
+  const updateDMEItem = (index: number, field: string, value: any) => {
+    const updatedItems = [...newDMEOrder.items]
+    updatedItems[index] = { ...updatedItems[index], [field]: value }
+    setNewDMEOrder({ ...newDMEOrder, items: updatedItems })
+  }
+
+  // Fetch documents for a referral
+  const fetchReferralDocuments = async (referralId: string) => {
+    try {
+      setLoadingDocuments(true)
+      const response = await fetch(`/api/facility-portal/documents?referralId=${referralId}`)
+      if (!response.ok) throw new Error('Failed to fetch documents')
+      const data = await response.json()
+      setReferralDocuments(data.documents || [])
+    } catch (err) {
+      console.error('Error fetching documents:', err)
+      setReferralDocuments([])
+    } finally {
+      setLoadingDocuments(false)
+    }
+  }
+
+  const viewReferralDetails = (referral: Referral) => {
+    setSelectedReferral(referral)
+    setShowReferralDetails(true)
+    fetchReferralDocuments(referral.id)
   }
 
   const sendAIMessage = async (message: string) => {
-    setChatMessages((prev) => [...prev, `You: ${message}`])
+    // Add user message
+    setChatMessages((prev) => [...prev, { text: message, sender: 'user', timestamp: new Date() }])
     setChatInput("")
     setAiTyping(true)
 
-    // Simulate AI response
+    // Scroll to bottom after adding message
     setTimeout(() => {
-      let response = ""
-      const lowerMessage = message.toLowerCase()
-
-      if (lowerMessage.includes("refer") || lowerMessage.includes("referral")) {
-        response =
-          "To submit a referral, go to the 'Submit Referral' tab and fill out the patient information. We accept referrals for skilled nursing, physical therapy, occupational therapy, and wound care services."
-      } else if (lowerMessage.includes("insurance") || lowerMessage.includes("coverage")) {
-        response =
-          "We accept Medicare, Medicaid, and most major commercial insurances including Humana, United Healthcare, Aetna, and Cigna. Prior authorization may be required for some services."
-      } else if (lowerMessage.includes("dme") || lowerMessage.includes("supplies")) {
-        response =
-          "We can arrange DME supplies through our partnerships with Parachute Health and Verse Medical. Common items include wound care supplies, mobility aids, diabetic supplies, and respiratory equipment."
-      } else if (lowerMessage.includes("status") || lowerMessage.includes("track")) {
-        response =
-          "You can track all your referrals in the 'Referral Tracker' tab. Status updates are provided in real-time, and you'll receive notifications for any changes."
-      } else if (lowerMessage.includes("contact") || lowerMessage.includes("phone")) {
-        response =
-          "You can reach our intake team at (555) 123-4567 or use the secure messaging system in this portal. Our team is available 24/7 for urgent matters."
-      } else {
-        response =
-          "I'm here to help with referrals, insurance questions, DME supplies, and general information about our services. What specific question can I assist you with?"
+      const chatContainer = document.getElementById('ai-chat-container')
+      if (chatContainer) {
+        chatContainer.scrollTop = chatContainer.scrollHeight
       }
+    }, 100)
 
-      setChatMessages((prev) => [...prev, `AI Assistant: ${response}`])
+    try {
+      const response = await fetch('/api/facility-portal/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          message,
+          conversationHistory: chatMessages // Send conversation history for context
+        })
+      })
+
+      if (!response.ok) throw new Error('Failed to get AI response')
+
+      const data = await response.json()
+      setChatMessages((prev) => [...prev, { text: data.response, sender: 'ai', timestamp: new Date() }])
+      
+      // Scroll to bottom after AI response
+      setTimeout(() => {
+        const chatContainer = document.getElementById('ai-chat-container')
+        if (chatContainer) {
+          chatContainer.scrollTop = chatContainer.scrollHeight
+        }
+      }, 100)
+    } catch (err) {
+      console.error('Error getting AI response:', err)
+      setChatMessages((prev) => [
+        ...prev,
+        { text: "Sorry, I'm having trouble responding right now. Please try again or contact support at (555) 123-4567.", sender: 'ai', timestamp: new Date() }
+      ])
+    } finally {
       setAiTyping(false)
-    }, 1500)
+    }
+  }
+
+  // Clear chat conversation
+  const clearChat = () => {
+    if (confirm('Are you sure you want to clear the conversation?')) {
+      setChatMessages([])
+    }
+  }
+
+  // Copy message to clipboard
+  const copyMessage = (text: string) => {
+    navigator.clipboard.writeText(text)
+    alert('Message copied to clipboard!')
+  }
+
+  // Handle file selection for upload
+  const handleFileSelect = () => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.accept = '.pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.txt'
+    
+    input.onchange = (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || [])
+      setSelectedFiles(files)
+      setShowUploadDialog(true)
+    }
+    
+    input.click()
+  }
+
+  // Upload documents to API
+  const uploadDocuments = async (referralId: string) => {
+    if (selectedFiles.length === 0) {
+      alert('Please select files to upload')
+      return
+    }
+
+    try {
+      setUploadingDocs(true)
+      
+      const formData = new FormData()
+      formData.append('referralId', referralId)
+      formData.append('documentType', documentType)
+      formData.append('uploadedByName', facilityName)
+      
+      selectedFiles.forEach(file => {
+        formData.append('files', file)
+      })
+
+      const response = await fetch('/api/facility-portal/documents', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) throw new Error('Failed to upload documents')
+
+      const data = await response.json()
+      
+      if (data.success) {
+        alert(`✅ Successfully uploaded ${data.successful} document(s)!\n\n${data.errors.length > 0 ? `Failed: ${data.errors.length}` : ''}`)
+        setSelectedFiles([])
+        setShowUploadDialog(false)
+        await fetchReferrals() // Refresh to show updated document count
+        // Refresh documents if modal is open
+        if (showReferralDetails && selectedReferral) {
+          await fetchReferralDocuments(selectedReferral.id)
+        }
+      } else {
+        alert('❌ Failed to upload documents: ' + data.message)
+      }
+    } catch (err) {
+      console.error('Error uploading documents:', err)
+      alert('Failed to upload documents: ' + (err as Error).message)
+    } finally {
+      setUploadingDocs(false)
+    }
+  }
+
+  // Open upload dialog for a specific referral
+  const openUploadForReferral = (referralId: string) => {
+    setUploadForReferralId(referralId)
+    handleFileSelect()
+  }
+
+  // Compose new message
+  const composeMessage = async () => {
+    if (!newMessage.subject || !newMessage.content) {
+      alert('⚠️ Please enter both subject and message content')
+      return
+    }
+
+    try {
+      setSendingMessage(true)
+      
+      const response = await fetch('/api/facility-portal/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          facilityName: facilityName,
+          subject: newMessage.subject,
+          content: newMessage.content,
+          referralId: newMessage.referralId || null
+        })
+      })
+
+      if (!response.ok) throw new Error('Failed to send message')
+
+      const data = await response.json()
+      alert('✅ Message sent successfully!')
+      
+      // Reset form and close dialog
+      setNewMessage({ subject: '', content: '', referralId: '' })
+      setShowComposeDialog(false)
+      setReplyingTo(null)
+      
+      // Refresh messages
+      await fetchMessages()
+    } catch (err) {
+      console.error('Error sending message:', err)
+      alert('Failed to send message: ' + (err as Error).message)
+    } finally {
+      setSendingMessage(false)
+    }
+  }
+
+  // Reply to a message
+  const replyToMessage = (message: Message) => {
+    setReplyingTo(message)
+    setNewMessage({
+      subject: `Re: ${message.subject}`,
+      content: '',
+      referralId: message.referralId || ''
+    })
+    setShowComposeDialog(true)
+  }
+
+  // Mark message as read
+  const markAsRead = async (messageId: string) => {
+    try {
+      const response = await fetch('/api/facility-portal/messages', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId })
+      })
+
+      if (!response.ok) throw new Error('Failed to mark as read')
+
+      // Refresh messages to show updated status
+      await fetchMessages()
+    } catch (err) {
+      console.error('Error marking message as read:', err)
+    }
+  }
+
+  // Filter messages based on selected filter
+  const getFilteredMessages = () => {
+    switch (messageFilter) {
+      case 'unread':
+        return messages.filter(m => !m.read)
+      case 'alerts':
+        return messages.filter(m => m.type === 'alert')
+      default:
+        return messages
+    }
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 flex flex-col items-center space-y-4">
+            <RefreshCw className="h-8 w-8 animate-spin text-blue-600" />
+            <p className="text-lg font-medium">Loading...</p>
+          </div>
+        </div>
+      )}
+
+      {/* Error Alert */}
+      {error && (
+        <div className="fixed top-4 right-4 bg-red-50 border border-red-200 rounded-lg p-4 shadow-lg z-50 max-w-md">
+          <div className="flex items-start space-x-3">
+            <XCircle className="h-5 w-5 text-red-600 mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-medium text-red-900">Error</h3>
+              <p className="text-sm text-red-700">{error}</p>
+            </div>
+            <button
+              onClick={() => setError(null)}
+              className="text-red-400 hover:text-red-600"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
+
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex items-center justify-between">
@@ -360,7 +702,7 @@ export default function FacilityPortalPage() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">Facility Portal</h1>
-                <p className="text-gray-600">Mercy Hospital - Case Management Team</p>
+                <p className="text-gray-600">{facilityName} - Case Management Team</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -549,15 +891,42 @@ export default function FacilityPortalPage() {
                 </div>
 
                 <div className="flex items-center space-x-4">
-                  <Button onClick={submitReferral} className="bg-blue-600 hover:bg-blue-700">
+                  <Button 
+                    onClick={submitReferral} 
+                    className="bg-blue-600 hover:bg-blue-700"
+                    disabled={loading || !newReferral.patientInitials || !newReferral.diagnosis || !newReferral.insuranceProvider}
+                  >
                     <Send className="h-4 w-4 mr-2" />
                     Submit Referral
                   </Button>
-                  <Button variant="outline">
+                  <Button 
+                    variant="outline"
+                    onClick={() => {
+                      if (lastSubmittedReferralId) {
+                        openUploadForReferral(lastSubmittedReferralId)
+                      } else {
+                        alert('⚠️ Please submit a referral first, then you can upload documents for it.')
+                      }
+                    }}
+                    disabled={loading || !lastSubmittedReferralId}
+                    className={lastSubmittedReferralId ? "text-blue-600 hover:text-blue-700 border-blue-600" : ""}
+                    title={lastSubmittedReferralId ? "Upload documents for the referral you just submitted" : "Submit a referral first"}
+                  >
                     <Upload className="h-4 w-4 mr-2" />
                     Upload Documents
                   </Button>
                 </div>
+                {lastSubmittedReferralId ? (
+                  <div className="bg-green-50 border border-green-200 rounded-md p-3 mt-2">
+                    <p className="text-sm text-green-800">
+                      ✅ <strong>Referral submitted!</strong> Click "Upload Documents" above to attach medical records, insurance cards, or consent forms.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-600 mt-2">
+                    💡 <strong>Tip:</strong> After submitting a referral, the "Upload Documents" button will be enabled so you can attach files.
+                  </p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -571,8 +940,16 @@ export default function FacilityPortalPage() {
                     <Activity className="h-5 w-5 mr-2" />
                     Referral Tracker Dashboard
                   </div>
-                  <Button variant="outline" size="sm">
-                    <RefreshCw className="h-4 w-4 mr-2" />
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={async () => {
+                      await fetchReferrals()
+                      await fetchMessages()
+                    }}
+                    disabled={loading}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
                     Refresh
                   </Button>
                 </CardTitle>
@@ -613,27 +990,30 @@ export default function FacilityPortalPage() {
                         <TableCell>{referral.submittedDate}</TableCell>
                         <TableCell>
                           <div className="flex space-x-2">
-                            <Button variant="outline" size="sm">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => viewReferralDetails(referral)}
+                              title="View Details"
+                            >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            {referral.status === "accepted" && (
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => openUploadForReferral(referral.id)}
+                              title="Upload Documents"
+                              className="text-blue-600 hover:text-blue-700"
+                            >
+                              <Upload className="h-4 w-4" />
+                            </Button>
+                            {(referral.status === "accepted" || referral.status === "approved") && (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() =>
-                                  orderDMESupplies(
-                                    referral.id,
-                                    [
-                                      {
-                                        name: "Wound Care Kit",
-                                        quantity: 1,
-                                        category: "wound_care",
-                                        urgency: "routine",
-                                      },
-                                    ],
-                                    "parachute",
-                                  )
-                                }
+                                onClick={() => orderDMESupplies(referral.id, referral.patientInitials)}
+                                title="Order DME Supplies"
+                                disabled={loading}
                               >
                                 <Package className="h-4 w-4" />
                               </Button>
@@ -698,48 +1078,152 @@ export default function FacilityPortalPage() {
           <TabsContent value="messages" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <MessageSquare className="h-5 w-5 mr-2" />
-                  Secure Messaging Hub
-                </CardTitle>
-                <CardDescription>HIPAA-compliant communication with M.A.S.E. team</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <MessageSquare className="h-5 w-5 mr-2" />
+                      Secure Messaging Hub
+                      <Badge variant="outline" className="ml-3">
+                        {messages.length} Total
+                      </Badge>
+                      {messages.filter(m => !m.read).length > 0 && (
+                        <Badge className="ml-2 bg-blue-600">
+                          {messages.filter(m => !m.read).length} Unread
+                        </Badge>
+                      )}
+                    </CardTitle>
+                    <CardDescription>HIPAA-compliant communication with M.A.S.E. team</CardDescription>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={async () => {
+                        setLoading(true)
+                        await fetchMessages()
+                        setLoading(false)
+                      }}
+                      disabled={loading}
+                      title="Refresh Messages"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => setShowComposeDialog(true)}
+                      className="bg-blue-600 hover:bg-blue-700"
+                    >
+                      <Send className="h-4 w-4 mr-2" />
+                      Compose
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`p-4 rounded-lg border ${!message.read ? "bg-blue-50 border-blue-200" : "bg-gray-50"}`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          <Badge
-                            variant={
-                              message.type === "alert"
-                                ? "destructive"
-                                : message.type === "notification"
-                                  ? "default"
-                                  : "secondary"
-                            }
-                          >
-                            {message.type}
-                          </Badge>
-                          <span className="font-medium">{message.from}</span>
-                        </div>
-                        <span className="text-sm text-gray-500">
-                          {new Date(message.timestamp).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <h4 className="font-medium mb-2">{message.subject}</h4>
-                      <p className="text-gray-700">{message.content}</p>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-6 pt-6 border-t">
-                  <Button>
-                    <Send className="h-4 w-4 mr-2" />
-                    Compose Message
+                {/* Message Filters */}
+                <div className="flex space-x-2 mb-6">
+                  <Button
+                    variant={messageFilter === 'all' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setMessageFilter('all')}
+                  >
+                    All ({messages.length})
                   </Button>
+                  <Button
+                    variant={messageFilter === 'unread' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setMessageFilter('unread')}
+                  >
+                    Unread ({messages.filter(m => !m.read).length})
+                  </Button>
+                  <Button
+                    variant={messageFilter === 'alerts' ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setMessageFilter('alerts')}
+                  >
+                    Alerts ({messages.filter(m => m.type === 'alert').length})
+                  </Button>
+                </div>
+
+                {/* Messages List */}
+                <div className="space-y-4">
+                  {getFilteredMessages().length === 0 ? (
+                    <div className="text-center py-12">
+                      <MessageSquare className="h-16 w-16 mx-auto text-gray-300 mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">
+                        {messageFilter === 'all' ? 'No messages yet' : `No ${messageFilter} messages`}
+                      </h3>
+                      <p className="text-gray-600 mb-4">
+                        {messageFilter === 'all' 
+                          ? 'Send your first message to the M.A.S.E. team'
+                          : `You don't have any ${messageFilter} messages`}
+                      </p>
+                      {messageFilter === 'all' && (
+                        <Button onClick={() => setShowComposeDialog(true)}>
+                          <Send className="h-4 w-4 mr-2" />
+                          Compose Your First Message
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    getFilteredMessages().map((message) => (
+                      <div
+                        key={message.id}
+                        className={`p-4 rounded-lg border transition-colors ${
+                          !message.read ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center space-x-2">
+                            <Badge
+                              variant={
+                                message.type === 'alert'
+                                  ? 'destructive'
+                                  : message.type === 'notification'
+                                  ? 'default'
+                                  : 'secondary'
+                              }
+                            >
+                              {message.type}
+                            </Badge>
+                            <span className="font-medium">{message.from}</span>
+                            {!message.read && (
+                              <Badge variant="outline" className="text-xs bg-blue-600 text-white border-blue-600">
+                                New
+                              </Badge>
+                            )}
+                          </div>
+                          <span className="text-sm text-gray-500">
+                            {new Date(message.timestamp).toLocaleDateString()} {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <h4 className="font-medium mb-2">{message.subject}</h4>
+                        <p className="text-gray-700 mb-3">{message.content}</p>
+                        
+                        {/* Message Actions */}
+                        <div className="flex items-center space-x-2 pt-3 border-t border-gray-200">
+                          {!message.read && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => markAsRead(message.id)}
+                            >
+                              <CheckCircle className="h-3 w-3 mr-1" />
+                              Mark as Read
+                            </Button>
+                          )}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => replyToMessage(message)}
+                          >
+                            <Send className="h-3 w-3 mr-1" />
+                            Reply
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -846,15 +1330,31 @@ export default function FacilityPortalPage() {
           <TabsContent value="dme" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Package className="h-5 w-5 mr-2" />
-                  DME Supply Management
-                </CardTitle>
-                <CardDescription>Automated DME ordering through Parachute Health & Verse Medical</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <Package className="h-5 w-5 mr-2 text-blue-600" />
+                      DME Supply Management
+                    </CardTitle>
+                    <CardDescription>Automated DME ordering through Parachute Health & Verse Medical</CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={fetchDMEOrders}
+                    disabled={loadingDME}
+                  >
+                    <RefreshCw className={`h-4 w-4 mr-2 ${loadingDME ? 'animate-spin' : ''}`} />
+                    Refresh
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
+                {/* Supplier Selection */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  <div className="p-4 border rounded-lg">
+                  <div className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedSupplier === 'parachute' ? 'border-blue-600 bg-blue-50' : 'hover:border-blue-400'}`}
+                    onClick={() => { setSelectedSupplier('parachute'); setShowOrderDialog(true); }}
+                  >
                     <div className="flex items-center space-x-3 mb-3">
                       <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
                         <Zap className="h-5 w-5 text-white" />
@@ -864,12 +1364,14 @@ export default function FacilityPortalPage() {
                         <p className="text-sm text-gray-600">Automated DME ordering platform</p>
                       </div>
                     </div>
-                    <Button variant="outline" className="w-full bg-transparent">
+                    <Button variant="outline" className="w-full bg-transparent" onClick={(e) => { e.stopPropagation(); setSelectedSupplier('parachute'); setShowOrderDialog(true); }}>
                       <Package className="h-4 w-4 mr-2" />
                       Order DME Supplies
                     </Button>
                   </div>
-                  <div className="p-4 border rounded-lg">
+                  <div className={`p-4 border rounded-lg cursor-pointer transition-all ${selectedSupplier === 'verse' ? 'border-green-600 bg-green-50' : 'hover:border-green-400'}`}
+                    onClick={() => { setSelectedSupplier('verse'); setShowOrderDialog(true); }}
+                  >
                     <div className="flex items-center space-x-3 mb-3">
                       <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
                         <Heart className="h-5 w-5 text-white" />
@@ -879,53 +1381,131 @@ export default function FacilityPortalPage() {
                         <p className="text-sm text-gray-600">Medical supply management</p>
                       </div>
                     </div>
-                    <Button variant="outline" className="w-full bg-transparent">
+                    <Button variant="outline" className="w-full bg-transparent" onClick={(e) => { e.stopPropagation(); setSelectedSupplier('verse'); setShowOrderDialog(true); }}>
                       <Package className="h-4 w-4 mr-2" />
                       Browse Catalog
                     </Button>
                   </div>
                 </div>
 
+                {/* Search and Filter Bar */}
+                <div className="flex flex-col sm:flex-row gap-3 mb-6">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      placeholder="Search by patient, order ID, or tracking..."
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                  <select
+                    value={orderStatusFilter}
+                    onChange={(e) => setOrderStatusFilter(e.target.value)}
+                    className="px-4 py-2 border rounded-md"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="processing">Processing</option>
+                    <option value="shipped">Shipped</option>
+                    <option value="delivered">Delivered</option>
+                  </select>
+                </div>
+
+                {/* Orders List */}
                 <div className="space-y-4">
-                  <h3 className="font-medium">Recent DME Orders</h3>
-                  {referrals
-                    .filter((r) => r.dmeOrders && r.dmeOrders.length > 0)
-                    .map((referral) =>
-                      referral.dmeOrders?.map((order) => (
-                        <div key={order.id} className="p-4 border rounded-lg">
-                          <div className="flex items-center justify-between mb-3">
-                            <div>
-                              <h4 className="font-medium">Order {order.id}</h4>
-                              <p className="text-sm text-gray-600">Patient: {referral.patientInitials}</p>
-                            </div>
-                            <Badge className={getStatusColor(order.status)}>
-                              {order.status === "shipped" && <Truck className="h-3 w-3 mr-1" />}
-                              {order.status === "delivered" && <CheckCircle className="h-3 w-3 mr-1" />}
-                              <span className="capitalize">{order.status}</span>
-                            </Badge>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium">
+                      {orderStatusFilter === 'all' ? 'All DME Orders' : `${orderStatusFilter.charAt(0).toUpperCase() + orderStatusFilter.slice(1)} Orders`}
+                      <Badge variant="outline" className="ml-2">{getFilteredDMEOrders().length}</Badge>
+                    </h3>
+                  </div>
+
+                  {loadingDME ? (
+                    <div className="text-center py-12">
+                      <RefreshCw className="h-8 w-8 animate-spin mx-auto text-blue-600 mb-2" />
+                      <p className="text-gray-600">Loading DME orders...</p>
+                    </div>
+                  ) : getFilteredDMEOrders().length === 0 ? (
+                    <div className="text-center py-12 bg-gray-50 rounded-lg">
+                      <Package className="h-12 w-12 text-gray-400 mx-auto mb-3" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-1">No DME Orders Found</h3>
+                      <p className="text-gray-600 mb-4">
+                        {orderSearch || orderStatusFilter !== 'all' 
+                          ? 'Try adjusting your search or filters' 
+                          : 'Create your first DME order using the supplier buttons above'}
+                      </p>
+                      {!orderSearch && orderStatusFilter === 'all' && (
+                        <Button onClick={() => setShowOrderDialog(true)}>
+                          <Plus className="h-4 w-4 mr-2" />
+                          Create New Order
+                        </Button>
+                      )}
+                    </div>
+                  ) : (
+                    getFilteredDMEOrders().map((order) => (
+                      <div key={order.id} className="p-4 border rounded-lg hover:shadow-md transition-shadow">
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <h4 className="font-medium flex items-center gap-2">
+                              Order #{order.order_id || order.id.substring(0, 8)}
+                              <Badge 
+                                variant="outline" 
+                                className={`${
+                                  order.supplier === 'parachute' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-green-50 text-green-700 border-green-200'
+                                }`}
+                              >
+                                {order.supplier === 'parachute' ? 'Parachute' : 'Verse Medical'}
+                              </Badge>
+                            </h4>
+                            <p className="text-sm text-gray-600">Patient: {order.patient_initials}</p>
+                            <p className="text-xs text-gray-500">
+                              Ordered: {new Date(order.created_at).toLocaleDateString()}
+                            </p>
                           </div>
-                          <div className="space-y-2">
-                            {order.items.map((item, idx) => (
-                              <div key={idx} className="flex justify-between text-sm">
-                                <span>{item.name}</span>
-                                <span>Qty: {item.quantity}</span>
-                              </div>
-                            ))}
-                          </div>
-                          {order.trackingNumber && (
-                            <div className="mt-3 p-2 bg-blue-50 rounded">
-                              <p className="text-sm text-blue-800">
-                                <Truck className="h-4 w-4 inline mr-1" />
-                                Tracking: {order.trackingNumber}
-                              </p>
-                              {order.estimatedDelivery && (
-                                <p className="text-xs text-blue-600">Estimated delivery: {order.estimatedDelivery}</p>
-                              )}
-                            </div>
-                          )}
+                          <Badge className={getStatusColor(order.status)}>
+                            {order.status === "pending" && <Clock className="h-3 w-3 mr-1" />}
+                            {order.status === "processing" && <RefreshCw className="h-3 w-3 mr-1 animate-spin" />}
+                            {order.status === "shipped" && <Truck className="h-3 w-3 mr-1" />}
+                            {order.status === "delivered" && <CheckCircle className="h-3 w-3 mr-1" />}
+                            <span className="capitalize">{order.status}</span>
+                          </Badge>
                         </div>
-                      )),
-                    )}
+
+                        <div className="space-y-2 mb-3">
+                          <p className="text-sm font-medium text-gray-700">Items:</p>
+                          {order.items?.map((item: any, idx: number) => (
+                            <div key={idx} className="flex justify-between text-sm bg-gray-50 p-2 rounded">
+                              <span className="font-medium">{item.name}</span>
+                              <span className="text-gray-600">Qty: {item.quantity}</span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {order.notes && (
+                          <div className="mb-3 p-2 bg-yellow-50 rounded">
+                            <p className="text-xs text-gray-700">
+                              <strong>Notes:</strong> {order.notes}
+                            </p>
+                          </div>
+                        )}
+
+                        {order.tracking_number && (
+                          <div className="p-3 bg-blue-50 rounded border border-blue-200">
+                            <p className="text-sm text-blue-800 font-medium">
+                              <Truck className="h-4 w-4 inline mr-1" />
+                              Tracking: {order.tracking_number}
+                            </p>
+                            {order.estimated_delivery && (
+                              <p className="text-xs text-blue-600 mt-1">
+                                📅 Estimated delivery: {new Date(order.estimated_delivery).toLocaleDateString()}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -935,76 +1515,225 @@ export default function FacilityPortalPage() {
           <TabsContent value="ai" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Bot className="h-5 w-5 mr-2" />
-                  AI Assistant - 24/7 Support
-                </CardTitle>
-                <CardDescription>Get instant answers about referrals, services, and insurance</CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center">
+                      <Bot className="h-5 w-5 mr-2 text-purple-600" />
+                      AI Assistant - 24/7 Support
+                      <Badge variant="outline" className="ml-3 bg-green-50 text-green-700 border-green-200">
+                        Online
+                      </Badge>
+                    </CardTitle>
+                    <CardDescription>Get instant answers about referrals, services, and insurance</CardDescription>
+                  </div>
+                  {chatMessages.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={clearChat}
+                      title="Clear conversation"
+                    >
+                      <XCircle className="h-4 w-4 mr-2" />
+                      Clear
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="h-96 border rounded-lg p-4 overflow-y-auto bg-gray-50">
+                  {/* Chat Container */}
+                  <div 
+                    id="ai-chat-container"
+                    className="h-[500px] border rounded-lg p-4 overflow-y-auto bg-gradient-to-b from-purple-50 to-gray-50"
+                  >
                     {chatMessages.length === 0 ? (
-                      <div className="text-center text-gray-500 mt-20">
-                        <Bot className="h-12 w-12 mx-auto mb-4 text-gray-400" />
-                        <p>Hi! I'm your AI assistant. Ask me about:</p>
-                        <ul className="text-sm mt-2 space-y-1">
-                          <li>• How to submit referrals</li>
-                          <li>• Insurance coverage questions</li>
-                          <li>• DME supply ordering</li>
-                          <li>• Service availability</li>
-                          <li>• Contact information</li>
-                        </ul>
+                      <div className="text-center text-gray-600 mt-16">
+                        <div className="inline-block p-4 bg-purple-100 rounded-full mb-4">
+                          <Bot className="h-12 w-12 text-purple-600" />
+                        </div>
+                        <h3 className="text-lg font-medium mb-2">👋 Hello! I'm your AI Assistant</h3>
+                        <p className="text-sm mb-4">I'm here to help you 24/7. Ask me anything about:</p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto text-left">
+                          <div className="bg-white p-3 rounded-lg border border-purple-200">
+                            <h4 className="font-medium text-sm mb-1">📝 Referral Submission</h4>
+                            <p className="text-xs text-gray-600">How to submit, track, and manage referrals</p>
+                          </div>
+                          <div className="bg-white p-3 rounded-lg border border-purple-200">
+                            <h4 className="font-medium text-sm mb-1">💳 Insurance Coverage</h4>
+                            <p className="text-xs text-gray-600">Accepted insurers, authorization, claims</p>
+                          </div>
+                          <div className="bg-white p-3 rounded-lg border border-purple-200">
+                            <h4 className="font-medium text-sm mb-1">🏥 Services & Care</h4>
+                            <p className="text-xs text-gray-600">Available services, specialties, locations</p>
+                          </div>
+                          <div className="bg-white p-3 rounded-lg border border-purple-200">
+                            <h4 className="font-medium text-sm mb-1">📦 DME Supplies</h4>
+                            <p className="text-xs text-gray-600">Ordering, delivery, equipment options</p>
+                          </div>
+                        </div>
+                        <p className="text-sm text-purple-600 mt-6 font-medium">
+                          💡 Try clicking a quick action button below to get started!
+                        </p>
                       </div>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {chatMessages.map((msg, idx) => (
                           <div
                             key={idx}
-                            className={`p-3 rounded-lg ${msg.startsWith("You:") ? "bg-blue-100 ml-8" : "bg-white mr-8"}`}
+                            className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
                           >
-                            <p className="text-sm">{msg}</p>
+                            <div className={`max-w-[80%] ${msg.sender === 'user' ? 'order-2' : 'order-1'}`}>
+                              <div className="flex items-start space-x-2">
+                                {msg.sender === 'ai' && (
+                                  <div className="flex-shrink-0 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center">
+                                    <Bot className="h-5 w-5 text-white" />
+                                  </div>
+                                )}
+                                <div className="flex-1">
+                                  <div
+                                    className={`p-3 rounded-lg ${
+                                      msg.sender === 'user'
+                                        ? 'bg-blue-600 text-white rounded-br-none'
+                                        : 'bg-white border border-gray-200 rounded-bl-none'
+                                    }`}
+                                  >
+                                    <p className="text-sm whitespace-pre-wrap">{msg.text}</p>
+                                  </div>
+                                  <div className="flex items-center space-x-2 mt-1 px-1">
+                                    <span className="text-xs text-gray-500">
+                                      {msg.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                    {msg.sender === 'ai' && (
+                                      <button
+                                        onClick={() => copyMessage(msg.text)}
+                                        className="text-xs text-gray-500 hover:text-gray-700"
+                                        title="Copy message"
+                                      >
+                                        📋 Copy
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                                {msg.sender === 'user' && (
+                                  <div className="flex-shrink-0 w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                                    <User className="h-5 w-5 text-white" />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         ))}
                         {aiTyping && (
-                          <div className="bg-white mr-8 p-3 rounded-lg">
-                            <p className="text-sm text-gray-500">AI Assistant is typing...</p>
+                          <div className="flex justify-start">
+                            <div className="max-w-[80%]">
+                              <div className="flex items-start space-x-2">
+                                <div className="flex-shrink-0 w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center">
+                                  <Bot className="h-5 w-5 text-white" />
+                                </div>
+                                <div className="bg-white border border-gray-200 p-3 rounded-lg rounded-bl-none">
+                                  <div className="flex space-x-1">
+                                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
                           </div>
                         )}
                       </div>
                     )}
                   </div>
-                  <div className="flex space-x-2">
-                    <Input
-                      value={chatInput}
-                      onChange={(e) => setChatInput(e.target.value)}
-                      placeholder="Ask me anything about referrals, insurance, or services..."
-                      onKeyPress={(e) => e.key === "Enter" && chatInput.trim() && sendAIMessage(chatInput)}
-                    />
-                    <Button
-                      onClick={() => chatInput.trim() && sendAIMessage(chatInput)}
-                      disabled={!chatInput.trim() || aiTyping}
-                    >
-                      <Send className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    <Button variant="outline" size="sm" onClick={() => sendAIMessage("How do I submit a referral?")}>
-                      Submit Referral
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => sendAIMessage("What insurance do you accept?")}>
-                      Insurance Info
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => sendAIMessage("How do I order DME supplies?")}>
-                      DME Supplies
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => sendAIMessage("What is your contact information?")}
-                    >
-                      Contact Info
-                    </Button>
+
+                  {/* Input Area */}
+                  <div className="space-y-3">
+                    <div className="flex space-x-2">
+                      <Input
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        placeholder="Ask me anything about referrals, insurance, or services..."
+                        onKeyPress={(e) => e.key === "Enter" && chatInput.trim() && !aiTyping && sendAIMessage(chatInput)}
+                        disabled={aiTyping}
+                        className="flex-1"
+                      />
+                      <Button
+                        onClick={() => chatInput.trim() && sendAIMessage(chatInput)}
+                        disabled={!chatInput.trim() || aiTyping}
+                        className="bg-purple-600 hover:bg-purple-700"
+                      >
+                        <Send className="h-4 w-4" />
+                      </Button>
+                    </div>
+
+                    {/* Quick Action Buttons */}
+                    <div>
+                      <p className="text-xs text-gray-600 mb-2">Quick Actions:</p>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => sendAIMessage("How do I submit a referral?")}
+                          disabled={aiTyping}
+                          className="text-xs"
+                        >
+                          📝 Submit Referral
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => sendAIMessage("What insurance do you accept?")}
+                          disabled={aiTyping}
+                          className="text-xs"
+                        >
+                          💳 Insurance Info
+                        </Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => sendAIMessage("How do I order DME supplies?")}
+                          disabled={aiTyping}
+                          className="text-xs"
+                        >
+                          📦 DME Supplies
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => sendAIMessage("What is your contact information?")}
+                          disabled={aiTyping}
+                          className="text-xs"
+                        >
+                          📞 Contact Info
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Additional Suggestions */}
+                    {chatMessages.length === 0 && (
+                      <div className="bg-purple-50 border border-purple-200 rounded-md p-3">
+                        <p className="text-xs font-medium text-purple-900 mb-2">💡 Popular Questions:</p>
+                        <div className="space-y-1">
+                          <button
+                            onClick={() => sendAIMessage("What services do you offer?")}
+                            className="text-xs text-purple-700 hover:text-purple-900 block"
+                          >
+                            • What services do you offer?
+                          </button>
+                          <button
+                            onClick={() => sendAIMessage("How long does referral approval take?")}
+                            className="text-xs text-purple-700 hover:text-purple-900 block"
+                          >
+                            • How long does referral approval take?
+                          </button>
+                          <button
+                            onClick={() => sendAIMessage("Can I upload documents for a referral?")}
+                            className="text-xs text-purple-700 hover:text-purple-900 block"
+                          >
+                            • Can I upload documents for a referral?
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -1012,6 +1741,690 @@ export default function FacilityPortalPage() {
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Referral Details Modal */}
+      {showReferralDetails && selectedReferral && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold">Referral Details</h2>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowReferralDetails(false)}
+                >
+                  <XCircle className="h-5 w-5" />
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Basic Info */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Patient Information</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-gray-600">Patient Initials</p>
+                        <p className="font-medium">{selectedReferral.patientInitials}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Referral ID</p>
+                        <p className="font-medium">{selectedReferral.id}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Diagnosis</p>
+                        <p className="font-medium">{selectedReferral.diagnosis}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-600">Insurance</p>
+                        <p className="font-medium">{selectedReferral.insuranceProvider}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Status */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Status</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Badge className={getStatusColor(selectedReferral.status)}>
+                      {getStatusIcon(selectedReferral.status)}
+                      <span className="ml-1 capitalize">{selectedReferral.status}</span>
+                    </Badge>
+                    <div className="mt-4 space-y-2">
+                      <div>
+                        <p className="text-sm text-gray-600">Submitted Date</p>
+                        <p className="font-medium">{selectedReferral.submittedDate}</p>
+                      </div>
+                      {selectedReferral.estimatedAdmissionDate && (
+                        <div>
+                          <p className="text-sm text-gray-600">Estimated Admission</p>
+                          <p className="font-medium">{selectedReferral.estimatedAdmissionDate}</p>
+                        </div>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Services */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Requested Services</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedReferral.services.map((service) => (
+                        <Badge key={service} variant="secondary">
+                          {service}
+                        </Badge>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Feedback */}
+                {selectedReferral.feedback && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Feedback</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-gray-700">{selectedReferral.feedback}</p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Documents */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center justify-between">
+                      <div className="flex items-center">
+                        <FileText className="h-5 w-5 mr-2" />
+                        Uploaded Documents ({referralDocuments.length})
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => openUploadForReferral(selectedReferral.id)}
+                        className="text-blue-600"
+                      >
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload More
+                      </Button>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {loadingDocuments ? (
+                      <div className="text-center py-4">
+                        <RefreshCw className="h-6 w-6 animate-spin mx-auto text-gray-400" />
+                        <p className="text-sm text-gray-600 mt-2">Loading documents...</p>
+                      </div>
+                    ) : referralDocuments.length === 0 ? (
+                      <div className="text-center py-8 text-gray-500">
+                        <FileText className="h-12 w-12 mx-auto mb-2 text-gray-300" />
+                        <p className="text-sm">No documents uploaded yet</p>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => openUploadForReferral(selectedReferral.id)}
+                          className="mt-4"
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          Upload First Document
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {referralDocuments.map((doc) => (
+                          <div key={doc.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors">
+                            <div className="flex items-center space-x-3 flex-1">
+                              <div className="flex-shrink-0">
+                                {doc.mime_type?.includes('image') ? (
+                                  <img src={doc.file_url} alt={doc.document_name} className="h-10 w-10 object-cover rounded" />
+                                ) : (
+                                  <FileText className="h-10 w-10 text-blue-600" />
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">{doc.document_name}</p>
+                                <div className="flex items-center space-x-2 text-xs text-gray-500">
+                                  <Badge variant="secondary" className="text-xs">
+                                    {doc.document_type}
+                                  </Badge>
+                                  <span>•</span>
+                                  <span>{(doc.file_size / 1024).toFixed(2)} KB</span>
+                                  <span>•</span>
+                                  <span>{new Date(doc.uploaded_at).toLocaleDateString()}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => window.open(doc.file_url, '_blank')}
+                                title="View Document"
+                              >
+                                <Eye className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => {
+                                  const link = document.createElement('a')
+                                  link.href = doc.file_url
+                                  link.download = doc.document_name
+                                  link.click()
+                                }}
+                                title="Download"
+                              >
+                                <Download className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="mt-6 flex justify-end space-x-3">
+                {(selectedReferral.status === "accepted" || selectedReferral.status === "approved") && (
+                  <Button
+                    onClick={() => {
+                      setShowReferralDetails(false)
+                      orderDMESupplies(selectedReferral.id, selectedReferral.patientInitials)
+                    }}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Package className="h-4 w-4 mr-2" />
+                    Order DME Supplies
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() => setShowReferralDetails(false)}
+                >
+                  Close
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upload Documents Dialog */}
+      {showUploadDialog && selectedFiles.length > 0 && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold flex items-center">
+                  <Upload className="h-6 w-6 mr-2 text-blue-600" />
+                  Upload Documents
+                </h2>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowUploadDialog(false)
+                    setSelectedFiles([])
+                  }}
+                >
+                  ✕
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Document Type Selection */}
+                <div>
+                  <Label>Document Type</Label>
+                  <select
+                    value={documentType}
+                    onChange={(e) => setDocumentType(e.target.value)}
+                    className="w-full mt-1 p-2 border rounded-md"
+                  >
+                    <option value="medical">Medical Records</option>
+                    <option value="insurance">Insurance Documents</option>
+                    <option value="consent">Consent Forms</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+
+                {/* Selected Files List */}
+                <div>
+                  <Label>Selected Files ({selectedFiles.length})</Label>
+                  <div className="mt-2 space-y-2">
+                    {selectedFiles.map((file, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-md">
+                        <div className="flex items-center space-x-3">
+                          <FileText className="h-5 w-5 text-blue-600" />
+                          <div>
+                            <p className="font-medium text-sm">{file.name}</p>
+                            <p className="text-xs text-gray-500">
+                              {(file.size / 1024).toFixed(2)} KB • {file.type}
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            const newFiles = selectedFiles.filter((_, i) => i !== index)
+                            setSelectedFiles(newFiles)
+                            if (newFiles.length === 0) {
+                              setShowUploadDialog(false)
+                            }
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Upload Information */}
+                <div className="bg-blue-50 p-4 rounded-md">
+                  <h3 className="font-semibold text-sm mb-2 flex items-center">
+                    📋 Accepted File Types:
+                  </h3>
+                  <p className="text-xs text-gray-700">
+                    PDF, DOC, DOCX, JPG, PNG, GIF, TXT (Max 10MB per file)
+                  </p>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center space-x-4 pt-4">
+                  <Button
+                    onClick={() => {
+                      if (uploadForReferralId) {
+                        uploadDocuments(uploadForReferralId)
+                      } else {
+                        alert('Please select a referral first')
+                      }
+                    }}
+                    disabled={uploadingDocs || !uploadForReferralId}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {uploadingDocs ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload {selectedFiles.length} File(s)
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowUploadDialog(false)
+                      setSelectedFiles([])
+                    }}
+                    disabled={uploadingDocs}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Compose Message Dialog */}
+      {showComposeDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-2xl font-bold flex items-center">
+                  <Send className="h-6 w-6 mr-2 text-blue-600" />
+                  {replyingTo ? 'Reply to Message' : 'Compose New Message'}
+                </h2>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setShowComposeDialog(false)
+                    setNewMessage({ subject: '', content: '', referralId: '' })
+                    setReplyingTo(null)
+                  }}
+                >
+                  ✕
+                </Button>
+              </div>
+
+              {replyingTo && (
+                <div className="mb-4 p-3 bg-gray-50 rounded-md border border-gray-200">
+                  <p className="text-xs text-gray-600 mb-1">Replying to:</p>
+                  <p className="font-medium text-sm">{replyingTo.subject}</p>
+                  <p className="text-xs text-gray-600">From: {replyingTo.from}</p>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {/* To Field */}
+                <div>
+                  <Label htmlFor="messageTo">To</Label>
+                  <Input
+                    id="messageTo"
+                    value="M.A.S.E. Team"
+                    disabled
+                    className="bg-gray-50"
+                  />
+                </div>
+
+                {/* Referral Link (Optional) */}
+                <div>
+                  <Label htmlFor="messageReferral">Link to Referral (Optional)</Label>
+                  <select
+                    id="messageReferral"
+                    value={newMessage.referralId}
+                    onChange={(e) => setNewMessage({ ...newMessage, referralId: e.target.value })}
+                    className="w-full mt-1 p-2 border rounded-md"
+                  >
+                    <option value="">No referral linked</option>
+                    {referrals.map((ref) => (
+                      <option key={ref.id} value={ref.id}>
+                        {ref.patientInitials} - {ref.diagnosis} ({ref.submittedDate})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Subject */}
+                <div>
+                  <Label htmlFor="messageSubject">Subject *</Label>
+                  <Input
+                    id="messageSubject"
+                    placeholder="Enter message subject"
+                    value={newMessage.subject}
+                    onChange={(e) => setNewMessage({ ...newMessage, subject: e.target.value })}
+                  />
+                </div>
+
+                {/* Message Content */}
+                <div>
+                  <Label htmlFor="messageContent">Message *</Label>
+                  <Textarea
+                    id="messageContent"
+                    placeholder="Type your message here..."
+                    rows={8}
+                    value={newMessage.content}
+                    onChange={(e) => setNewMessage({ ...newMessage, content: e.target.value })}
+                  />
+                  <p className="text-xs text-gray-600 mt-1">
+                    This message will be sent securely via HIPAA-compliant communication
+                  </p>
+                </div>
+
+                {/* Quick Templates */}
+                <div className="bg-blue-50 p-4 rounded-md">
+                  <p className="text-sm font-medium mb-2">Quick Templates:</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setNewMessage({
+                        ...newMessage,
+                        subject: 'Referral Status Inquiry',
+                        content: 'Hello, I would like to inquire about the status of a referral. Could you please provide an update?'
+                      })}
+                    >
+                      Status Inquiry
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setNewMessage({
+                        ...newMessage,
+                        subject: 'Document Submission',
+                        content: 'Hello, I have uploaded additional documents for your review. Please let me know if you need anything else.'
+                      })}
+                    >
+                      Document Submission
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setNewMessage({
+                        ...newMessage,
+                        subject: 'Urgent Request',
+                        content: 'Hello, this is an urgent matter regarding a patient referral. Please contact me as soon as possible.'
+                      })}
+                    >
+                      Urgent Request
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center space-x-4 pt-4 border-t">
+                  <Button
+                    onClick={composeMessage}
+                    disabled={sendingMessage || !newMessage.subject || !newMessage.content}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {sendingMessage ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4 mr-2" />
+                        Send Message
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowComposeDialog(false)
+                      setNewMessage({ subject: '', content: '', referralId: '' })
+                      setReplyingTo(null)
+                    }}
+                    disabled={sendingMessage}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DME Order Dialog */}
+      {showOrderDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold flex items-center gap-2">
+                    <Package className="h-6 w-6 text-blue-600" />
+                    Create DME Order
+                  </h2>
+                  <p className="text-gray-600 text-sm mt-1">
+                    Ordering through {selectedSupplier === 'parachute' ? 'Parachute Health' : 'Verse Medical'}
+                  </p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowOrderDialog(false)
+                    setNewDMEOrder({
+                      patientInitials: '',
+                      referralId: '',
+                      items: [{ name: '', quantity: 1, category: 'wheelchair' }],
+                      notes: ''
+                    })
+                  }}
+                >
+                  <XCircle className="h-5 w-5" />
+                </Button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Patient Initials */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Patient Initials <span className="text-red-500">*</span>
+                  </label>
+                  <Input
+                    placeholder="e.g., J.W."
+                    value={newDMEOrder.patientInitials}
+                    onChange={(e) => setNewDMEOrder({ ...newDMEOrder, patientInitials: e.target.value })}
+                  />
+                </div>
+
+                {/* Optional Referral ID */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Link to Referral (Optional)
+                  </label>
+                  <select
+                    value={newDMEOrder.referralId}
+                    onChange={(e) => setNewDMEOrder({ ...newDMEOrder, referralId: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-md"
+                  >
+                    <option value="">No referral link</option>
+                    {referrals.map((ref) => (
+                      <option key={ref.id} value={ref.id}>
+                        {ref.patientInitials} - {ref.urgency} - {new Date(ref.submittedAt).toLocaleDateString()}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* DME Items */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    DME Items <span className="text-red-500">*</span>
+                  </label>
+                  <div className="space-y-3">
+                    {newDMEOrder.items.map((item, index) => (
+                      <div key={index} className="flex gap-2 items-start border p-3 rounded-lg">
+                        <div className="flex-1 space-y-2">
+                          <select
+                            value={item.category}
+                            onChange={(e) => updateDMEItem(index, 'category', e.target.value)}
+                            className="w-full px-3 py-2 border rounded-md text-sm"
+                          >
+                            <option value="wheelchair">Wheelchair</option>
+                            <option value="walker">Walker</option>
+                            <option value="cane">Cane</option>
+                            <option value="oxygen">Oxygen Equipment</option>
+                            <option value="cpap">CPAP/BiPAP</option>
+                            <option value="hospital_bed">Hospital Bed</option>
+                            <option value="wound_care">Wound Care</option>
+                            <option value="diabetic_supplies">Diabetic Supplies</option>
+                            <option value="other">Other</option>
+                          </select>
+                          <Input
+                            placeholder="Item name/description"
+                            value={item.name}
+                            onChange={(e) => updateDMEItem(index, 'name', e.target.value)}
+                          />
+                          <Input
+                            type="number"
+                            min="1"
+                            placeholder="Quantity"
+                            value={item.quantity}
+                            onChange={(e) => updateDMEItem(index, 'quantity', parseInt(e.target.value) || 1)}
+                          />
+                        </div>
+                        {newDMEOrder.items.length > 1 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => removeDMEItem(index)}
+                            className="text-red-600 hover:text-red-700"
+                          >
+                            <XCircle className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={addDMEItem}
+                    className="mt-2"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Another Item
+                  </Button>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Special Instructions (Optional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Any special delivery instructions or notes..."
+                    value={newDMEOrder.notes}
+                    onChange={(e) => setNewDMEOrder({ ...newDMEOrder, notes: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-md"
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-4">
+                  <Button
+                    onClick={createDMEOrder}
+                    disabled={loading || !newDMEOrder.patientInitials || newDMEOrder.items.some(item => !item.name)}
+                    className="flex-1"
+                  >
+                    {loading ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Creating Order...
+                      </>
+                    ) : (
+                      <>
+                        <Package className="h-4 w-4 mr-2" />
+                        Create Order
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setShowOrderDialog(false)
+                      setNewDMEOrder({
+                        patientInitials: '',
+                        referralId: '',
+                        items: [{ name: '', quantity: 1, category: 'wheelchair' }],
+                        notes: ''
+                      })
+                    }}
+                    disabled={loading}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

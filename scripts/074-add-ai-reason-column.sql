@@ -34,3 +34,4 @@ WHERE table_schema = 'public'
   AND table_name = 'referrals' 
   AND column_name = 'ai_reason';
 
+

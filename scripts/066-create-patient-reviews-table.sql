@@ -38,3 +38,4 @@ COMMENT ON COLUMN public.patient_reviews.helpful_count IS 'Number of times this 
 COMMENT ON COLUMN public.patient_reviews.status IS 'Review status: pending (awaiting approval), published (visible), rejected (not approved), archived (hidden)';
 
 
+

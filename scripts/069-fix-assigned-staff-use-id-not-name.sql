@@ -74,3 +74,4 @@ SELECT
   COUNT(*) - COUNT(assigned_staff_id) as without_assigned_staff_id
 FROM public.referrals_new;
 
+

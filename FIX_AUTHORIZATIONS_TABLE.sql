@@ -39,3 +39,4 @@ COMMIT;
 -- The table now only uses created_at and updated_at (proper timestamps).
 -- ================================================================
 
+

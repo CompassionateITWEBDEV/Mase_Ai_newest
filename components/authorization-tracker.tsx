@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -69,7 +69,7 @@ export function AuthorizationTracker({
   const [error, setError] = useState<string | null>(null)
 
   // Fetch authorizations from database
-  const fetchAuthorizations = async () => {
+  const fetchAuthorizations = useCallback(async () => {
     try {
       setIsLoading(true)
       setError(null)
@@ -93,12 +93,12 @@ export function AuthorizationTracker({
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [patientId])
 
   // Fetch authorizations on mount and when patientId changes
   useEffect(() => {
     fetchAuthorizations()
-  }, [patientId])
+  }, [fetchAuthorizations])
 
   // Filter authorizations based on patient ID if provided
   const filteredAuths = authorizations.filter((auth) => {
@@ -197,12 +197,55 @@ export function AuthorizationTracker({
 
   return (
     <div className="space-y-6">
+      {/* Info Alert - Show when no error and no data */}
+      {!error && !isLoading && authorizations.length === 0 && (
+        <Alert className="border-blue-200 bg-blue-50">
+          <FileText className="h-4 w-4 text-blue-600" />
+          <AlertTitle className="text-blue-800">No Authorizations Found</AlertTitle>
+          <AlertDescription className="text-blue-700">
+            <p>There are currently no authorization requests in the system.</p>
+            {!readOnly && (
+              <div className="mt-2 text-sm">
+                <p>To create an authorization request:</p>
+                <ol className="list-decimal list-inside mt-1 ml-2 space-y-1">
+                  <li>Go to the "Referral Processing" tab</li>
+                  <li>Find a referral with status "New"</li>
+                  <li>Click "Request Prior Auth" button</li>
+                  <li>The authorization will appear here</li>
+                </ol>
+              </div>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Error Display */}
       {error && (
         <Alert className="border-red-200 bg-red-50">
           <XCircle className="h-4 w-4 text-red-600" />
-          <AlertTitle className="text-red-800">Error</AlertTitle>
-          <AlertDescription className="text-red-700">{error}</AlertDescription>
+          <AlertTitle className="text-red-800">Error Loading Authorizations</AlertTitle>
+          <AlertDescription className="text-red-700">
+            <p className="mb-2">{error}</p>
+            {error.includes("Database error") && (
+              <div className="mt-3 text-sm">
+                <p className="font-semibold">Troubleshooting steps:</p>
+                <ul className="list-disc list-inside mt-1 space-y-1">
+                  <li>Check that the authorizations table exists in your database</li>
+                  <li>Verify your SUPABASE_SERVICE_ROLE_KEY is set in .env.local</li>
+                  <li>Run the setup SQL script: <code className="bg-red-100 px-1 rounded">RUN_THIS_NOW_TO_FIX.sql</code></li>
+                </ul>
+              </div>
+            )}
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="mt-3"
+              onClick={fetchAuthorizations}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Try Again
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
@@ -424,8 +467,20 @@ export function AuthorizationTracker({
               ))
             ) : (
               <div className="text-center py-12 text-gray-500">
-                <FileText className="h-12 w-12 mx-auto mb-4" />
-                <p>No authorizations in this category.</p>
+                <FileText className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                <p className="text-lg font-medium mb-2">No authorizations in this category</p>
+                <p className="text-sm">
+                  {status === "pending" && "No pending authorization requests at this time."}
+                  {status === "in_review" && "No authorizations currently under review."}
+                  {status === "approved" && "No approved authorizations yet."}
+                  {status === "denied" && "No denied authorizations."}
+                  {status === "expired" && "No expired authorizations."}
+                </p>
+                {status === "pending" && !readOnly && (
+                  <p className="text-xs mt-3 text-gray-400">
+                    Create a referral and request prior auth to see authorizations here.
+                  </p>
+                )}
               </div>
             )}
           </TabsContent>

@@ -153,62 +153,67 @@ class ExtendedCareAPI {
   }
 
   async fetchPendingReferrals(): Promise<ExtendedCareReferralRequest[]> {
-    console.log("Fetching pending referrals from ExtendedCare Network")
-    await new Promise((resolve) => setTimeout(resolve, 1200))
+    console.log("⚠️ ExtendedCare mock data is DISABLED - returning empty array")
+    await new Promise((resolve) => setTimeout(resolve, 500))
 
-    // Mock referrals from ExtendedCare
-    const mockReferrals: ExtendedCareReferralRequest[] = [
-      {
-        patientName: "Elizabeth Thompson",
-        patientId: "EC-PAT-001",
-        diagnosis: "Post-acute care following hospitalization",
-        diagnosisCode: "Z51.89",
-        insuranceProvider: "Medicare Advantage",
-        insuranceId: "MA-887766",
-        requestedServices: ["skilled_nursing", "physical_therapy"],
-        urgencyLevel: "urgent",
-        referringProvider: {
-          name: "Dr. Michael Chen",
-          npi: "1234567890",
-          facility: "Regional Medical Center",
-        },
-        estimatedEpisodeLength: 45,
-        geographicLocation: {
-          address: "123 Oak Street",
-          city: "Springfield",
-          state: "IL",
-          zipCode: "62701",
-          coordinates: { lat: 39.7817, lng: -89.6501 },
-        },
-        specialRequirements: ["diabetic_care", "wound_care"],
-        preferredStartDate: "2024-07-12",
-      },
-      {
-        patientName: "James Wilson",
-        patientId: "EC-PAT-002",
-        diagnosis: "Chronic heart failure management",
-        diagnosisCode: "I50.9",
-        insuranceProvider: "Humana Gold Plus",
-        insuranceId: "HGP-445566",
-        requestedServices: ["skilled_nursing", "medical_social_work"],
-        urgencyLevel: "routine",
-        referringProvider: {
-          name: "Dr. Sarah Martinez",
-          npi: "0987654321",
-          facility: "Cardiology Associates",
-        },
-        estimatedEpisodeLength: 60,
-        geographicLocation: {
-          address: "456 Maple Avenue",
-          city: "Springfield",
-          state: "IL",
-          zipCode: "62702",
-        },
-        preferredStartDate: "2024-07-15",
-      },
-    ]
+    // ⚠️ MOCK DATA DISABLED - No more James Wilson or Elizabeth Thompson!
+    // This prevents automatic insertion of test data into the database
+    // Return empty array instead of mock referrals
+    return []
 
-    return mockReferrals
+    // DISABLED MOCK REFERRALS - Uncomment only for testing
+    // const mockReferrals: ExtendedCareReferralRequest[] = [
+    //   {
+    //     patientName: "Elizabeth Thompson",
+    //     patientId: "EC-PAT-001",
+    //     diagnosis: "Post-acute care following hospitalization",
+    //     diagnosisCode: "Z51.89",
+    //     insuranceProvider: "Medicare Advantage",
+    //     insuranceId: "MA-887766",
+    //     requestedServices: ["skilled_nursing", "physical_therapy"],
+    //     urgencyLevel: "urgent",
+    //     referringProvider: {
+    //       name: "Dr. Michael Chen",
+    //       npi: "1234567890",
+    //       facility: "Regional Medical Center",
+    //     },
+    //     estimatedEpisodeLength: 45,
+    //     geographicLocation: {
+    //       address: "123 Oak Street",
+    //       city: "Springfield",
+    //       state: "IL",
+    //       zipCode: "62701",
+    //       coordinates: { lat: 39.7817, lng: -89.6501 },
+    //     },
+    //     specialRequirements: ["diabetic_care", "wound_care"],
+    //     preferredStartDate: "2024-07-12",
+    //   },
+    //   {
+    //     patientName: "James Wilson",
+    //     patientId: "EC-PAT-002",
+    //     diagnosis: "Chronic heart failure management",
+    //     diagnosisCode: "I50.9",
+    //     insuranceProvider: "Humana Gold Plus",
+    //     insuranceId: "HGP-445566",
+    //     requestedServices: ["skilled_nursing", "medical_social_work"],
+    //     urgencyLevel: "routine",
+    //     referringProvider: {
+    //       name: "Dr. Sarah Martinez",
+    //       npi: "0987654321",
+    //       facility: "Cardiology Associates",
+    //     },
+    //     estimatedEpisodeLength: 60,
+    //     geographicLocation: {
+    //       address: "456 Maple Avenue",
+    //       city: "Springfield",
+    //       state: "IL",
+    //       zipCode: "62702",
+    //     },
+    //     preferredStartDate: "2024-07-15",
+    //   },
+    // ]
+    //
+    // return mockReferrals
   }
 
   async acceptReferral(

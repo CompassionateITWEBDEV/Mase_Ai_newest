@@ -27,3 +27,4 @@ SELECT
   COUNT(*) - COUNT(assigned_staff) as referrals_without_assigned_staff
 FROM public.referrals_new;
 
+

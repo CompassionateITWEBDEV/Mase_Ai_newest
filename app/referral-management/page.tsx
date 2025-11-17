@@ -137,6 +137,12 @@ export default function ReferralManagementPage() {
   const [manualEntryError, setManualEntryError] = useState("")
   const [manualEntrySuccess, setManualEntrySuccess] = useState(false)
 
+  // Document upload state
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [isProcessingDocument, setIsProcessingDocument] = useState(false)
+  const [documentProcessingError, setDocumentProcessingError] = useState("")
+  const [documentProcessingSuccess, setDocumentProcessingSuccess] = useState(false)
+
   // Get current user and check permissions
   const currentUser = getCurrentUser()
   const canViewAuthorizations =
@@ -257,10 +263,23 @@ export default function ReferralManagementPage() {
   // ExtendedCare referrals count
   const extendedCareReferrals = referrals.filter((r) => r.referralSource === "ExtendedCare Network")
 
+  // ⚠️ TEMPORARILY DISABLED - ExtendedCare mock data sync
+  // This function was inserting mock data automatically
+  // Uncomment when ready to use real ExtendedCare integration
   const syncWithExtendedCare = async () => {
     setIsLoadingExtendedCare(true)
     setExtendedCareStatus("syncing")
 
+    console.log("⚠️ ExtendedCare sync is temporarily disabled to prevent mock data insertion")
+
+    // Show a user-friendly message
+    alert("ExtendedCare sync is temporarily disabled.\n\nThis feature was inserting mock data automatically.\nIt will be re-enabled when real ExtendedCare integration is ready.")
+
+    setExtendedCareStatus("disconnected")
+    setIsLoadingExtendedCare(false)
+    return
+
+    /* COMMENTED OUT - Mock data sync code
     try {
       // Fetch new referrals from ExtendedCare
       const newReferrals = await extendedCareApi.fetchPendingReferrals()
@@ -308,6 +327,7 @@ export default function ReferralManagementPage() {
     } finally {
       setIsLoadingExtendedCare(false)
     }
+    */
   }
 
   const processExtendedCareReferral = async (referralId: string) => {
@@ -774,6 +794,72 @@ export default function ReferralManagementPage() {
       setManualEntryError(error instanceof Error ? error.message : "Failed to submit referral. Please try again.")
     } finally {
       setIsSubmittingManual(false)
+    }
+  }
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (file) {
+      setSelectedFile(file)
+      setDocumentProcessingError("")
+      setDocumentProcessingSuccess(false)
+    }
+  }
+
+  const handleProcessDocument = async () => {
+    if (!selectedFile) {
+      setDocumentProcessingError("Please select a file first")
+      return
+    }
+
+    setIsProcessingDocument(true)
+    setDocumentProcessingError("")
+    setDocumentProcessingSuccess(false)
+
+    try {
+      console.log("📄 Processing document:", selectedFile.name)
+
+      const formData = new FormData()
+      formData.append("file", selectedFile)
+
+      const response = await fetch("/api/referrals/process-document", {
+        method: "POST",
+        body: formData,
+      })
+
+      const result = await response.json()
+
+      if (!response.ok) {
+        const errorMsg = result.message || result.error || result.details || "Failed to process document"
+        const fullError = result.hint ? `${errorMsg}\n\nHint: ${result.hint}` : errorMsg
+        throw new Error(fullError)
+      }
+
+      console.log("✅ Document processed successfully:", result)
+      
+      setDocumentProcessingSuccess(true)
+      setSelectedFile(null)
+      
+      // Reset file input
+      const fileInput = document.getElementById("fax-upload") as HTMLInputElement
+      if (fileInput) {
+        fileInput.value = ""
+      }
+
+      // Refresh referrals list
+      await fetchReferrals()
+
+      // Auto-hide success message after 5 seconds
+      setTimeout(() => {
+        setDocumentProcessingSuccess(false)
+      }, 5000)
+
+      alert(`✅ Document processed!\n\nPatient: ${result.extractedData.patientName}\nInsurance: ${result.extractedData.insuranceProvider}\n\nReferral created successfully. Check the New Referrals tab.`)
+    } catch (error) {
+      console.error("❌ Failed to process document:", error)
+      setDocumentProcessingError(error instanceof Error ? error.message : "Failed to process document")
+    } finally {
+      setIsProcessingDocument(false)
     }
   }
 
@@ -1306,22 +1392,70 @@ export default function ReferralManagementPage() {
                     <CardTitle className="flex items-center">
                       <Upload className="h-5 w-5 mr-2" /> Process Faxed Referral
                     </CardTitle>
-                    <CardDescription>Upload a referral document to process it automatically.</CardDescription>
+                    <CardDescription>Upload a referral document to process it automatically with AI-OCR.</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
+                      {documentProcessingSuccess && (
+                        <Alert className="bg-green-50 border-green-200">
+                          <Check className="h-4 w-4 text-green-600" />
+                          <AlertTitle className="text-green-800">Success!</AlertTitle>
+                          <AlertDescription className="text-green-700">
+                            Document processed successfully! Referral created and added to New Referrals.
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {documentProcessingError && (
+                        <Alert className="bg-red-50 border-red-200">
+                          <X className="h-4 w-4 text-red-600" />
+                          <AlertTitle className="text-red-800">Error</AlertTitle>
+                          <AlertDescription className="text-red-700">
+                            {documentProcessingError}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
                       <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-500 transition-colors">
                         <FileText className="h-10 w-10 mx-auto text-gray-400 mb-2" />
                         <Label htmlFor="fax-upload" className="text-blue-600 font-medium cursor-pointer">
-                          Choose a file
-                          <Input id="fax-upload" type="file" className="sr-only" />
+                          {selectedFile ? selectedFile.name : "Choose a file"}
+                          <Input 
+                            id="fax-upload" 
+                            type="file" 
+                            accept=".pdf,.png,.jpg,.jpeg"
+                            className="sr-only" 
+                            onChange={handleFileSelect}
+                            disabled={isProcessingDocument}
+                          />
                         </Label>
-                        <p className="text-xs text-gray-500 mt-1">or drag and drop PDF, PNG, or JPG</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          {selectedFile 
+                            ? `${(selectedFile.size / 1024).toFixed(2)} KB - Click to change`
+                            : "or drag and drop PDF, PNG, or JPG (max 10MB)"
+                          }
+                        </p>
                       </div>
-                      <Button className="w-full">
-                        <Brain className="h-4 w-4 mr-2" />
-                        Process with AI-OCR
+                      <Button 
+                        className="w-full" 
+                        onClick={handleProcessDocument}
+                        disabled={!selectedFile || isProcessingDocument}
+                      >
+                        {isProcessingDocument ? (
+                          <>
+                            <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                            Processing with AI-OCR...
+                          </>
+                        ) : (
+                          <>
+                            <Brain className="h-4 w-4 mr-2" />
+                            Process with AI-OCR
+                          </>
+                        )}
                       </Button>
+                      <p className="text-xs text-gray-500 text-center">
+                        AI will extract patient info, diagnosis, and insurance details automatically
+                      </p>
                     </div>
                   </CardContent>
                 </Card>

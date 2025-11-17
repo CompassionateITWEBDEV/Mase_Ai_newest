@@ -20,6 +20,7 @@ export default function ReferralIntakePage() {
   const [submitSuccess, setSubmitSuccess] = useState(false)
   const [submitError, setSubmitError] = useState("")
   const [routingInfo, setRoutingInfo] = useState<any>(null)
+  const [submittedReferral, setSubmittedReferral] = useState<any>(null)
 
   // Pre-fill form if coming from QR code or facility link
   const facilityId = searchParams.get("facility")
@@ -71,7 +72,11 @@ export default function ReferralIntakePage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          source: source || "direct",
+          facilityId: facilityId || null
+        }),
       })
 
       const result = await response.json()
@@ -79,6 +84,7 @@ export default function ReferralIntakePage() {
       if (result.success) {
         setSubmitSuccess(true)
         setRoutingInfo(result.routing)
+        setSubmittedReferral(result.referral)
         // Reset form
         setFormData({
           facilityName: "",
@@ -90,10 +96,12 @@ export default function ReferralIntakePage() {
           serviceNeeded: "",
           urgencyLevel: "routine",
           referralDate: new Date().toISOString().split("T")[0],
-          referredBy: "",
+          referredBy: marketer || "",
           insuranceType: "",
           notes: "",
         })
+        // Scroll to success message
+        window.scrollTo({ top: 0, behavior: 'smooth' })
       } else {
         setSubmitError(result.error || "Failed to submit referral")
       }
@@ -116,6 +124,39 @@ export default function ReferralIntakePage() {
             <CardDescription>Your referral has been processed and routed appropriately.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            {submittedReferral && (
+              <Alert className="border-green-200 bg-green-50">
+                <CheckCircle className="h-4 w-4" />
+                <AlertTitle>Referral Created</AlertTitle>
+                <AlertDescription>
+                  <div className="space-y-2">
+                    <p className="text-lg font-bold text-green-900">
+                      #{submittedReferral.referralNumber}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div>
+                        <strong>Facility:</strong> {submittedReferral.facilityName}
+                      </div>
+                      <div>
+                        <strong>Contact:</strong> {submittedReferral.contactName}
+                      </div>
+                      <div>
+                        <strong>Patient:</strong> {submittedReferral.patientName}
+                      </div>
+                      <div>
+                        <strong>Service:</strong> {submittedReferral.serviceNeeded}
+                      </div>
+                      <div>
+                        <Badge variant={submittedReferral.urgencyLevel === 'stat' ? 'destructive' : submittedReferral.urgencyLevel === 'urgent' ? 'default' : 'secondary'}>
+                          {submittedReferral.urgencyLevel.toUpperCase()}
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+            
             {routingInfo && (
               <Alert className="border-blue-200 bg-blue-50">
                 <ArrowRight className="h-4 w-4" />
@@ -124,8 +165,8 @@ export default function ReferralIntakePage() {
                   <p className="mb-2">
                     <strong>Routed to:</strong> {routingInfo.organization}
                   </p>
-                  <p>
-                    <strong>Destination:</strong> {routingInfo.destination}
+                  <p className="text-sm text-gray-600">
+                    This referral will be handled by the <strong>{routingInfo.organization}</strong> team based on the service type.
                   </p>
                 </AlertDescription>
               </Alert>

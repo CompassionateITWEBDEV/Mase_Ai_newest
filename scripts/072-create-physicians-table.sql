@@ -132,3 +132,4 @@ INSERT INTO public.physicians (
 )
 ON CONFLICT (npi) DO NOTHING;
 
+

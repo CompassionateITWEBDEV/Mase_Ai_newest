@@ -147,6 +147,66 @@ export async function PATCH(
     }
 
     console.log("✅ Authorization updated successfully:", data)
+
+    // 🔗 SYNC WITH REFERRAL - Update referral status when authorization is approved/denied
+    if (data.referral_id && (status === "approved" || status === "denied")) {
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+      console.log("🔗 [INTEGRATION] Authorization status changed - updating linked referral")
+      console.log("   Authorization ID:", params.id)
+      console.log("   Linked Referral ID:", data.referral_id)
+      console.log("   Authorization Status:", status)
+      console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+      
+      try {
+        const newReferralStatus = status === "approved" ? "Approved" : "Denied"
+        
+        console.log("   Updating referral to status:", newReferralStatus)
+        console.log("   This will trigger patient creation if approved!")
+        
+        // Use the referral API endpoint to trigger patient creation
+        const referralUpdateResponse = await fetch(`${request.url.split('/api')[0]}/api/referrals/${data.referral_id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: newReferralStatus,
+            socDueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // 5 days from now
+          })
+        })
+
+        if (!referralUpdateResponse.ok) {
+          const errorData = await referralUpdateResponse.json()
+          throw new Error(errorData.error || "Failed to update referral")
+        }
+
+        const referralResult = await referralUpdateResponse.json()
+        const updatedReferral = referralResult.referral
+
+        if (updatedReferral) {
+          console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+          console.log("✅ [INTEGRATION] Referral status updated successfully!")
+          console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+          console.log("📋 Referral ID:", data.referral_id)
+          console.log("👤 Patient:", updatedReferral.patient_name)
+          console.log("📊 Authorization Status:", status)
+          console.log("📊 Referral Old Status: Pending Auth")
+          console.log("📊 Referral New Status:", updatedReferral.status)
+          console.log("🕐 Updated At:", updatedReferral.updated_at)
+          console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+          console.log("🎯 Referral now visible in correct tab!")
+          if (status === "approved") {
+            console.log("👥 Patient record auto-created in Patient Tracking!")
+          }
+          console.log("🔄 Please refresh Referral Processing tab to see changes")
+          console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        } else {
+          console.error("⚠️ No referral data returned - referral may not exist")
+        }
+      } catch (integrationError) {
+        console.error("⚠️ Error syncing with referral:", integrationError)
+        // Don't fail the authorization update if referral sync fails
+      }
+    }
+
     return NextResponse.json({ authorization: data, success: true })
   } catch (error) {
     console.error("❌ Error updating authorization:", error)

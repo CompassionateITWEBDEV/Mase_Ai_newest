@@ -304,6 +304,23 @@ export default function PatientTrackingDashboard() {
   // Patient data from database - Initialize with empty array
   const [patients, setPatients] = useState<Patient[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [pendingReferralsCount, setPendingReferralsCount] = useState<number>(0)
+
+  // Fetch pending referrals count
+  const fetchPendingReferrals = async () => {
+    try {
+      const response = await fetch('/api/referrals?status=New')
+      if (response.ok) {
+        const data = await response.json()
+        if (data.referrals) {
+          setPendingReferralsCount(data.referrals.length)
+          console.log(`📥 [PENDING REFERRALS] Count: ${data.referrals.length}`)
+        }
+      }
+    } catch (err) {
+      console.error('Failed to fetch pending referrals:', err)
+    }
+  }
 
   // Fetch patients from API
   const fetchPatients = async () => {
@@ -340,8 +357,41 @@ export default function PatientTrackingDashboard() {
   // Fetch patients on mount and when filters change
   useEffect(() => {
     fetchPatients()
+    fetchPendingReferrals()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchTerm, staffFilter, locationFilter, statusFilter, referralTypeFilter, lupaFilter])
+
+  // Auto-refresh pending referrals count every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchPendingReferrals()
+    }, 30000) // 30 seconds
+    
+    return () => clearInterval(interval)
+  }, [])
+
+  // Refresh pending referrals when page becomes visible (user navigates back)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        console.log('📄 Page visible - refreshing pending referrals count')
+        fetchPendingReferrals()
+      }
+    }
+
+    const handleFocus = () => {
+      console.log('🔍 Window focused - refreshing pending referrals count')
+      fetchPendingReferrals()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('focus', handleFocus)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [])
 
   // Auto-generate DME orders when patient is accepted
   const handlePatientAcceptance = async (patientId: string) => {
@@ -531,8 +581,9 @@ export default function PatientTrackingDashboard() {
         const data = await response.json()
         if (data.success) {
           setLastSync(new Date().toISOString())
-          // Refresh patients after sync
+          // Refresh patients and pending referrals after sync
           await fetchPatients()
+          await fetchPendingReferrals()
         }
       }
     } catch (error) {
@@ -734,8 +785,6 @@ export default function PatientTrackingDashboard() {
       return daysDiff <= 7 && daysDiff >= 0
     }).length
 
-    const pendingReferrals = 4 // Mock data, in reality this would come from the referral system
-
     return {
       onTrack,
       dueSoon,
@@ -749,14 +798,14 @@ export default function PatientTrackingDashboard() {
       totalEpisodeCost,
       totalProjectedCost,
       reEvalDue,
-      pendingReferrals,
+      pendingReferrals: pendingReferralsCount,
       totalDMEOrders,
       pendingDMEOrders,
       shippedDMEOrders,
       totalDMECost,
       total: updatedPatients.length,
     }
-  }, [updatedPatients])
+  }, [updatedPatients, pendingReferralsCount])
 
   const getStatusColor = (status: string) => {
     switch (status) {
