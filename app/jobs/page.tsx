@@ -205,7 +205,7 @@ export default function JobsPage() {
                 <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-green-500 rounded-lg flex items-center justify-center">
                   <Heart className="h-4 w-4 text-white" />
                 </div>
-                <h1 className="text-xl font-bold text-gray-900">IrishTriplets</h1>
+                <h1 className="text-xl font-bold text-gray-900">Compassionate Home Health Services</h1>
               </Link>
               <div className="hidden md:block">
                 <Badge variant="secondary" className="bg-purple-100 text-purple-800">
@@ -538,7 +538,7 @@ export default function JobsPage() {
           <CardContent className="p-8 text-center">
             <h2 className="text-2xl font-bold mb-4">Ready to Start Your Healthcare Career?</h2>
             <p className="text-lg mb-6 opacity-90">
-              Join thousands of healthcare professionals who have found their perfect job through IrishTriplets.
+              Join thousands of healthcare professionals who have found their perfect job through Compassionate Home Health Services.
             </p>
             <div className="flex justify-center space-x-4">
               <Link href="/register">

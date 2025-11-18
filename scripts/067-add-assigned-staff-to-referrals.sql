@@ -12,3 +12,4 @@ CREATE INDEX IF NOT EXISTS idx_referrals_new_assigned_staff ON public.referrals_
 COMMENT ON COLUMN public.referrals_new.assigned_staff IS 'Name of staff member assigned to process this referral (from authorization assignment)';
 
 
+

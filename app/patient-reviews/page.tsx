@@ -261,7 +261,7 @@ export default function PatientReviewsPage() {
                   <Heart className="h-5 w-5 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-xl font-bold text-gray-900">IrishTriplets</h1>
+                  <h1 className="text-xl font-bold text-gray-900">Compassionate Home Health Services</h1>
                   <p className="text-sm text-gray-600">Patient Reviews</p>
                 </div>
               </Link>
@@ -740,7 +740,7 @@ export default function PatientReviewsPage() {
                 <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-green-500 rounded-full flex items-center justify-center">
                   <Heart className="h-4 w-4 text-white" />
                 </div>
-                <h3 className="text-lg font-bold">IrishTriplets</h3>
+                <h3 className="text-lg font-bold">Compassionate Home Health Services</h3>
               </div>
               <p className="text-gray-400">
                 Connecting healthcare professionals with meaningful opportunities across Michigan.
@@ -808,7 +808,7 @@ export default function PatientReviewsPage() {
             </div>
           </div>
           <div className="border-t border-gray-800 mt-8 pt-8 text-center text-gray-400">
-            <p>&copy; 2024 IrishTriplets Healthcare Staffing. All rights reserved.</p>
+            <p>&copy; 2024 Compassionate Home Health Services Staffing. All rights reserved.</p>
           </div>
         </div>
       </footer>

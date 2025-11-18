@@ -1820,7 +1820,7 @@ export default function ApplicantDashboard() {
                 <Heart className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-xl font-bold text-gray-900">IrishTriplets Job Portal</h1>
+                <h1 className="text-xl font-bold text-gray-900">Compassionate Home Health Services Job Portal</h1>
                 <p className="text-sm text-gray-600">
                   Welcome back, {applicantInfo ? `${applicantInfo.firstName} ${applicantInfo.lastName}` : 'Loading...'}
                 </p>

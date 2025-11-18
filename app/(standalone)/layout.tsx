@@ -3,8 +3,8 @@ import type { Metadata } from "next"
 import "../globals.css"
 
 export const metadata: Metadata = {
-  title: "Job Application - IrishTriplets Healthcare",
-  description: "Apply for a position at IrishTriplets Healthcare",
+  title: "Job Application - Compassionate Home Health Services",
+  description: "Apply for a position at Compassionate Home Health Services",
 }
 
 export default function StandaloneLayout({

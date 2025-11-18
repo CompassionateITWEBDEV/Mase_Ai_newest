@@ -35,3 +35,4 @@ WHERE table_schema = 'public'
   AND column_name = 'ai_reason';
 
 
+

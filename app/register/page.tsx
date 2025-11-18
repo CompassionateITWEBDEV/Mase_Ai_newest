@@ -158,7 +158,7 @@ export default function RegisterPage() {
       }
 
       // Show success dialog
-      setDialogMessage(data.message || "Account created successfully! Welcome to IrishTriplets!")
+      setDialogMessage(data.message || "Account created successfully! Welcome to Compassionate Home Health Services!")
       
       // Determine redirect URL based on account type
       const redirectUrl = data.user.accountType === 'applicant' ? '/applicant-dashboard' : '/employer-dashboard'
@@ -221,7 +221,7 @@ export default function RegisterPage() {
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-green-500 rounded-xl flex items-center justify-center">
               <Heart className="h-6 w-6 text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">IrishTriplets</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Compassionate Home Health Services</h1>
           </Link>
           <h2 className="text-3xl font-bold text-gray-900 mb-2">Create Your Account</h2>
           <p className="text-gray-600">Join Michigan's leading healthcare staffing network</p>

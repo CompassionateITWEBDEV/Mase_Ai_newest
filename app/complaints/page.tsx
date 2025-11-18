@@ -201,7 +201,7 @@ export default function HRComplaints() {
               <div>
                 <h3 className="text-lg font-medium text-blue-900">Confidential & Safe Reporting</h3>
                 <p className="text-blue-800">
-                  All complaints are handled with strict confidentiality. IrishTriplets prohibits retaliation against
+                  All complaints are handled with strict confidentiality. Compassionate Home Health Services prohibits retaliation against
                   anyone who files a complaint in good faith.
                 </p>
               </div>
@@ -634,7 +634,7 @@ export default function HRComplaints() {
                   <div>
                     <h4 className="font-medium mb-2">Location</h4>
                     <div className="space-y-1 text-sm">
-                      <p>IrishTriplets Healthcare</p>
+                      <p>Compassionate Home Health Services</p>
                       <p>123 Healthcare Drive</p>
                       <p>Suite 200</p>
                       <p>Detroit, MI 48201</p>

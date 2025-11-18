@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
     // Simulate applicant confirmation email
     const applicantConfirmation = {
       to: email,
-      subject: 'Application Received - IrishTriplets Healthcare',
+      subject: 'Application Received - Compassionate Home Health Services',
       html: `
         <h2>Thank you for your application!</h2>
         <p>Dear ${applicantName},</p>
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
         <p><strong>Submitted:</strong> ${new Date(submittedAt).toLocaleString()}</p>
         <p>Our HR team will review your application and contact you within 2-3 business days.</p>
         <p>Thank you for your interest in joining our team!</p>
-        <p>Best regards,<br>IrishTriplets Healthcare Team</p>
+        <p>Best regards,<br>Compassionate Home Health Services Team</p>
       `,
     }
 

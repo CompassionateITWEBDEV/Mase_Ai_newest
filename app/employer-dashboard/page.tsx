@@ -4236,7 +4236,7 @@ export default function EmployerDashboard() {
                           )}
                           <div>
                             <Label className="text-sm font-medium">
-                              Are you related to or have personal relationships with any IrishTriplets employees, patients, or board members? *
+                              Are you related to or have personal relationships with any Compassionate Home Health Services employees, patients, or board members? *
                             </Label>
                             <div className="mt-2 p-3 border rounded-md bg-gray-50">
                               <span className={`px-2 py-1 rounded text-xs font-medium ${selectedApplicationForm.relationship_conflict ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800'}`}>
@@ -4290,7 +4290,7 @@ export default function EmployerDashboard() {
                               {selectedApplicationForm.background_consent && <div className="w-2 h-2 bg-white rounded-sm"></div>}
                             </div>
                             <Label className="text-sm">
-                              I authorize IrishTriplets to conduct a comprehensive background check including criminal
+                              I authorize Compassionate Home Health Services to conduct a comprehensive background check including criminal
                               history, employment verification, and professional references *
                             </Label>
                           </div>
@@ -4358,7 +4358,7 @@ export default function EmployerDashboard() {
                           <div className="bg-blue-50 p-4 rounded border border-blue-200">
                             <h5 className="font-medium text-blue-900 mb-2">HAPP Commitment Statement</h5>
                             <p className="text-sm text-blue-800 mb-3">
-                              IrishTriplets is committed to preventing healthcare-associated infections and promoting patient
+                              Compassionate Home Health Services is committed to preventing healthcare-associated infections and promoting patient
                               safety. All employees must adhere to evidence-based infection prevention practices.
                             </p>
                             <ul className="text-sm text-blue-800 space-y-1">
@@ -4639,7 +4639,7 @@ export default function EmployerDashboard() {
                         <div className="space-y-4">
                           <p className="text-sm text-gray-700">
                             By submitting this application, you certify that all information provided is accurate and complete. 
-                            IrishTriplets Healthcare will review your application and contact you within 2-3 business days.
+                            Compassionate Home Health Services will review your application and contact you within 2-3 business days.
                           </p>
                           <div className="space-y-3">
                             <div className="flex items-center space-x-2">
@@ -4655,7 +4655,7 @@ export default function EmployerDashboard() {
                                 {selectedApplicationForm.employment_at_will && <div className="w-2 h-2 bg-white rounded-sm"></div>}
                               </div>
                               <Label className="text-sm">
-                                I understand that employment with IrishTriplets is at-will and may be terminated by either party at any time.
+                                I understand that employment with Compassionate Home Health Services is at-will and may be terminated by either party at any time.
                               </Label>
                             </div>
                             <div className="flex items-center space-x-2">

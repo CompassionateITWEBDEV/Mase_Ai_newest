@@ -390,7 +390,7 @@ export default function PatientLogin() {
 
         {/* Footer */}
         <div className="mt-6 text-center text-sm text-gray-500">
-          <p>© 2024 IrishTriplets Healthcare. All rights reserved.</p>
+          <p>© 2024 Compassionate Home Health Services. All rights reserved.</p>
           <p className="mt-1">
             <Link href="/privacy" className="text-rose-600 hover:text-rose-700">
               Privacy Policy

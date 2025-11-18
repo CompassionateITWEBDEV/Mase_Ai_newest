@@ -299,7 +299,7 @@ export default function StaffLogin() {
 
         {/* Footer */}
         <div className="mt-6 text-center text-sm text-gray-500">
-          <p>© 2024 IrishTriplets Healthcare Staffing. All rights reserved.</p>
+          <p>© 2024 Compassionate Home Health Services Staffing. All rights reserved.</p>
           <p className="mt-1">
             <Link href="/privacy" className="text-blue-600 hover:text-blue-700">
               Privacy Policy

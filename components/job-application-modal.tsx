@@ -1018,7 +1018,7 @@ export default function JobApplication({ prefilledData, jobId, onClose }: JobApp
                     </div>
                     <div>
                       <Label>
-                        Are you related to or have personal relationships with any IrishTriplets employees, patients, or
+                        Are you related to or have personal relationships with any Compassionate Home Health Services employees, patients, or
                         board members? *
                       </Label>
                       <RadioGroup className="mt-2">
@@ -1086,7 +1086,7 @@ export default function JobApplication({ prefilledData, jobId, onClose }: JobApp
                     <div className="flex items-center space-x-2">
                       <Checkbox id="background-consent" required />
                       <Label htmlFor="background-consent" className="text-sm">
-                        I authorize IrishTriplets to conduct a comprehensive background check including criminal
+                        I authorize Compassionate Home Health Services to conduct a comprehensive background check including criminal
                         history, employment verification, and professional references *
                       </Label>
                     </div>
@@ -1157,7 +1157,7 @@ export default function JobApplication({ prefilledData, jobId, onClose }: JobApp
                     <div className="bg-blue-50 p-4 rounded border border-blue-200">
                       <h5 className="font-medium text-blue-900 mb-2">HAPP Commitment Statement</h5>
                       <p className="text-sm text-blue-800 mb-3">
-                        IrishTriplets is committed to preventing healthcare-associated infections and promoting patient
+                        Compassionate Home Health Services is committed to preventing healthcare-associated infections and promoting patient
                         safety. All employees must adhere to evidence-based infection prevention practices.
                       </p>
                       <ul className="text-sm text-blue-800 space-y-1">
@@ -1372,7 +1372,7 @@ export default function JobApplication({ prefilledData, jobId, onClose }: JobApp
                   <div className="flex items-center space-x-2">
                     <Checkbox id="employment-at-will" required />
                     <Label htmlFor="employment-at-will" className="text-sm">
-                      I understand that employment with IrishTriplets is at-will and may be terminated by either party
+                      I understand that employment with Compassionate Home Health Services is at-will and may be terminated by either party
                       at any time *
                     </Label>
                   </div>

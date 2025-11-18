@@ -1500,7 +1500,7 @@ export default function ApplicationTracking() {
                           <div className="bg-blue-50 p-4 rounded border border-blue-200">
                             <h5 className="font-medium text-blue-900 mb-2">HAPP Commitment Statement</h5>
                             <p className="text-sm text-blue-800 mb-3">
-                              IrishTriplets is committed to preventing healthcare-associated infections and promoting patient
+                              Compassionate Home Health Services is committed to preventing healthcare-associated infections and promoting patient
                               safety. All employees must adhere to evidence-based infection prevention practices.
                             </p>
                             <ul className="text-sm text-blue-800 space-y-1">
