@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,7 @@ import {
   Eye,
   EyeOff,
   Globe,
+  Loader2,
 } from "lucide-react"
 import Link from "next/link"
 
@@ -38,6 +39,9 @@ export default function AvailitySetupPage() {
   const [isConnecting, setIsConnecting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "success" | "error">("idle")
   const [testResults, setTestResults] = useState<any>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isConfigured, setIsConfigured] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
 
   const [syncSettings, setSyncSettings] = useState({
     autoEligibilityCheck: true,
@@ -48,6 +52,36 @@ export default function AvailitySetupPage() {
     enableClaims: false,
     enableRemittance: false,
   })
+
+  // Load existing configuration on mount
+  useEffect(() => {
+    loadConfiguration()
+  }, [])
+
+  const loadConfiguration = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch("/api/integrations/availity/config")
+      const data = await response.json()
+
+      if (data.success && data.configured) {
+        setIsConfigured(true)
+        setCredentials({
+          username: data.configuration.username,
+          password: "", // Don't populate password for security
+          organizationId: data.configuration.organizationId,
+          applicationId: data.configuration.applicationId || "",
+          environment: data.configuration.environment || "production",
+        })
+        setSyncSettings(data.configuration.syncSettings)
+        setConnectionStatus(data.configuration.status === "connected" ? "success" : "idle")
+      }
+    } catch (error) {
+      console.error("Error loading configuration:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const handleCredentialChange = (field: string, value: string) => {
     setCredentials((prev) => ({ ...prev, [field]: value }))
@@ -86,6 +120,7 @@ export default function AvailitySetupPage() {
   }
 
   const saveConfiguration = async () => {
+    setIsSaving(true)
     try {
       const response = await fetch("/api/integrations/availity/configure", {
         method: "POST",
@@ -96,33 +131,61 @@ export default function AvailitySetupPage() {
         }),
       })
 
-      if (response.ok) {
+      const data = await response.json()
+
+      if (data.success) {
+        setIsConfigured(true)
+        setConnectionStatus("success")
         alert("Availity integration configured successfully!")
+        // Reload configuration to get latest data
+        await loadConfiguration()
       } else {
-        alert("Failed to save configuration")
+        alert(data.message || "Failed to save configuration")
       }
     } catch (error) {
+      console.error("Error saving configuration:", error)
       alert("Error saving configuration")
+    } finally {
+      setIsSaving(false)
     }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+          <p className="text-gray-600">Loading Availity configuration...</p>
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center">
-            <Link href="/integrations">
-              <Button variant="ghost" size="sm" className="mr-4">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Integrations
-              </Button>
-            </Link>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">Availity Integration Setup</h1>
-              <p className="text-gray-600">
-                Configure eligibility verification, prior authorization, and claims processing with Availity
-              </p>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <Link href="/integrations">
+                <Button variant="ghost" size="sm" className="mr-4">
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back to Integrations
+                </Button>
+              </Link>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">Availity Integration Setup</h1>
+                <p className="text-gray-600">
+                  Configure eligibility verification, prior authorization, and claims processing with Availity
+                </p>
+              </div>
             </div>
+            {isConfigured && (
+              <Badge className="bg-green-100 text-green-800">
+                <CheckCircle className="h-3 w-3 mr-1" />
+                Configured
+              </Badge>
+            )}
           </div>
         </div>
       </header>
@@ -252,9 +315,18 @@ export default function AvailitySetupPage() {
                   </Button>
 
                   {connectionStatus === "success" && (
-                    <Button onClick={saveConfiguration}>
-                      <CheckCircle className="h-4 w-4 mr-2" />
-                      Save Configuration
+                    <Button onClick={saveConfiguration} disabled={isSaving}>
+                      {isSaving ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Save Configuration
+                        </>
+                      )}
                     </Button>
                   )}
                 </div>
@@ -503,106 +575,72 @@ export default function AvailitySetupPage() {
                 <CardDescription>Monitor Availity service performance and transaction volume</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-4 bg-blue-50 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-blue-700">Eligibility Checks</p>
-                        <p className="text-2xl font-bold text-blue-600">342</p>
-                      </div>
-                      <Shield className="h-8 w-8 text-blue-500" />
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-green-50 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-green-700">Prior Auths</p>
-                        <p className="text-2xl font-bold text-green-600">89</p>
-                      </div>
-                      <FileCheck className="h-8 w-8 text-green-500" />
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-purple-50 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-purple-700">Claims Submitted</p>
-                        <p className="text-2xl font-bold text-purple-600">156</p>
-                      </div>
-                      <DollarSign className="h-8 w-8 text-purple-500" />
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-orange-50 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-medium text-orange-700">Success Rate</p>
-                        <p className="text-2xl font-bold text-orange-600">99.1%</p>
-                      </div>
-                      <CheckCircle className="h-8 w-8 text-orange-500" />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-6">
-                  <h3 className="font-medium mb-4">Recent Transactions</h3>
-                  <div className="space-y-2">
-                    {[
-                      {
-                        time: "2:18 PM",
-                        service: "Eligibility Check",
-                        patient: "Margaret Anderson",
-                        payer: "Medicare",
-                        status: "success",
-                      },
-                      {
-                        time: "2:15 PM",
-                        service: "Prior Auth",
-                        patient: "Robert Thompson",
-                        payer: "Blue Cross",
-                        status: "approved",
-                      },
-                      {
-                        time: "2:12 PM",
-                        service: "Claim Submission",
-                        patient: "Dorothy Williams",
-                        payer: "Medicaid",
-                        status: "accepted",
-                      },
-                      {
-                        time: "2:08 PM",
-                        service: "ERA Processing",
-                        patient: "Batch #1247",
-                        payer: "Multiple",
-                        status: "processed",
-                      },
-                    ].map((transaction, index) => (
-                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
-                        <div className="flex items-center space-x-3">
-                          <div className="text-sm text-gray-500">{transaction.time}</div>
-                          <div className="text-sm font-medium">{transaction.service}</div>
-                          <div className="text-sm text-gray-600">{transaction.patient}</div>
-                          <div className="text-sm text-gray-500">({transaction.payer})</div>
+                {!isConfigured || connectionStatus !== "success" ? (
+                  <Alert className="border-yellow-200 bg-yellow-50">
+                    <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                    <AlertTitle className="text-yellow-800">Not Configured</AlertTitle>
+                    <AlertDescription className="text-yellow-700">
+                      Please configure and test your Availity connection to view monitoring data.
+                    </AlertDescription>
+                  </Alert>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="p-4 bg-blue-50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-blue-700">Eligibility Checks</p>
+                            <p className="text-2xl font-bold text-blue-600">0</p>
+                            <p className="text-xs text-blue-500 mt-1">Last 30 days</p>
+                          </div>
+                          <Shield className="h-8 w-8 text-blue-500" />
                         </div>
-                        <Badge
-                          className={
-                            transaction.status === "success" ||
-                            transaction.status === "approved" ||
-                            transaction.status === "accepted" ||
-                            transaction.status === "processed"
-                              ? "bg-green-100 text-green-800"
-                              : transaction.status === "pending"
-                                ? "bg-yellow-100 text-yellow-800"
-                                : "bg-red-100 text-red-800"
-                          }
-                        >
-                          {transaction.status}
-                        </Badge>
                       </div>
-                    ))}
-                  </div>
-                </div>
+
+                      <div className="p-4 bg-green-50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-green-700">Prior Auths</p>
+                            <p className="text-2xl font-bold text-green-600">0</p>
+                            <p className="text-xs text-green-500 mt-1">Last 30 days</p>
+                          </div>
+                          <FileCheck className="h-8 w-8 text-green-500" />
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-purple-50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-purple-700">Claims Submitted</p>
+                            <p className="text-2xl font-bold text-purple-600">0</p>
+                            <p className="text-xs text-purple-500 mt-1">Last 30 days</p>
+                          </div>
+                          <DollarSign className="h-8 w-8 text-purple-500" />
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-orange-50 rounded-lg">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-orange-700">Success Rate</p>
+                            <p className="text-2xl font-bold text-orange-600">--</p>
+                            <p className="text-xs text-orange-500 mt-1">Last 30 days</p>
+                          </div>
+                          <CheckCircle className="h-8 w-8 text-orange-500" />
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-6">
+                      <h3 className="font-medium mb-4">Recent Transactions</h3>
+                      <div className="text-center py-8 text-gray-500">
+                        <FileCheck className="h-12 w-12 mx-auto mb-3 text-gray-400" />
+                        <p>No transactions yet</p>
+                        <p className="text-sm">Transactions will appear here once you start using Availity services</p>
+                      </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

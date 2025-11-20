@@ -54,6 +54,8 @@ export async function GET(request: NextRequest) {
     console.log(`✅ Successfully fetched ${data?.length || 0} referrals`)
     if (data && data.length > 0) {
       console.log("Sample referral:", data[0])
+      console.log("Eligibility status from DB:", data[0].eligibility_status)
+      console.log("Insurance monitoring from DB:", data[0].insurance_monitoring)
     }
 
     return NextResponse.json({ referrals: data || [] })

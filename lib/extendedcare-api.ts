@@ -81,10 +81,107 @@ export interface ExtendedCareReferralRequest {
   preferredStartDate?: string
 }
 
-// Mock ExtendedCare API client
+// ExtendedCare API client with database-backed credentials
 class ExtendedCareAPI {
   private baseUrl = process.env.EXTENDEDCARE_API_URL || "https://api.extendedcare.com/v2"
-  private apiKey = process.env.EXTENDEDCARE_API_KEY || "mock-api-key"
+  private credentials: {
+    username: string
+    password: string
+    clientId?: string
+    environment: string
+  } | null = null
+  private accessToken: string | null = null
+  private tokenExpiry: number | null = null
+
+  /**
+   * Load credentials from database configuration
+   */
+  async loadCredentials(): Promise<boolean> {
+    try {
+      const response = await fetch("/api/integrations/extendedcare/config")
+      const result = await response.json()
+
+      if (result.success && result.configured) {
+        this.credentials = {
+          username: result.config.username,
+          password: "", // Password not sent to frontend, will use server-side auth
+          clientId: result.config.clientId,
+          environment: result.config.environment || "production",
+        }
+
+        // Update baseUrl based on environment
+        if (this.credentials.environment === "sandbox") {
+          this.baseUrl = "https://api.extendedcare.com/sandbox/v2"
+        } else {
+          this.baseUrl = "https://api.extendedcare.com/v2"
+        }
+
+        return true
+      }
+
+      console.warn("ExtendedCare credentials not configured")
+      return false
+    } catch (error) {
+      console.error("Failed to load ExtendedCare credentials:", error)
+      return false
+    }
+  }
+
+  /**
+   * Authenticate with ExtendedCare API
+   */
+  private async authenticate(): Promise<boolean> {
+    // Check if we have valid token
+    if (this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry) {
+      return true
+    }
+
+    // For client-side calls, we need to go through our API
+    // which has access to the full credentials
+    try {
+      const response = await fetch("/api/integrations/extendedcare/authenticate", {
+        method: "POST",
+      })
+
+      const result = await response.json()
+
+      if (result.success) {
+        this.accessToken = result.accessToken
+        this.tokenExpiry = Date.now() + (result.expiresIn * 1000)
+        return true
+      }
+
+      console.error("ExtendedCare authentication failed:", result.message)
+      return false
+    } catch (error) {
+      console.error("ExtendedCare authentication error:", error)
+      return false
+    }
+  }
+
+  /**
+   * Set credentials directly (for server-side use)
+   */
+  setCredentials(credentials: {
+    username: string
+    password: string
+    clientId?: string
+    environment?: string
+  }) {
+    this.credentials = {
+      username: credentials.username,
+      password: credentials.password,
+      clientId: credentials.clientId,
+      environment: credentials.environment || "production",
+    }
+
+    // Update baseUrl based on environment
+    if (this.credentials.environment === "sandbox") {
+      this.baseUrl = "https://api.extendedcare.com/sandbox/v2"
+    } else {
+      this.baseUrl = "https://api.extendedcare.com/v2"
+    }
+  }
 
   async checkEligibility(patientId: string, insuranceId: string): Promise<EligibilityResponse> {
     console.log(`Checking eligibility for patient ${patientId} with insurance ${insuranceId}`)
@@ -153,67 +250,27 @@ class ExtendedCareAPI {
   }
 
   async fetchPendingReferrals(): Promise<ExtendedCareReferralRequest[]> {
-    console.log("⚠️ ExtendedCare mock data is DISABLED - returning empty array")
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    console.log("📥 Fetching pending referrals from ExtendedCare Network...")
 
-    // ⚠️ MOCK DATA DISABLED - No more James Wilson or Elizabeth Thompson!
-    // This prevents automatic insertion of test data into the database
-    // Return empty array instead of mock referrals
-    return []
+    // Use server-side API endpoint to fetch referrals (has access to credentials)
+    try {
+      const response = await fetch("/api/integrations/extendedcare/fetch-referrals", {
+        method: "GET",
+      })
 
-    // DISABLED MOCK REFERRALS - Uncomment only for testing
-    // const mockReferrals: ExtendedCareReferralRequest[] = [
-    //   {
-    //     patientName: "Elizabeth Thompson",
-    //     patientId: "EC-PAT-001",
-    //     diagnosis: "Post-acute care following hospitalization",
-    //     diagnosisCode: "Z51.89",
-    //     insuranceProvider: "Medicare Advantage",
-    //     insuranceId: "MA-887766",
-    //     requestedServices: ["skilled_nursing", "physical_therapy"],
-    //     urgencyLevel: "urgent",
-    //     referringProvider: {
-    //       name: "Dr. Michael Chen",
-    //       npi: "1234567890",
-    //       facility: "Regional Medical Center",
-    //     },
-    //     estimatedEpisodeLength: 45,
-    //     geographicLocation: {
-    //       address: "123 Oak Street",
-    //       city: "Springfield",
-    //       state: "IL",
-    //       zipCode: "62701",
-    //       coordinates: { lat: 39.7817, lng: -89.6501 },
-    //     },
-    //     specialRequirements: ["diabetic_care", "wound_care"],
-    //     preferredStartDate: "2024-07-12",
-    //   },
-    //   {
-    //     patientName: "James Wilson",
-    //     patientId: "EC-PAT-002",
-    //     diagnosis: "Chronic heart failure management",
-    //     diagnosisCode: "I50.9",
-    //     insuranceProvider: "Humana Gold Plus",
-    //     insuranceId: "HGP-445566",
-    //     requestedServices: ["skilled_nursing", "medical_social_work"],
-    //     urgencyLevel: "routine",
-    //     referringProvider: {
-    //       name: "Dr. Sarah Martinez",
-    //       npi: "0987654321",
-    //       facility: "Cardiology Associates",
-    //     },
-    //     estimatedEpisodeLength: 60,
-    //     geographicLocation: {
-    //       address: "456 Maple Avenue",
-    //       city: "Springfield",
-    //       state: "IL",
-    //       zipCode: "62702",
-    //     },
-    //     preferredStartDate: "2024-07-15",
-    //   },
-    // ]
-    //
-    // return mockReferrals
+      const result = await response.json()
+
+      if (result.success) {
+        console.log(`✅ Retrieved ${result.referrals.length} referrals from ExtendedCare`)
+        return result.referrals
+      } else {
+        console.error("Failed to fetch ExtendedCare referrals:", result.message)
+        return []
+      }
+    } catch (error) {
+      console.error("Error fetching ExtendedCare referrals:", error)
+      return []
+    }
   }
 
   async acceptReferral(

@@ -433,11 +433,54 @@ export default function FacilityPortalPage() {
     try {
       setLoadingDocuments(true)
       const response = await fetch(`/api/facility-portal/documents?referralId=${referralId}`)
-      if (!response.ok) throw new Error('Failed to fetch documents')
+      
+      if (!response.ok) {
+        let errorData
+        try {
+          errorData = await response.json()
+        } catch (parseErr) {
+          const textError = await response.text()
+          console.error('Failed to fetch documents:', {
+            status: response.status,
+            statusText: response.statusText,
+            body: textError
+          })
+          toast({
+            title: 'Error Loading Documents',
+            description: `Server error: ${response.status} ${response.statusText}`,
+            variant: 'destructive'
+          })
+          setReferralDocuments([])
+          return
+        }
+        console.error('Failed to fetch documents:', {
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData
+        })
+        toast({
+          title: 'Error Loading Documents',
+          description: errorData?.error || errorData?.message || 'Failed to load documents',
+          variant: 'destructive'
+        })
+        setReferralDocuments([])
+        return
+      }
+      
       const data = await response.json()
       setReferralDocuments(data.documents || [])
+      
+      // Show info if no documents found (not an error)
+      if (!data.documents || data.documents.length === 0) {
+        console.log('No documents found for referral:', referralId)
+      }
     } catch (err) {
-      console.error('Error fetching documents:', err)
+      console.error('Unexpected error fetching documents:', err)
+      toast({
+        title: 'Error',
+        description: 'An unexpected error occurred while loading documents',
+        variant: 'destructive'
+      })
       setReferralDocuments([])
     } finally {
       setLoadingDocuments(false)

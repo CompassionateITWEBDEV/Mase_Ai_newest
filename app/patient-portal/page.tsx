@@ -44,6 +44,7 @@ import {
   Bot,
   Video,
   Mic,
+  Volume2,
   Scan,
   RefreshCw,
   Zap,
@@ -53,6 +54,8 @@ import {
   Upload,
   X,
   Edit,
+  VideoIcon,
+  Loader2,
 } from "lucide-react"
 import { DrugInteractionAlert } from "@/components/drug-interaction-alert"
 import { Label } from "@/components/ui/label"
@@ -85,7 +88,37 @@ export default function PatientPortal() {
   const [patientLocation, setPatientLocation] = useState<{lat: number, lng: number, accuracy?: number} | null>(null)
   const [sharingLocation, setSharingLocation] = useState(false)
   const [locationWatchId, setLocationWatchId] = useState<number | null>(null)
-  const { toast } = useToast()
+  const [exerciseProgram, setExerciseProgram] = useState<any>(null)
+  const [loadingExercises, setLoadingExercises] = useState(false)
+  const [hasExerciseProgram, setHasExerciseProgram] = useState(false)
+  const [weeklyGoals, setWeeklyGoals] = useState<any[]>([])
+  const [showVideoModal, setShowVideoModal] = useState(false)
+  const [currentVideoUrl, setCurrentVideoUrl] = useState<string>("")
+  const [currentExerciseName, setCurrentExerciseName] = useState<string>("")
+  const [showVoiceGuide, setShowVoiceGuide] = useState(false)
+  const [voiceScript, setVoiceScript] = useState<string>("")
+  const [isSpeaking, setIsSpeaking] = useState(false)
+  const [loadingVoiceScript, setLoadingVoiceScript] = useState(false)
+  const [aiCoachMessage, setAiCoachMessage] = useState<string>("Hi! I'm your AI Exercise Coach. Complete an exercise or ask me a question to get started!")
+  const [showAskQuestion, setShowAskQuestion] = useState(false)
+  const [aiQuestion, setAiQuestion] = useState<string>("")
+  const [loadingAiResponse, setLoadingAiResponse] = useState(false)
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false)
+  const [voiceRecorder, setVoiceRecorder] = useState<MediaRecorder | null>(null)
+  const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null)
+  const [transcribingAudio, setTranscribingAudio] = useState(false)
+  const [showFormCheck, setShowFormCheck] = useState(false)
+  const [showProgressModal, setShowProgressModal] = useState(false)
+  const [progressData, setProgressData] = useState<any>(null)
+  const [loadingProgress, setLoadingProgress] = useState(false)
+  const [completingExercise, setCompletingExercise] = useState<string | null>(null)
+  const [isRecording, setIsRecording] = useState(false)
+  const [recordedVideo, setRecordedVideo] = useState<string | null>(null)
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [recordingStream, setRecordingStream] = useState<MediaStream | null>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const { toast} = useToast()
   const [scheduleForm, setScheduleForm] = useState({
     date: "",
     time: "",
@@ -103,7 +136,6 @@ export default function PatientPortal() {
     route: "",
   })
 
-  const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -405,53 +437,6 @@ export default function PatientPortal() {
     },
   ]
 
-  // Exercise Program Data
-  const exerciseProgram = {
-    currentWeek: 3,
-    totalWeeks: 8,
-    completedSessions: 12,
-    totalSessions: 24,
-    nextSession: "2024-01-15",
-    exercises: [
-      {
-        id: 1,
-        name: "Ankle Pumps",
-        description: "Flex and point your foot to improve circulation",
-        duration: "2 minutes",
-        repetitions: "10-15 reps",
-        sets: 3,
-        difficulty: "Easy",
-        videoUrl: "/exercises/ankle-pumps.mp4",
-        completed: true,
-        aiTips: "Keep movements slow and controlled. Focus on full range of motion.",
-      },
-      {
-        id: 2,
-        name: "Seated Leg Extensions",
-        description: "Strengthen quadriceps while seated",
-        duration: "3 minutes",
-        repetitions: "8-12 reps",
-        sets: 2,
-        difficulty: "Moderate",
-        videoUrl: "/exercises/leg-extensions.mp4",
-        completed: false,
-        aiTips: "Hold for 2 seconds at the top of each extension. Breathe normally throughout.",
-      },
-      {
-        id: 3,
-        name: "Arm Circles",
-        description: "Improve shoulder mobility and strength",
-        duration: "2 minutes",
-        repetitions: "10 forward, 10 backward",
-        sets: 2,
-        difficulty: "Easy",
-        videoUrl: "/exercises/arm-circles.mp4",
-        completed: false,
-        aiTips: "Start with small circles and gradually increase size. Keep shoulders relaxed.",
-      },
-    ],
-  }
-
   // Patient Handbook Sections
   const handbookSections = [
     {
@@ -611,6 +596,877 @@ export default function PatientPortal() {
       }
     }
   }, [showScheduleDialog, careTeam, assignedStaffId, currentPatientData?.assignedStaff?.id])
+
+  // Fetch PT exercise program
+  const fetchExerciseProgram = async (patientId: string) => {
+    try {
+      setLoadingExercises(true)
+      console.log('Fetching exercise program for patient:', patientId)
+      
+      const response = await fetch(`/api/patient-portal/exercises?patientId=${patientId}`)
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        console.error('Exercise API error:', errorData)
+        throw new Error(errorData.error || 'Failed to fetch exercise program')
+      }
+      
+      const data = await response.json()
+      console.log('Exercise program data:', data)
+      
+      setHasExerciseProgram(data.hasProgram)
+      
+      if (data.hasProgram) {
+        // Transform exercises data to match component structure
+        const transformedProgram = {
+          ...data.program,
+          exercises: data.exercises.map((ex: any) => ({
+            id: ex.id,
+            name: ex.name,
+            description: ex.description,
+            duration: ex.duration,
+            repetitions: ex.repetitions,
+            sets: ex.sets,
+            difficulty: ex.difficulty,
+            videoUrl: ex.video_url,
+            completed: ex.completed,
+            aiTips: ex.ai_tips
+          }))
+        }
+        setExerciseProgram(transformedProgram)
+        setWeeklyGoals(data.weeklyGoals)
+      } else {
+        setExerciseProgram(null)
+        setWeeklyGoals([])
+      }
+    } catch (error) {
+      console.error('Error fetching exercise program:', error)
+      toast({
+        title: "Error Loading Exercises",
+        description: "Could not load your exercise program. Please try again later.",
+        variant: "destructive"
+      })
+      setHasExerciseProgram(false)
+      setExerciseProgram(null)
+      setWeeklyGoals([])
+    } finally {
+      setLoadingExercises(false)
+    }
+  }
+
+  // Load exercises when patient data is available
+  useEffect(() => {
+    if (patientData?.id) {
+      fetchExerciseProgram(patientData.id)
+    }
+  }, [patientData?.id])
+
+  // Complete exercise function
+  const completeExercise = async (exerciseId: string, exerciseName?: string) => {
+    if (!patientData?.id || !exerciseProgram?.id) return
+
+    try {
+      setCompletingExercise(exerciseId)
+      
+      const response = await fetch('/api/patient-portal/exercises', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exerciseId,
+          patientId: patientData.id,
+          programId: exerciseProgram.id,
+          durationSeconds: exerciseTimer,
+          painLevel: null,
+          notes: null
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Complete exercise error:', errorData)
+        
+        // If exercise not found (program was updated), refresh and show message
+        if (response.status === 404) {
+          await fetchExerciseProgram(patientData.id)
+          toast({
+            title: "Exercise List Updated",
+            description: "Your program was updated. Please try again with the refreshed list.",
+            variant: "default"
+          })
+          return
+        }
+        
+        throw new Error(errorData.error || 'Failed to mark exercise as complete')
+      }
+
+      // Refresh exercise data
+      await fetchExerciseProgram(patientData.id)
+
+      toast({
+        title: "Exercise Completed! 🎉",
+        description: "Great job! Keep up the good work.",
+      })
+
+      // Get AI feedback after completing exercise (if exercise name provided)
+      if (exerciseName) {
+        await getAiFeedback(exerciseName)
+      }
+
+      // Reset timer
+      setExerciseTimer(0)
+      setIsExerciseActive(false)
+    } catch (error: any) {
+      console.error('Error completing exercise:', error)
+      console.error('Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name
+      })
+      toast({
+        title: "Error",
+        description: error?.message || "Could not mark exercise as complete. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setCompletingExercise(null)
+    }
+  }
+
+  // Toggle goal completion
+  const toggleGoalCompletion = async (goalId: string, currentStatus: boolean) => {
+    try {
+      const response = await fetch('/api/patient-portal/exercises/goals', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goalId,
+          completed: !currentStatus
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to update goal')
+      }
+
+      // Update local state
+      setWeeklyGoals(prev => 
+        prev.map(goal => 
+          goal.id === goalId 
+            ? { ...goal, completed: !currentStatus, completed_at: !currentStatus ? new Date().toISOString() : null }
+            : goal
+        )
+      )
+
+      toast({
+        title: !currentStatus ? "Goal Completed! 🎯" : "Goal Unchecked",
+        description: !currentStatus ? "You're making great progress!" : "Goal marked as incomplete.",
+      })
+    } catch (error) {
+      console.error('Error toggling goal:', error)
+      toast({
+        title: "Error",
+        description: "Could not update goal. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }
+
+  // Start voice guide
+  const startVoiceGuide = async (exercise: any) => {
+    try {
+      setLoadingVoiceScript(true)
+      setShowVoiceGuide(true)
+      
+      // Fetch voice script from API
+      const response = await fetch('/api/patient-portal/exercises/voice-guide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          exerciseName: exercise.name,
+          description: exercise.description,
+          duration: exercise.duration,
+          repetitions: exercise.repetitions,
+          sets: exercise.sets,
+          aiTips: exercise.aiTips
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to generate voice guide')
+      }
+
+      const data = await response.json()
+      setVoiceScript(data.script)
+      
+      toast({
+        title: "Voice Guide Ready! 🎤",
+        description: "Click 'Start Voice Guide' to begin",
+      })
+    } catch (error) {
+      console.error('Error loading voice guide:', error)
+      toast({
+        title: "Error",
+        description: "Could not load voice guide. Please try again.",
+        variant: "destructive"
+      })
+      setShowVoiceGuide(false)
+    } finally {
+      setLoadingVoiceScript(false)
+    }
+  }
+
+  // Speak the voice guide
+  const speakVoiceGuide = () => {
+    if (!('speechSynthesis' in window)) {
+      toast({
+        title: "Not Supported",
+        description: "Your browser doesn't support text-to-speech. Try Chrome, Edge, or Safari.",
+        variant: "destructive"
+      })
+      return
+    }
+
+    // Stop any existing speech
+    window.speechSynthesis.cancel()
+
+    if (isSpeaking) {
+      setIsSpeaking(false)
+      return
+    }
+
+    // Wait for voices to load (important!)
+    const speak = () => {
+      const utterance = new SpeechSynthesisUtterance(voiceScript)
+      utterance.rate = 0.9 // Slightly slower for clarity
+      utterance.pitch = 1.0
+      utterance.volume = 1.0
+      utterance.lang = 'en-US' // Set language explicitly
+
+      // Try to use a good voice
+      const voices = window.speechSynthesis.getVoices()
+      
+      if (voices.length > 0) {
+        // Try to find a good English voice
+        const preferredVoice = voices.find(voice => 
+          (voice.lang.includes('en-US') || voice.lang.includes('en-GB')) &&
+          (voice.name.includes('Google') || 
+           voice.name.includes('Female') ||
+           voice.name.includes('Samantha') ||
+           voice.name.includes('Microsoft'))
+        ) || voices.find(voice => voice.lang.startsWith('en')) || voices[0]
+        
+        if (preferredVoice) {
+          utterance.voice = preferredVoice
+          console.log('Using voice:', preferredVoice.name)
+        }
+      }
+
+      utterance.onstart = () => {
+        setIsSpeaking(true)
+        console.log('Speech started')
+      }
+
+      utterance.onend = () => {
+        setIsSpeaking(false)
+        console.log('Speech ended')
+        toast({
+          title: "Voice Guide Complete! 🎉",
+          description: "Great job! You can replay or close the guide.",
+        })
+      }
+
+      utterance.onerror = (event) => {
+        console.log('Speech error details:', event.error)
+        setIsSpeaking(false)
+        
+        // Don't show error for 'interrupted' or 'canceled' (user actions)
+        if (event.error === 'interrupted' || event.error === 'canceled') {
+          return
+        }
+        
+        // For other errors, show helpful message
+        if (event.error === 'not-allowed') {
+          toast({
+            title: "Permission Needed",
+            description: "Please allow audio playback and try again.",
+            variant: "default"
+          })
+        } else if (event.error === 'network') {
+          toast({
+            title: "Network Error",
+            description: "Check your internet connection and try again.",
+            variant: "default"
+          })
+        } else {
+          toast({
+            title: "Playback Issue",
+            description: "Try clicking the Start button again, or try a different browser.",
+            variant: "default"
+          })
+        }
+      }
+
+      try {
+        window.speechSynthesis.speak(utterance)
+      } catch (error) {
+        console.error('Speech synthesis error:', error)
+        setIsSpeaking(false)
+        toast({
+          title: "Cannot Play Audio",
+          description: "Please try a different browser or reload the page.",
+          variant: "destructive"
+        })
+      }
+    }
+
+    // Ensure voices are loaded before speaking
+    const voices = window.speechSynthesis.getVoices()
+    if (voices.length > 0) {
+      speak()
+    } else {
+      // Wait for voices to load
+      window.speechSynthesis.onvoiceschanged = () => {
+        speak()
+      }
+      // Fallback timeout
+      setTimeout(() => {
+        if (!isSpeaking) {
+          speak()
+        }
+      }, 100)
+    }
+  }
+
+  // Stop voice guide
+  const stopVoiceGuide = () => {
+    window.speechSynthesis.cancel()
+    setIsSpeaking(false)
+  }
+
+  // Close voice guide
+  const closeVoiceGuide = () => {
+    stopVoiceGuide()
+    setShowVoiceGuide(false)
+    setVoiceScript("")
+  }
+
+  // Get AI feedback after completing exercise
+  const getAiFeedback = async (exerciseName?: string) => {
+    try {
+      setLoadingAiResponse(true)
+      
+      const response = await fetch('/api/patient-portal/exercises/ai-coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'feedback',
+          exerciseName: exerciseName || 'your exercise'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI feedback')
+      }
+
+      const data = await response.json()
+      setAiCoachMessage(data.response)
+      
+      toast({
+        title: "AI Coach Feedback! 🤖",
+        description: "Check the AI Exercise Coach section",
+      })
+    } catch (error) {
+      console.error('Error getting AI feedback:', error)
+      setAiCoachMessage("Great job! Keep up the excellent work. Remember to focus on proper form and listen to your body. 💪")
+    } finally {
+      setLoadingAiResponse(false)
+    }
+  }
+
+  // Start voice recording for question
+  const startVoiceRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      
+      const recorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm'
+      })
+      
+      const chunks: BlobPart[] = []
+      
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+      
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' })
+        const audioUrl = URL.createObjectURL(audioBlob)
+        setRecordedAudioUrl(audioUrl)
+        
+        // Stop the stream
+        stream.getTracks().forEach(track => track.stop())
+        
+        // Transcribe audio to text
+        await transcribeAudio(audioBlob)
+      }
+      
+      recorder.start()
+      setVoiceRecorder(recorder)
+      setIsRecordingVoice(true)
+      
+      toast({
+        title: "Recording... 🎤",
+        description: "Speak your question clearly",
+      })
+      
+      // Auto-stop after 30 seconds
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          stopVoiceRecording()
+        }
+      }, 30000)
+      
+    } catch (error) {
+      console.error('Error accessing microphone:', error)
+      toast({
+        title: "Microphone Access Denied",
+        description: "Please allow microphone access to record voice questions.",
+        variant: "destructive"
+      })
+    }
+  }
+
+  // Stop voice recording
+  const stopVoiceRecording = () => {
+    if (voiceRecorder && voiceRecorder.state === 'recording') {
+      voiceRecorder.stop()
+      setIsRecordingVoice(false)
+    }
+  }
+
+  // Transcribe audio to text using OpenAI Whisper
+  const transcribeAudio = async (audioBlob: Blob) => {
+    try {
+      setTranscribingAudio(true)
+      
+      toast({
+        title: "Transcribing... 📝",
+        description: "Converting your voice to text...",
+      })
+      
+      const formData = new FormData()
+      formData.append('audio', audioBlob, 'question.webm')
+      formData.append('exerciseName', exerciseProgram?.exercises?.[0]?.name || 'exercises')
+      
+      const response = await fetch('/api/patient-portal/exercises/transcribe-question', {
+        method: 'POST',
+        body: formData
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        console.error('Transcription API Error:', errorData)
+        throw new Error(errorData.error || 'Failed to transcribe audio')
+      }
+
+      const data = await response.json()
+      
+      if (!data.transcription) {
+        throw new Error('No transcription returned')
+      }
+      
+      // Set transcribed text and get AI answer
+      setAiQuestion(data.transcription)
+      
+      toast({
+        title: "Question Received! 🎤",
+        description: "Getting AI answer...",
+      })
+      
+      // Automatically ask AI with transcribed question
+      await askAiCoachWithText(data.transcription)
+      
+    } catch (error: any) {
+      console.error('Error transcribing audio:', error)
+      
+      // Check if it's an API key issue
+      if (error.message && error.message.includes('API key')) {
+        toast({
+          title: "Setup Required",
+          description: "OpenAI API key not configured. Please add OPENAI_API_KEY to .env.local",
+          variant: "destructive"
+        })
+      } else {
+        toast({
+          title: "Transcription Failed",
+          description: "Could not convert voice to text. Please try typing instead or check your microphone.",
+          variant: "destructive"
+        })
+      }
+      
+      // Reset state
+      setRecordedAudioUrl(null)
+    } finally {
+      setTranscribingAudio(false)
+    }
+  }
+
+  // Ask AI Coach a question (with text)
+  const askAiCoachWithText = async (questionText: string) => {
+    if (!questionText.trim()) {
+      toast({
+        title: "Enter a Question",
+        description: "Please type or record your question first",
+        variant: "default"
+      })
+      return
+    }
+
+    try {
+      setLoadingAiResponse(true)
+      
+      const response = await fetch('/api/patient-portal/exercises/ai-coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'question',
+          question: questionText,
+          exerciseName: exerciseProgram?.exercises?.[0]?.name || 'your exercises'
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to get AI answer')
+      }
+
+      const data = await response.json()
+      setAiCoachMessage(data.response)
+      setAiQuestion("")
+      setShowAskQuestion(false)
+      setRecordedAudioUrl(null)
+      
+      toast({
+        title: "AI Coach Answered! 🤖",
+        description: "Check the response above",
+      })
+    } catch (error) {
+      console.error('Error asking AI coach:', error)
+      toast({
+        title: "Error",
+        description: "Could not get AI response. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setLoadingAiResponse(false)
+    }
+  }
+
+  // Ask with current text question
+  const askAiCoach = () => askAiCoachWithText(aiQuestion)
+
+  // Start form check recording
+  const startFormCheck = async () => {
+    try {
+      setShowFormCheck(true)
+      
+      // Request camera access
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: 'user', width: 1280, height: 720 }, 
+        audio: false 
+      })
+      
+      setRecordingStream(stream)
+      
+      // Show preview
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream
+        videoRef.current.play()
+      }
+      
+      toast({
+        title: "Camera Ready! 📸",
+        description: "Position yourself and click 'Start Recording'",
+      })
+    } catch (error) {
+      console.error('Error accessing camera:', error)
+      toast({
+        title: "Camera Access Denied",
+        description: "Please allow camera access to use Form Check. Check your browser settings.",
+        variant: "destructive"
+      })
+      setShowFormCheck(false)
+    }
+  }
+
+  // Start recording
+  const startRecording = () => {
+    if (!recordingStream) return
+    
+    try {
+      const recorder = new MediaRecorder(recordingStream, {
+        mimeType: 'video/webm;codecs=vp9'
+      })
+      
+      const chunks: BlobPart[] = []
+      
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          chunks.push(event.data)
+        }
+      }
+      
+      recorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'video/webm' })
+        const videoUrl = URL.createObjectURL(blob)
+        setRecordedVideo(videoUrl)
+        setRecordedBlob(blob)
+        setIsRecording(false)
+        
+        toast({
+          title: "Recording Complete! ✅",
+          description: "Analyzing your form...",
+        })
+        
+        // Auto-analyze the form with the blob directly
+        await analyzeFormWithBlob(blob)
+      }
+      
+      recorder.start()
+      setMediaRecorder(recorder)
+      setIsRecording(true)
+      
+      toast({
+        title: "Recording Started! 🎥",
+        description: "Perform your exercise now. Recording will stop automatically after 15 seconds.",
+      })
+      
+      // Auto-stop after 15 seconds
+      setTimeout(() => {
+        if (recorder.state === 'recording') {
+          stopRecording()
+        }
+      }, 15000)
+      
+    } catch (error) {
+      console.error('Error starting recording:', error)
+      toast({
+        title: "Recording Error",
+        description: "Could not start recording. Please try again.",
+        variant: "destructive"
+      })
+    }
+  }
+
+  // Stop recording
+  const stopRecording = () => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop()
+    }
+  }
+
+  // Extract frames from recorded video
+  const extractVideoFrames = async (videoBlob: Blob): Promise<string[]> => {
+    return new Promise((resolve, reject) => {
+      const video = document.createElement('video')
+      const canvas = document.createElement('canvas')
+      const ctx = canvas.getContext('2d')
+      
+      video.src = URL.createObjectURL(videoBlob)
+      video.muted = true
+      
+      const frames: string[] = []
+      let frameCount = 0
+      const maxFrames = 10 // Extract 10 frames evenly distributed
+      
+      video.onloadedmetadata = () => {
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        
+        const duration = video.duration
+        const interval = duration / maxFrames
+        
+        const captureFrame = (time: number) => {
+          video.currentTime = time
+        }
+        
+        video.onseeked = () => {
+          if (ctx && frameCount < maxFrames) {
+            // Draw current frame to canvas
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+            
+            // Convert to base64 (compress to reduce size)
+            const frameData = canvas.toDataURL('image/jpeg', 0.7)
+            frames.push(frameData)
+            
+            frameCount++
+            
+            if (frameCount < maxFrames) {
+              captureFrame(frameCount * interval)
+            } else {
+              URL.revokeObjectURL(video.src)
+              resolve(frames)
+            }
+          }
+        }
+        
+        video.onerror = () => {
+          reject(new Error('Failed to extract frames'))
+        }
+        
+        // Start capturing frames
+        captureFrame(0)
+      }
+    })
+  }
+
+  // Analyze form with AI (REAL video analysis)
+  const analyzeFormWithBlob = async (videoBlob: Blob) => {
+    try {
+      setLoadingAiResponse(true)
+
+      toast({
+        title: "Analyzing Video... 🎥",
+        description: "Extracting frames and analyzing your form. This may take 10-20 seconds.",
+      })
+      
+      // Extract frames from video
+      console.log('Extracting frames from video...')
+      const frames = await extractVideoFrames(videoBlob)
+      console.log(`Extracted ${frames.length} frames`)
+      
+      const firstExercise = exerciseProgram?.exercises?.[0]
+      const exerciseName = firstExercise?.name || 'your exercise'
+      const exerciseDescription = firstExercise?.description || ''
+      const repetitions = firstExercise?.repetitions || ''
+      const sets = firstExercise?.sets || 1
+      
+      // Send frames to AI for analysis
+      console.log('Sending frames to AI for analysis...')
+      const apiResponse = await fetch('/api/patient-portal/exercises/analyze-form', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          videoFrames: frames,
+          exerciseName: exerciseName,
+          exerciseDescription: exerciseDescription,
+          expectedReps: repetitions,
+          expectedSets: sets
+        })
+      })
+
+      if (!apiResponse.ok) {
+        throw new Error('Failed to analyze form')
+      }
+
+      const data = await apiResponse.json()
+      
+      // Format the analysis for better display
+      const formattedAnalysis = `📹 **Video Form Analysis**\n\n${data.analysis}\n\n---\n${data.fallback ? '⚠️ Using basic analysis. For AI-powered video analysis, configure OpenAI API key.' : '✅ Analyzed ' + data.framesAnalyzed + ' video frames using AI Vision'}`
+      
+      setAiCoachMessage(formattedAnalysis)
+      
+      toast({
+        title: "Form Analysis Complete! ✅",
+        description: "Detailed feedback ready in AI Coach section",
+      })
+    } catch (error) {
+      console.error('Error analyzing form:', error)
+      setAiCoachMessage("❌ Video analysis failed. Please try recording again, or consult your PT for form feedback. Basic tips: Maintain proper alignment, control your movements, and breathe normally throughout.")
+      
+      toast({
+        title: "Analysis Error",
+        description: "Could not analyze video. Please try again.",
+        variant: "destructive"
+      })
+    } finally {
+      setLoadingAiResponse(false)
+    }
+  }
+
+  // Close form check
+  const closeFormCheck = () => {
+    // Stop recording if active
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop()
+    }
+    
+    // Stop camera stream
+    if (recordingStream) {
+      recordingStream.getTracks().forEach(track => track.stop())
+      setRecordingStream(null)
+    }
+    
+    // Clean up
+    if (recordedVideo) {
+      URL.revokeObjectURL(recordedVideo)
+    }
+    
+    setShowFormCheck(false)
+    setIsRecording(false)
+    setRecordedVideo(null)
+    setRecordedBlob(null)
+    setMediaRecorder(null)
+  }
+
+  // Get progress feedback with real data
+  const getProgressFeedback = async () => {
+    if (!exerciseProgram) return
+    
+    try {
+      setLoadingProgress(true)
+      setShowProgressModal(true)
+      
+      // Fetch real progress data from API
+      const response = await fetch(`/api/patient-portal/exercises/progress?patientId=${patientData.id}&programId=${exerciseProgram.id}`)
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch progress')
+      }
+
+      const data = await response.json()
+      console.log('[Track Progress] Received data:', {
+        totalExercises: data.statistics?.totalExercises,
+        completedExercises: data.statistics?.completedExercises,
+        completionRate: data.statistics?.completionRate,
+        currentStreak: data.statistics?.currentStreak,
+        totalTimeSpent: data.statistics?.totalTimeSpentFormatted,
+        totalCompletions: data.totalCompletions
+      })
+      setProgressData(data)
+      
+      // Also get AI feedback
+      setLoadingAiResponse(true)
+      const aiResponse = await fetch('/api/patient-portal/exercises/ai-coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'progress',
+          completedExercises: data.statistics.completedExercises,
+          totalExercises: data.statistics.totalExercises,
+          progressData: `Week ${data.program.currentWeek} of ${data.program.totalWeeks}. Completion rate: ${data.statistics.completionRate}%. Streak: ${data.statistics.currentStreak} days. Consistency: ${data.statistics.consistencyScore}%`
+        })
+      })
+
+      if (aiResponse.ok) {
+        const aiData = await aiResponse.json()
+        setAiCoachMessage(aiData.response)
+      }
+      
+    } catch (error) {
+      console.error('Error fetching progress:', error)
+      toast({
+        title: "Error",
+        description: "Could not load progress data. Please try again.",
+        variant: "destructive"
+      })
+      setShowProgressModal(false)
+    } finally {
+      setLoadingProgress(false)
+      setLoadingAiResponse(false)
+    }
+  }
 
   // Share patient's live location
   const sharePatientLocation = async () => {
@@ -1781,53 +2637,78 @@ export default function PatientPortal() {
 
           {/* PT Exercises Tab */}
           <TabsContent value="exercises" className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2 space-y-6">
-                {/* Progress Overview */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Dumbbell className="h-5 w-5 mr-2" />
-                      Home Exercise Program Progress
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-blue-600">
-                          {exerciseProgram.currentWeek}/{exerciseProgram.totalWeeks}
-                        </p>
-                        <p className="text-sm text-gray-500">Weeks Completed</p>
+            {loadingExercises ? (
+              <Card>
+                <CardContent className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600">Loading your exercise program...</p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : !hasExerciseProgram ? (
+              <Card>
+                <CardContent className="py-12">
+                  <div className="text-center">
+                    <Dumbbell className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold mb-2">No Exercise Program Yet</h3>
+                    <p className="text-gray-600 mb-4">
+                      Your physical therapist hasn't assigned an exercise program yet.
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Once your PT assigns exercises, they will appear here.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div className="lg:col-span-2 space-y-6">
+                  {/* Progress Overview */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center">
+                        <Dumbbell className="h-5 w-5 mr-2" />
+                        {exerciseProgram.programName || 'Home Exercise Program Progress'}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-blue-600">
+                            {exerciseProgram.currentWeek}/{exerciseProgram.totalWeeks}
+                          </p>
+                          <p className="text-sm text-gray-500">Weeks Completed</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-green-600">
+                            {exerciseProgram.completedSessions}/{exerciseProgram.totalSessions}
+                          </p>
+                          <p className="text-sm text-gray-500">Sessions Done</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-2xl font-bold text-purple-600">
+                            {Math.round((exerciseProgram.completedSessions / exerciseProgram.totalSessions) * 100)}%
+                          </p>
+                          <p className="text-sm text-gray-500">Progress</p>
+                        </div>
                       </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-green-600">
-                          {exerciseProgram.completedSessions}/{exerciseProgram.totalSessions}
-                        </p>
-                        <p className="text-sm text-gray-500">Sessions Done</p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-2xl font-bold text-purple-600">
-                          {Math.round((exerciseProgram.completedSessions / exerciseProgram.totalSessions) * 100)}%
-                        </p>
-                        <p className="text-sm text-gray-500">Progress</p>
-                      </div>
-                    </div>
-                    <Progress
-                      value={(exerciseProgram.completedSessions / exerciseProgram.totalSessions) * 100}
-                      className="mb-4"
-                    />
-                    <p className="text-sm text-gray-600">Next session scheduled: {exerciseProgram.nextSession}</p>
-                  </CardContent>
-                </Card>
+                      <Progress
+                        value={(exerciseProgram.completedSessions / exerciseProgram.totalSessions) * 100}
+                        className="mb-4"
+                      />
+                      <p className="text-sm text-gray-600">Next session scheduled: {exerciseProgram.nextSession}</p>
+                    </CardContent>
+                  </Card>
 
-                {/* Exercise List */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Today's Exercises</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-6">
-                      {exerciseProgram.exercises.map((exercise) => (
+                  {/* Exercise List */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Today's Exercises</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-6">
+                        {exerciseProgram.exercises.map((exercise: any) => (
                         <Card
                           key={exercise.id}
                           className={`border-l-4 ${exercise.completed ? "border-l-green-500 bg-green-50" : "border-l-blue-500"}`}
@@ -1879,19 +2760,53 @@ export default function PatientPortal() {
                               </div>
                             </div>
 
-                            <div className="flex space-x-3">
-                              <Button variant="outline" size="sm">
+                            <div className="flex flex-wrap gap-2">
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => {
+                                  if (exercise.videoUrl) {
+                                    setCurrentVideoUrl(exercise.videoUrl)
+                                    setCurrentExerciseName(exercise.name)
+                                    setShowVideoModal(true)
+                                  } else {
+                                    toast({
+                                      title: "Video Not Available",
+                                      description: "No demonstration video has been uploaded for this exercise yet.",
+                                      variant: "default"
+                                    })
+                                  }
+                                }}
+                              >
                                 <Video className="h-4 w-4 mr-2" />
                                 Watch Video
                               </Button>
-                              <Button variant="outline" size="sm">
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => startVoiceGuide(exercise)}
+                              >
                                 <Mic className="h-4 w-4 mr-2" />
                                 Voice Guide
                               </Button>
                               {!exercise.completed && (
-                                <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  Mark Complete
+                                <Button 
+                                  size="sm" 
+                                  className="bg-green-600 hover:bg-green-700"
+                                  onClick={() => completeExercise(exercise.id, exercise.name)}
+                                  disabled={completingExercise === exercise.id}
+                                >
+                                  {completingExercise === exercise.id ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      Completing...
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle className="h-4 w-4 mr-2" />
+                                      Mark Complete
+                                    </>
+                                  )}
                                 </Button>
                               )}
                             </div>
@@ -1914,29 +2829,162 @@ export default function PatientPortal() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      <div className="bg-white rounded-lg p-4">
-                        <p className="text-sm text-gray-700 mb-3">
-                          "Great job on completing your ankle pumps! Remember to keep your movements slow and controlled
-                          for maximum benefit."
-                        </p>
-                        <div className="flex items-center space-x-2">
-                          <Button size="sm" variant="outline">
-                            <Mic className="h-4 w-4 mr-2" />
-                            Ask Question
-                          </Button>
-                        </div>
+                      {/* AI Message */}
+                      <div className="bg-white rounded-lg p-4 shadow-sm">
+                        {loadingAiResponse ? (
+                          <div className="flex items-center space-x-3">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600"></div>
+                            <p className="text-sm text-gray-600">AI Coach is thinking...</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-start space-x-3 mb-3">
+                              <Bot className="h-5 w-5 text-purple-600 mt-1 flex-shrink-0" />
+                              <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">
+                                {aiCoachMessage}
+                              </p>
+                            </div>
+                          </>
+                        )}
                       </div>
 
+                      {/* Ask Question Interface */}
+                      {showAskQuestion ? (
+                        <div className="bg-white rounded-lg p-4 space-y-3">
+                          <Label htmlFor="ai-question" className="text-sm font-medium">
+                            Ask your AI Coach:
+                          </Label>
+                          
+                          {/* Voice Recording Area */}
+                          {isRecordingVoice || recordedAudioUrl ? (
+                            <div className="bg-purple-50 border-2 border-purple-200 rounded-lg p-4">
+                              {isRecordingVoice ? (
+                                <div className="flex items-center justify-center space-x-3">
+                                  <div className="w-4 h-4 bg-red-600 rounded-full animate-pulse"></div>
+                                  <span className="text-sm font-medium text-gray-700">Recording your question...</span>
+                                  <Button size="sm" variant="outline" onClick={stopVoiceRecording}>
+                                    Stop
+                                  </Button>
+                                </div>
+                              ) : transcribingAudio ? (
+                                <div className="flex items-center justify-center space-x-3">
+                                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-purple-600"></div>
+                                  <span className="text-sm text-gray-700">Transcribing your voice...</span>
+                                </div>
+                              ) : recordedAudioUrl ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center space-x-2">
+                                    <CheckCircle className="h-5 w-5 text-green-600" />
+                                    <span className="text-sm font-medium text-gray-700">Voice recorded!</span>
+                                  </div>
+                                  {aiQuestion && (
+                                    <div className="bg-white rounded p-2 text-sm text-gray-600">
+                                      "{aiQuestion}"
+                                    </div>
+                                  )}
+                                  <audio src={recordedAudioUrl} controls className="w-full" />
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <>
+                              <Input
+                                id="ai-question"
+                                placeholder="e.g., How do I know if I'm doing the ankle pumps correctly?"
+                                value={aiQuestion}
+                                onChange={(e) => setAiQuestion(e.target.value)}
+                                onKeyPress={(e) => {
+                                  if (e.key === 'Enter') {
+                                    askAiCoach()
+                                  }
+                                }}
+                                disabled={transcribingAudio || loadingAiResponse}
+                              />
+                              <div className="flex items-center space-x-2">
+                                <div className="h-px flex-1 bg-gray-200"></div>
+                                <span className="text-xs text-gray-500">or</span>
+                                <div className="h-px flex-1 bg-gray-200"></div>
+                              </div>
+                              <Button 
+                                size="sm" 
+                                variant="outline"
+                                className="w-full border-purple-200 text-purple-700 hover:bg-purple-50"
+                                onClick={startVoiceRecording}
+                                disabled={transcribingAudio || loadingAiResponse}
+                              >
+                                <Mic className="h-4 w-4 mr-2" />
+                                Record Voice Question
+                              </Button>
+                            </>
+                          )}
+                          
+                          <div className="flex space-x-2">
+                            {!isRecordingVoice && !transcribingAudio && (
+                              <>
+                                <Button 
+                                  size="sm" 
+                                  className="flex-1 bg-purple-600 hover:bg-purple-700"
+                                  onClick={askAiCoach}
+                                  disabled={loadingAiResponse || !aiQuestion.trim()}
+                                >
+                                  Send Question
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="outline"
+                                  onClick={() => {
+                                    setShowAskQuestion(false)
+                                    setAiQuestion("")
+                                    setRecordedAudioUrl(null)
+                                    setIsRecordingVoice(false)
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => setShowAskQuestion(true)}
+                        >
+                          <Mic className="h-4 w-4 mr-2" />
+                          Ask Voice Question
+                        </Button>
+                      )}
+
+                      {/* AI Coach Actions */}
                       <div className="space-y-2">
-                        <Button className="w-full bg-purple-600 hover:bg-purple-700" size="sm">
+                        <Button 
+                          className="w-full bg-purple-600 hover:bg-purple-700" 
+                          size="sm"
+                          onClick={() => getAiFeedback(exerciseProgram?.exercises?.[0]?.name)}
+                          disabled={loadingAiResponse}
+                        >
                           <Bot className="h-4 w-4 mr-2" />
                           Get AI Feedback
                         </Button>
-                        <Button variant="outline" className="w-full bg-transparent" size="sm">
-                          <Video className="h-4 w-4 mr-2" />
+                        <Button 
+                          variant="outline" 
+                          className="w-full bg-transparent" 
+                          size="sm"
+                          onClick={startFormCheck}
+                          disabled={loadingAiResponse}
+                        >
+                          <VideoIcon className="h-4 w-4 mr-2" />
                           Form Check
                         </Button>
-                        <Button variant="outline" className="w-full bg-transparent" size="sm">
+                        <Button 
+                          variant="outline" 
+                          className="w-full bg-transparent" 
+                          size="sm"
+                          onClick={getProgressFeedback}
+                          disabled={loadingAiResponse}
+                        >
                           <Activity className="h-4 w-4 mr-2" />
                           Track Progress
                         </Button>
@@ -1991,24 +3039,490 @@ export default function PatientPortal() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      <div className="flex items-center space-x-2">
-                        <Checkbox checked />
-                        <span className="text-sm">Complete 3 exercise sessions</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox />
-                        <span className="text-sm">Practice balance exercises daily</span>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Checkbox />
-                        <span className="text-sm">Log pain levels after exercises</span>
-                      </div>
+                      {weeklyGoals.length > 0 ? (
+                        weeklyGoals.map((goal: any) => (
+                          <div key={goal.id} className="flex items-center space-x-2">
+                            <Checkbox 
+                              checked={goal.completed}
+                              onCheckedChange={() => toggleGoalCompletion(goal.id, goal.completed)}
+                            />
+                            <span className={`text-sm ${goal.completed ? 'line-through text-gray-500' : ''}`}>
+                              {goal.goal_text}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-gray-500">No goals set for this week</p>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
+                </div>
               </div>
-            </div>
+            )}
           </TabsContent>
+
+          {/* Video Modal Dialog */}
+          <Dialog open={showVideoModal} onOpenChange={setShowVideoModal}>
+            <DialogContent className="max-w-4xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center">
+                  <Video className="h-5 w-5 mr-2 text-blue-600" />
+                  {currentExerciseName} - Video Demonstration
+                </DialogTitle>
+                <DialogDescription>
+                  Watch the proper form and technique for this exercise
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: '16/9' }}>
+                  {currentVideoUrl && (
+                    <video 
+                      controls 
+                      className="w-full h-full"
+                      autoPlay
+                      onError={(e) => {
+                        console.error('Video load error:', e)
+                        toast({
+                          title: "Video Error",
+                          description: "Could not load the video. The file may not exist or is in an unsupported format.",
+                          variant: "destructive"
+                        })
+                      }}
+                    >
+                      <source src={currentVideoUrl} type="video/mp4" />
+                      <source src={currentVideoUrl} type="video/webm" />
+                      <source src={currentVideoUrl} type="video/ogg" />
+                      Your browser does not support the video tag.
+                    </video>
+                  )}
+                </div>
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-2">
+                    <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium mb-1">Safety Tips:</p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Stop if you feel sharp pain</li>
+                        <li>Breathe normally throughout the exercise</li>
+                        <li>Maintain proper form as demonstrated</li>
+                        <li>Go at your own pace</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button 
+                  variant="outline" 
+                  onClick={() => setShowVideoModal(false)}
+                >
+                  Close
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Voice Guide Modal */}
+          <Dialog open={showVoiceGuide} onOpenChange={closeVoiceGuide}>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center">
+                  <Mic className="h-5 w-5 mr-2 text-purple-600" />
+                  {currentExerciseName} - Voice Guide
+                </DialogTitle>
+                <DialogDescription>
+                  Listen to step-by-step audio instructions
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                {loadingVoiceScript ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="text-center">
+                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+                      <p className="text-gray-600">Generating voice guide...</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Voice Control Buttons */}
+                    <div className="flex justify-center space-x-4 py-6">
+                      <Button
+                        size="lg"
+                        className={`${isSpeaking ? 'bg-red-600 hover:bg-red-700' : 'bg-purple-600 hover:bg-purple-700'} text-white`}
+                        onClick={speakVoiceGuide}
+                      >
+                        {isSpeaking ? (
+                          <>
+                            <Pause className="h-5 w-5 mr-2" />
+                            Stop Voice Guide
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-5 w-5 mr-2" />
+                            Start Voice Guide
+                          </>
+                        )}
+                      </Button>
+                    </div>
+
+                    {/* Voice Script Display */}
+                    <div className="bg-purple-50 border border-purple-200 rounded-lg p-6 max-h-96 overflow-y-auto">
+                      <div className="flex items-start space-x-3">
+                        <Volume2 className="h-6 w-6 text-purple-600 mt-1 flex-shrink-0" />
+                        <div>
+                          <h3 className="font-semibold text-purple-900 mb-3">Script:</h3>
+                          <p className="text-gray-700 whitespace-pre-line leading-relaxed">
+                            {voiceScript}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Instructions */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-start space-x-2">
+                        <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                        <div className="text-sm text-blue-800">
+                          <p className="font-medium mb-1">How to use:</p>
+                          <ul className="list-disc list-inside space-y-1">
+                            <li>Click "Start Voice Guide" to hear instructions</li>
+                            <li>Follow along at your own pace</li>
+                            <li>Click "Stop" to pause at any time</li>
+                            <li>You can replay as many times as needed</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <DialogFooter>
+                <Button 
+                  variant="outline" 
+                  onClick={closeVoiceGuide}
+                >
+                  Close
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Form Check Recording Modal */}
+          <Dialog open={showFormCheck} onOpenChange={closeFormCheck}>
+            <DialogContent className="max-w-3xl">
+              <DialogHeader>
+                <DialogTitle className="flex items-center">
+                  <VideoIcon className="h-5 w-5 mr-2 text-red-600" />
+                  Form Check - Record Your Exercise
+                </DialogTitle>
+                <DialogDescription>
+                  Record yourself doing the exercise and get AI feedback on your form
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                {/* Video Preview/Playback */}
+                <div className="relative bg-gray-900 rounded-lg overflow-hidden aspect-video">
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-contain"
+                    autoPlay
+                    muted
+                    playsInline
+                    src={recordedVideo || undefined}
+                  />
+                  
+                  {/* Recording Indicator */}
+                  {isRecording && (
+                    <div className="absolute top-4 right-4 flex items-center space-x-2 bg-red-600 text-white px-3 py-1 rounded-full">
+                      <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+                      <span className="text-sm font-medium">Recording</span>
+                    </div>
+                  )}
+                  
+                  {/* Instructions Overlay */}
+                  {!isRecording && !recordedVideo && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
+                      <div className="text-center text-white p-6">
+                        <VideoIcon className="h-16 w-16 mx-auto mb-4 opacity-75" />
+                        <p className="text-lg font-medium mb-2">Position yourself in frame</p>
+                        <p className="text-sm opacity-75">Make sure your full body is visible</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Instructions */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-2">
+                    <AlertCircle className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-blue-800">
+                      <p className="font-medium mb-1">How to use Form Check:</p>
+                      <ul className="list-disc list-inside space-y-1">
+                        <li>Position yourself so your full body is visible</li>
+                        <li>Click "Start Recording" when ready</li>
+                        <li>Perform the exercise (15 seconds max)</li>
+                        <li>AI will analyze your form automatically</li>
+                        <li>Check AI Coach section for feedback</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Recording Controls */}
+                <div className="flex justify-center space-x-4">
+                  {!recordedVideo ? (
+                    <>
+                      {!isRecording ? (
+                        <Button
+                          size="lg"
+                          className="bg-red-600 hover:bg-red-700 text-white"
+                          onClick={startRecording}
+                        >
+                          <VideoIcon className="h-5 w-5 mr-2" />
+                          Start Recording
+                        </Button>
+                      ) : (
+                        <Button
+                          size="lg"
+                          variant="outline"
+                          className="border-red-600 text-red-600 hover:bg-red-50"
+                          onClick={stopRecording}
+                        >
+                          <X className="h-5 w-5 mr-2" />
+                          Stop Recording
+                        </Button>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center">
+                      <div className="flex items-center justify-center space-x-2 text-green-600 mb-2">
+                        <CheckCircle className="h-6 w-6" />
+                        <span className="font-medium">Recording Complete!</span>
+                      </div>
+                      <p className="text-sm text-gray-600 mb-4">
+                        Check the AI Exercise Coach section for your form analysis
+                      </p>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setRecordedVideo(null)
+                          setRecordedBlob(null)
+                          if (videoRef.current && recordingStream) {
+                            videoRef.current.srcObject = recordingStream
+                            videoRef.current.play()
+                          }
+                        }}
+                      >
+                        <RotateCcw className="h-4 w-4 mr-2" />
+                        Record Again
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <DialogFooter>
+                <Button 
+                  variant="outline" 
+                  onClick={closeFormCheck}
+                >
+                  Close
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Progress Tracking Modal */}
+          <Dialog open={showProgressModal} onOpenChange={setShowProgressModal}>
+            <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center">
+                  <BarChart3 className="h-5 w-5 mr-2 text-purple-600" />
+                  Exercise Progress Tracking
+                </DialogTitle>
+                <DialogDescription>
+                  Your detailed exercise progress and statistics
+                </DialogDescription>
+              </DialogHeader>
+
+              {loadingProgress ? (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600">Loading your progress...</p>
+                  </div>
+                </div>
+              ) : progressData ? (
+                <div className="space-y-6">
+                  {/* Overview Cards */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <Card className="border-blue-200 bg-blue-50">
+                      <CardContent className="p-4 text-center">
+                        <p className="text-2xl font-bold text-blue-600">
+                          {progressData.statistics.completedExercises}/{progressData.statistics.totalExercises}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">Exercises Done</p>
+                        <p className="text-lg font-semibold text-blue-700 mt-1">
+                          {progressData.statistics.completionRate}%
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-green-200 bg-green-50">
+                      <CardContent className="p-4 text-center">
+                        <p className="text-2xl font-bold text-green-600">
+                          {progressData.statistics.currentStreak}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">Day Streak</p>
+                        <p className="text-lg font-semibold text-green-700 mt-1">
+                          🔥 {progressData.statistics.currentStreak > 0 ? 'Keep it up!' : 'Start today!'}
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-purple-200 bg-purple-50">
+                      <CardContent className="p-4 text-center">
+                        <p className="text-2xl font-bold text-purple-600">
+                          {progressData.statistics.totalTimeSpentFormatted}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">Total Time</p>
+                        <p className="text-lg font-semibold text-purple-700 mt-1">
+                          {progressData.totalCompletions} sessions
+                        </p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="border-orange-200 bg-orange-50">
+                      <CardContent className="p-4 text-center">
+                        <p className="text-2xl font-bold text-orange-600">
+                          {progressData.statistics.consistencyScore}%
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">Consistency</p>
+                        <p className="text-lg font-semibold text-orange-700 mt-1">
+                          {progressData.statistics.consistencyScore >= 80 ? 'Excellent!' : progressData.statistics.consistencyScore >= 60 ? 'Good!' : 'Keep going!'}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  {/* Week Progress */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Program Progress</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex justify-between text-sm">
+                          <span>Week {progressData.program.currentWeek} of {progressData.program.totalWeeks}</span>
+                          <span className="font-medium">{Math.round((progressData.program.completedSessions / progressData.program.totalSessions) * 100)}%</span>
+                        </div>
+                        <Progress 
+                          value={(progressData.program.completedSessions / progressData.program.totalSessions) * 100}
+                          className="h-3"
+                        />
+                        <p className="text-xs text-gray-600">
+                          {progressData.program.completedSessions} of {progressData.program.totalSessions} sessions completed
+                        </p>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Last 7 Days Activity */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Last 7 Days Activity</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex justify-between items-end h-32">
+                        {progressData.activityData.last7Days.map((day: any, index: number) => (
+                          <div key={index} className="flex flex-col items-center flex-1">
+                            <div className="w-full flex items-end justify-center" style={{ height: '100px' }}>
+                              <div 
+                                className={`w-full max-w-[40px] rounded-t ${day.completions > 0 ? 'bg-purple-500' : 'bg-gray-200'}`}
+                                style={{ height: `${Math.max(10, (day.completions / Math.max(...progressData.activityData.last7Days.map((d: any) => d.completions), 1)) * 100)}%` }}
+                                title={`${day.completions} exercises`}
+                              ></div>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-2">{day.day}</p>
+                            <p className="text-xs font-medium text-purple-600">{day.completions}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Exercise-Specific Stats */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Exercise Performance</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        {progressData.exerciseStats.map((stat: any) => (
+                          <div key={stat.exerciseId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">{stat.exerciseName}</p>
+                              <p className="text-xs text-gray-600">
+                                {stat.totalCompletions} times completed
+                                {stat.averageDuration > 0 && ` • Avg: ${Math.floor(stat.averageDuration / 60)}m ${stat.averageDuration % 60}s`}
+                              </p>
+                            </div>
+                            {stat.completed && (
+                              <CheckCircle className="h-5 w-5 text-green-600" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Goals Progress */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Weekly Goals</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-3">
+                        <div className="flex justify-between text-sm">
+                          <span>{progressData.statistics.completedGoals} of {progressData.statistics.totalGoals} goals completed</span>
+                          <span className="font-medium">{progressData.statistics.goalCompletionRate}%</span>
+                        </div>
+                        <Progress 
+                          value={progressData.statistics.goalCompletionRate}
+                          className="h-2"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Motivational Message */}
+                  {progressData.statistics.consistencyScore >= 80 && (
+                    <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-start space-x-3">
+                        <Star className="h-6 w-6 text-yellow-500 mt-1" />
+                        <div>
+                          <p className="font-semibold text-gray-800">Outstanding Progress! 🌟</p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            You're maintaining excellent consistency! Your dedication to recovery is impressive. Keep up this amazing work!
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-12">
+                  <p className="text-gray-600">No progress data available</p>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button onClick={() => setShowProgressModal(false)}>
+                  Close
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Appointments Tab */}
           <TabsContent value="appointments" className="space-y-8">

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -35,6 +35,7 @@ export default function ExtendedCareSetupPage() {
   const [isConnecting, setIsConnecting] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "testing" | "success" | "error">("idle")
   const [isSaving, setIsSaving] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
 
   // Form state
   const [credentials, setCredentials] = useState({
@@ -64,6 +65,39 @@ export default function ExtendedCareSetupPage() {
     requiredServices: ["skilled_nursing", "physical_therapy"],
     excludedDiagnoses: ["hospice", "palliative"],
   })
+
+  // Load existing configuration on mount
+  const loadConfiguration = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch("/api/integrations/extendedcare/config")
+      const result = await response.json()
+
+      if (result.success && result.configured) {
+        // Populate form with existing configuration
+        setCredentials({
+          username: result.config.username || "",
+          password: "", // Don't populate password for security
+          clientId: result.config.clientId || "",
+          clientSecret: "",
+          environment: result.config.environment || "sandbox",
+        })
+        
+        if (result.config.status === "connected") {
+          setConnectionStatus("success")
+        }
+      }
+    } catch (error) {
+      console.error("Failed to load configuration:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Load configuration on component mount
+  useEffect(() => {
+    loadConfiguration()
+  }, [])
 
   const testConnection = async () => {
     setIsConnecting(true)

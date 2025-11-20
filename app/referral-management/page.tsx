@@ -182,6 +182,7 @@ export default function ReferralManagementPage() {
         const newInsuranceMonitoring: Record<string, any> = {}
         
         data.referrals.forEach((dbRef: DatabaseReferral) => {
+          console.log(`📊 Loading eligibility for ${dbRef.patient_name}:`, dbRef.eligibility_status)
           if (dbRef.eligibility_status) {
             newEligibilityChecks[dbRef.id] = dbRef.eligibility_status
           }
@@ -189,6 +190,9 @@ export default function ReferralManagementPage() {
             newInsuranceMonitoring[dbRef.id] = dbRef.insurance_monitoring
           }
         })
+        
+        console.log("✅ Loaded eligibility checks:", newEligibilityChecks)
+        console.log("✅ Loaded insurance monitoring:", newInsuranceMonitoring)
         
         setEligibilityChecks(newEligibilityChecks)
         setInsuranceMonitoring(newInsuranceMonitoring)
@@ -263,26 +267,26 @@ export default function ReferralManagementPage() {
   // ExtendedCare referrals count
   const extendedCareReferrals = referrals.filter((r) => r.referralSource === "ExtendedCare Network")
 
-  // ⚠️ TEMPORARILY DISABLED - ExtendedCare mock data sync
-  // This function was inserting mock data automatically
-  // Uncomment when ready to use real ExtendedCare integration
+  // ✅ RE-ENABLED - ExtendedCare sync with real API integration
   const syncWithExtendedCare = async () => {
     setIsLoadingExtendedCare(true)
     setExtendedCareStatus("syncing")
 
-    console.log("⚠️ ExtendedCare sync is temporarily disabled to prevent mock data insertion")
+    console.log("🔄 Syncing with ExtendedCare Network...")
 
-    // Show a user-friendly message
-    alert("ExtendedCare sync is temporarily disabled.\n\nThis feature was inserting mock data automatically.\nIt will be re-enabled when real ExtendedCare integration is ready.")
-
-    setExtendedCareStatus("disconnected")
-    setIsLoadingExtendedCare(false)
-    return
-
-    /* COMMENTED OUT - Mock data sync code
     try {
-      // Fetch new referrals from ExtendedCare
+      // Fetch new referrals from ExtendedCare via API
       const newReferrals = await extendedCareApi.fetchPendingReferrals()
+
+      console.log(`📥 Retrieved ${newReferrals.length} referrals from ExtendedCare`)
+
+      if (newReferrals.length === 0) {
+        setExtendedCareStatus("connected")
+        setLastSyncTime(new Date().toLocaleString())
+        setIsLoadingExtendedCare(false)
+        alert("✅ Sync successful!\n\nNo new referrals found in ExtendedCare.")
+        return
+      }
 
       // Convert ExtendedCare referrals to our format
       const convertedReferrals: Referral[] = newReferrals.map((ecReferral) => ({
@@ -309,25 +313,50 @@ export default function ReferralManagementPage() {
       }))
 
       // Save to database
+      let savedCount = 0
       for (const convertedReferral of convertedReferrals) {
-        await fetch("/api/referrals", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(convertedReferral),
-        })
+        try {
+          const response = await fetch("/api/referrals", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(convertedReferral),
+          })
+          if (response.ok) {
+            savedCount++
+          }
+        } catch (error) {
+          console.error("Failed to save referral:", error)
+        }
       }
-      
+
+      console.log(`✅ Saved ${savedCount} of ${convertedReferrals.length} referrals`)
+
       // Refetch all referrals from database
       await fetchReferrals()
       setExtendedCareStatus("connected")
       setLastSyncTime(new Date().toLocaleString())
-    } catch (error) {
+      
+      alert(`✅ Sync successful!\n\n${savedCount} new referrals imported from ExtendedCare.`)
+    } catch (error: any) {
       setExtendedCareStatus("disconnected")
       console.error("Failed to sync with ExtendedCare:", error)
+      
+      // Show user-friendly error message
+      const errorMessage = error?.message || "Unknown error"
+      alert(
+        `❌ ExtendedCare Sync Failed\n\n` +
+        `Error: ${errorMessage}\n\n` +
+        `Possible causes:\n` +
+        `• ExtendedCare API is not available\n` +
+        `• API URL is incorrect\n` +
+        `• Network/firewall blocking connection\n` +
+        `• Invalid credentials\n\n` +
+        `Please check the console for detailed error information.\n\n` +
+        `To configure: Go to /integrations/extendedcare-setup`
+      )
     } finally {
       setIsLoadingExtendedCare(false)
     }
-    */
   }
 
   const processExtendedCareReferral = async (referralId: string) => {
@@ -546,13 +575,25 @@ export default function ReferralManagementPage() {
         [referral.id]: { status: "checking", timestamp: new Date().toISOString() },
       }))
 
-      const eligibilityResult = await extendedCareApi.checkEligibility(referral.id, referral.insuranceId)
+      // Use new API route that checks Availity first, then falls back to ExtendedCare
+      const response = await fetch(`/api/referrals/${referral.id}/check-eligibility`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to check eligibility")
+      }
+
+      const data = await response.json()
+      const eligibilityResult = data.eligibility
 
       setEligibilityChecks((prev) => ({
         ...prev,
         [referral.id]: {
           status: "completed",
           result: eligibilityResult,
+          source: eligibilityResult.source || "unknown",
           timestamp: new Date().toISOString(),
           nextCheck: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // Check again in 24 hours
         },
@@ -596,7 +637,18 @@ export default function ReferralManagementPage() {
     if (!referral || referral.status === "Denied") return
 
     try {
-      const currentEligibility = await extendedCareApi.checkEligibility(referralId, referral.insuranceId)
+      // Use new API route for eligibility check
+      const response = await fetch(`/api/referrals/${referralId}/check-eligibility`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to check eligibility")
+      }
+
+      const data = await response.json()
+      const currentEligibility = data.eligibility
       const previousCheck = eligibilityChecks[referralId]
 
       // Compare with previous eligibility status
@@ -878,15 +930,52 @@ export default function ReferralManagementPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extendedCareStatus])
 
-  // Auto-check eligibility for new referrals
+  // Auto-check eligibility for new referrals (ONLY if not already in database)
   useEffect(() => {
-    const newReferrals = referrals.filter((r) => r.status === "New" && !eligibilityChecks[r.id])
+    console.log("🔍 Checking referrals for auto-eligibility check...")
+    console.log("Total referrals:", referrals.length)
+    console.log("Current eligibility checks from DB:", eligibilityChecks)
+    
+    // Only check referrals that don't have eligibility data yet
+    const newReferrals = referrals.filter(
+      (r) => {
+        const hasValidInsurance = r.insuranceProvider && 
+                                  r.insuranceId && 
+                                  r.insuranceProvider !== "Not specified" && 
+                                  r.insuranceId !== "Not provided"
+        
+        // Don't check if already has data from database
+        const alreadyHasData = eligibilityChecks[r.id] && eligibilityChecks[r.id].status === "completed"
+        
+        const shouldCheck = !alreadyHasData && 
+                           hasValidInsurance
+        
+        console.log(`Referral ${r.patientName}:`, {
+          hasCheck: !!eligibilityChecks[r.id],
+          alreadyHasData,
+          insurance: r.insuranceProvider,
+          insuranceId: r.insuranceId,
+          hasValidInsurance,
+          shouldCheck
+        })
+        
+        return shouldCheck
+      }
+    )
 
-    newReferrals.forEach((referral) => {
-      checkEligibilityForReferral(referral)
-    })
+    console.log(`Found ${newReferrals.length} referrals to check automatically`)
+
+    if (newReferrals.length > 0) {
+      // Small delay to ensure UI renders first
+      setTimeout(() => {
+        newReferrals.forEach((referral) => {
+          console.log(`✅ Starting auto-check for ${referral.patientName}`)
+          checkEligibilityForReferral(referral)
+        })
+      }, 500)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [referrals])
+  }, [referrals, eligibilityChecks])
 
   // Continuous eligibility monitoring
   useEffect(() => {
@@ -1192,7 +1281,27 @@ export default function ReferralManagementPage() {
                                 </div>
                               </div>
 
-                              {/* Eligibility Status */}
+                              {/* Show checking status or message when no insurance info */}
+                              {!eligibilityChecks[referral.id] && (
+                                <div className="mb-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                                  {!referral.insuranceProvider || 
+                                   !referral.insuranceId || 
+                                   referral.insuranceProvider === "Not specified" || 
+                                   referral.insuranceId === "Not provided" ? (
+                                    <div className="flex items-center text-gray-600 text-sm">
+                                      <Shield className="h-4 w-4 mr-2" />
+                                      <span>Insurance information required for eligibility check</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center text-blue-600 text-sm">
+                                      <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                                      <span>Checking eligibility automatically...</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Eligibility Status Result - Show after check */}
                               {eligibilityChecks[referral.id] && (
                                 <div className="mb-4 p-3 bg-blue-50 rounded-lg">
                                   <h4 className="font-medium text-blue-800 mb-2 flex items-center">
@@ -1202,49 +1311,70 @@ export default function ReferralManagementPage() {
                                       <RefreshCw className="h-3 w-3 ml-2 animate-spin" />
                                     )}
                                   </h4>
-                                  {eligibilityChecks[referral.id].status === "completed" &&
-                                    eligibilityChecks[referral.id].result && (
+                                  {(() => {
+                                    console.log("🎯 Rendering eligibility for", referral.patientName)
+                                    console.log("📊 Full eligibility data:", JSON.stringify(eligibilityChecks[referral.id], null, 2))
+                                    console.log("✅ Has result?", !!eligibilityChecks[referral.id].result)
+                                    console.log("✅ Status:", eligibilityChecks[referral.id].status)
+                                    return null
+                                  })()}
+                                  {/* Show data if ANY eligibility info exists */}
+                                  {(eligibilityChecks[referral.id].status === "completed" ||
+                                    eligibilityChecks[referral.id].isEligible !== undefined) && (
                                       <div className="space-y-2 text-sm">
                                         <div className="flex items-center justify-between">
                                           <span>Eligibility:</span>
                                           <Badge
                                             className={
-                                              eligibilityChecks[referral.id].result.isEligible
+                                              (eligibilityChecks[referral.id].result?.isEligible || 
+                                               eligibilityChecks[referral.id].isEligible)
                                                 ? "bg-green-100 text-green-800"
                                                 : "bg-red-100 text-red-800"
                                             }
                                           >
-                                            {eligibilityChecks[referral.id].result.isEligible
+                                            {(eligibilityChecks[referral.id].result?.isEligible || 
+                                              eligibilityChecks[referral.id].isEligible)
                                               ? "Eligible"
                                               : "Not Eligible"}
                                           </Badge>
                                         </div>
-                                        {eligibilityChecks[referral.id].result.planDetails && (
+                                        {(eligibilityChecks[referral.id].result?.planDetails || 
+                                          eligibilityChecks[referral.id].planDetails) && (() => {
+                                          const planDetails = eligibilityChecks[referral.id].result?.planDetails || 
+                                                             eligibilityChecks[referral.id].planDetails
+                                          return (
                                           <>
                                             <div className="grid grid-cols-2 gap-2">
                                               <div>
                                                 <span className="text-blue-600">Plan:</span>{" "}
-                                                {eligibilityChecks[referral.id].result.planDetails.planName}
+                                                {planDetails.planName || "N/A"}
                                               </div>
                                               <div>
                                                 <span className="text-blue-600">Copay:</span> $
-                                                {eligibilityChecks[referral.id].result.planDetails.copay.inNetwork}
+                                                {planDetails.copay?.inNetwork || 
+                                                 planDetails.copay?.amount ||
+                                                 "N/A"}
                                               </div>
                                               <div>
                                                 <span className="text-blue-600">Deductible Remaining:</span> $
-                                                {eligibilityChecks[referral.id].result.planDetails.deductible.remaining}
+                                                {planDetails.deductible?.remaining || "N/A"}
                                               </div>
                                               <div>
                                                 <span className="text-blue-600">Out-of-Pocket Remaining:</span> $
-                                                {
-                                                  eligibilityChecks[referral.id].result.planDetails.outOfPocketMax
-                                                    .remaining
-                                                }
+                                                {planDetails.outOfPocketMax?.remaining || "N/A"}
                                               </div>
                                             </div>
                                             <div className="text-xs text-blue-600 mt-2">
                                               Last checked:{" "}
                                               {new Date(eligibilityChecks[referral.id].timestamp).toLocaleString()}
+                                              {eligibilityChecks[referral.id].source && (
+                                                <Badge 
+                                                  variant="outline" 
+                                                  className="ml-2 text-xs"
+                                                >
+                                                  {eligibilityChecks[referral.id].source === "availity" ? "Availity" : "ExtendedCare"}
+                                                </Badge>
+                                              )}
                                               {eligibilityChecks[referral.id].nextCheck && (
                                                 <span className="ml-2">
                                                   • Next check:{" "}
@@ -1253,7 +1383,8 @@ export default function ReferralManagementPage() {
                                               )}
                                             </div>
                                           </>
-                                        )}
+                                          )
+                                        })()}
                                       </div>
                                     )}
                                   {eligibilityChecks[referral.id].status === "error" && (

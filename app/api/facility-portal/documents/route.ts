@@ -12,13 +12,21 @@ function getServiceClient() {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY!
     
-    if (!supabaseUrl || !supabaseServiceKey) {
-      throw new Error('Missing Supabase configuration')
+    console.log('[Supabase Client] Initializing with URL:', supabaseUrl ? 'SET' : 'MISSING')
+    console.log('[Supabase Client] Service key:', supabaseServiceKey ? 'SET' : 'MISSING')
+    
+    if (!supabaseUrl) {
+      throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable')
+    }
+    
+    if (!supabaseServiceKey) {
+      throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SERVICE_KEY environment variable')
     }
     
     supabaseClient = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false }
     })
+    console.log('[Supabase Client] Successfully initialized')
   }
   return supabaseClient
 }
@@ -197,12 +205,27 @@ export async function POST(request: NextRequest) {
 // GET: Fetch documents for a referral
 // =====================================================
 export async function GET(request: NextRequest) {
+  console.log('[Documents API] GET request received')
   try {
-    const supabase = getServiceClient()
+    // Get Supabase client
+    let supabase
+    try {
+      supabase = getServiceClient()
+      console.log('[Documents API] Supabase client initialized')
+    } catch (clientError) {
+      console.error('[Documents API] Failed to initialize Supabase client:', clientError)
+      return NextResponse.json(
+        { error: 'Database connection failed: ' + (clientError as Error).message },
+        { status: 500 }
+      )
+    }
+
     const { searchParams } = new URL(request.url)
     const referralId = searchParams.get('referralId')
+    console.log('[Documents API] Referral ID:', referralId)
 
     if (!referralId) {
+      console.error('[Documents API] Missing referral ID')
       return NextResponse.json(
         { error: 'Referral ID is required' },
         { status: 400 }
@@ -210,6 +233,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Fetch documents from database
+    console.log('[Documents API] Fetching documents from database...')
     const { data: documents, error } = await supabase
       .from('referral_documents')
       .select('*')
@@ -217,20 +241,21 @@ export async function GET(request: NextRequest) {
       .order('uploaded_at', { ascending: false })
 
     if (error) {
-      console.error('Error fetching documents:', error)
+      console.error('[Documents API] Database query error:', error)
       return NextResponse.json(
         { error: 'Failed to fetch documents: ' + error.message },
         { status: 500 }
       )
     }
 
+    console.log(`[Documents API] Successfully fetched ${documents?.length || 0} documents`)
     return NextResponse.json({
       documents: documents || [],
       count: documents?.length || 0
     })
 
   } catch (error) {
-    console.error('Error in documents GET:', error)
+    console.error('[Documents API] Unexpected error:', error)
     return NextResponse.json(
       { error: 'Failed to fetch documents: ' + (error as Error).message },
       { status: 500 }
