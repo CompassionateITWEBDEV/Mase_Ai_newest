@@ -3,19 +3,32 @@
 import { useState, useEffect } from 'react'
 import { EnhancedDoctorSignup } from "@/components/doctor-portal/enhanced-doctor-signup"
 import { EnhancedAvailabilityToggle } from "@/components/doctor-portal/enhanced-availability-toggle"
+import { AIClinicalAssistant } from "@/components/doctor-portal/ai-clinical-assistant"
+import { AIPatientSummary } from "@/components/doctor-portal/ai-patient-summary"
+import { AIDashboardAnalytics } from "@/components/doctor-portal/ai-dashboard-analytics"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
-import { Brain, Activity, Stethoscope, Clock, User, AlertTriangle, CheckCircle, X, Video, DollarSign, LogIn } from "lucide-react"
+import { Brain, Activity, Stethoscope, Clock, User, AlertTriangle, CheckCircle, X, Video, DollarSign, LogIn, Sparkles } from "lucide-react"
 import { PeerJSVideoCall } from "@/components/telehealth/PeerJSVideoCall"
+import { RatingDialog } from "@/components/telehealth/RatingDialog"
 import { useToast } from "@/hooks/use-toast"
 import { Separator } from "@/components/ui/separator"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+
+// Helper function to format response time
+const formatResponseTime = (seconds: number): string => {
+  // Handle NaN, null, undefined, or invalid values
+  if (!seconds || isNaN(seconds) || seconds === 0) return '0s'
+  if (seconds < 60) return `${Math.round(seconds)}s`
+  if (seconds < 3600) return `${(seconds / 60).toFixed(1)}m`
+  return `${(seconds / 3600).toFixed(1)}h`
+}
 
 export default function DoctorPortalPage() {
   const { toast } = useToast()
@@ -31,10 +44,15 @@ export default function DoctorPortalPage() {
   const [showVideoCall, setShowVideoCall] = useState(false)
   const [videoSession, setVideoSession] = useState<any>(null)
   const [activeConsultation, setActiveConsultation] = useState<any>(null)
+  const [showRatingDialog, setShowRatingDialog] = useState(false)
+  const [completedConsultation, setCompletedConsultation] = useState<any>(null)
+  const [activeTab, setActiveTab] = useState<string>('dashboard') // Tab state
+  const [showAIAssistant, setShowAIAssistant] = useState<{[key: string]: boolean}>({}) // AI assistant per consultation
   const [todayStats, setTodayStats] = useState({
     consultations: 0,
     earnings: 0,
-    avgRating: 0
+    avgRating: 0,
+    avgResponseTime: 0 // in seconds
   })
 
   // Check if doctor is already logged in
@@ -70,6 +88,25 @@ export default function DoctorPortalPage() {
       const data = await response.json()
 
       if (!response.ok) {
+        // Check if account is inactive/pending
+        if (data.status === 'inactive' || data.accountStatus === 'pending' || data.accountStatus === 'inactive' || data.accountStatus === 'suspended') {
+          // Show specific alert for inactive accounts
+          toast({
+            title: "Account Not Active",
+            description: data.error || "Your account needs to be activated by an administrator before you can login.",
+            variant: "destructive",
+            duration: 8000, // Show longer for important message
+          })
+          
+          // Also show browser alert for emphasis
+          setTimeout(() => {
+            alert(`⚠️ Account Status: ${data.accountStatus || 'Inactive'}\n\n${data.error || 'Your account needs to be activated by an administrator.'}\n\nPlease contact the administrator for assistance.`)
+          }, 500)
+          
+          return
+        }
+        
+        // For other errors, throw as usual
         throw new Error(data.error || 'Login failed')
       }
 
@@ -143,16 +180,42 @@ export default function DoctorPortalPage() {
         const data = await response.json()
         
         if (data.success) {
-          const completed = data.consultations.filter((c: any) => c.status === 'completed')
+          // Get today's date at midnight (start of day)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          
+          // Filter for completed consultations from today only
+          const completed = data.consultations.filter((c: any) => {
+            if (c.status !== 'completed') return false
+            
+            const completedDate = new Date(c.completed_at)
+            return completedDate >= today
+          })
+          
+          // Calculate today's earnings
           const totalEarnings = completed.reduce((sum: number, c: any) => sum + (c.compensation_amount || 0), 0)
-          const avgRating = completed.length > 0 
-            ? completed.reduce((sum: number, c: any) => sum + (c.rating || 0), 0) / completed.length 
+          
+          // Calculate average rating from nurses (how nurses rated the doctor)
+          const ratedConsultations = completed.filter((c: any) => c.nurse_rating > 0)
+          const avgRating = ratedConsultations.length > 0 
+            ? ratedConsultations.reduce((sum: number, c: any) => sum + (c.nurse_rating || 0), 0) / ratedConsultations.length 
+            : 0
+
+          // Calculate average response time (time from request to acceptance)
+          const consultationsWithResponseTime = completed.filter((c: any) => c.created_at && c.accepted_at)
+          const avgResponseTime = consultationsWithResponseTime.length > 0
+            ? consultationsWithResponseTime.reduce((sum: number, c: any) => {
+                const created = new Date(c.created_at).getTime()
+                const accepted = new Date(c.accepted_at).getTime()
+                return sum + (accepted - created) / 1000 // Convert to seconds
+              }, 0) / consultationsWithResponseTime.length
             : 0
 
           setTodayStats({
             consultations: completed.length,
             earnings: totalEarnings,
-            avgRating: avgRating
+            avgRating: avgRating,
+            avgResponseTime: avgResponseTime
           })
         }
       } catch (error) {
@@ -161,6 +224,10 @@ export default function DoctorPortalPage() {
     }
 
     fetchStats()
+    
+    // Refresh stats every 30 seconds
+    const interval = setInterval(fetchStats, 30000)
+    return () => clearInterval(interval)
   }, [doctorId])
 
   const handleAcceptConsult = async (consultation: any) => {
@@ -259,6 +326,14 @@ export default function DoctorPortalPage() {
           doctorNotes: 'Consultation completed via video call'
         })
       })
+
+      // Store consultation for rating
+      setCompletedConsultation(activeConsultation)
+      
+      // Show rating dialog after a short delay
+      setTimeout(() => {
+        setShowRatingDialog(true)
+      }, 1000)
     }
 
     setActiveConsultation(null)
@@ -267,6 +342,61 @@ export default function DoctorPortalPage() {
       title: "Consultation Completed",
       description: "Video call has ended",
     })
+  }
+
+  const handleRatingSubmitted = () => {
+    // Refresh stats after rating is submitted
+    const fetchStats = async () => {
+      try {
+        const response = await fetch(`/api/telehealth/consultation?doctorId=${doctorId}`)
+        const data = await response.json()
+        
+        if (data.success) {
+          // Get today's date at midnight (start of day)
+          const today = new Date()
+          today.setHours(0, 0, 0, 0)
+          
+          // Filter for completed consultations from today only
+          const completed = data.consultations.filter((c: any) => {
+            if (c.status !== 'completed') return false
+            
+            const completedDate = new Date(c.completed_at)
+            return completedDate >= today
+          })
+          
+          // Calculate today's earnings
+          const totalEarnings = completed.reduce((sum: number, c: any) => sum + (c.compensation_amount || 0), 0)
+          
+          // Calculate average rating from nurses (how nurses rated the doctor)
+          const ratedConsultations = completed.filter((c: any) => c.nurse_rating > 0)
+          const avgRating = ratedConsultations.length > 0 
+            ? ratedConsultations.reduce((sum: number, c: any) => sum + (c.nurse_rating || 0), 0) / ratedConsultations.length 
+            : 0
+
+          // Calculate average response time (time from request to acceptance)
+          const consultationsWithResponseTime = completed.filter((c: any) => c.created_at && c.accepted_at)
+          const avgResponseTime = consultationsWithResponseTime.length > 0
+            ? consultationsWithResponseTime.reduce((sum: number, c: any) => {
+                const created = new Date(c.created_at).getTime()
+                const accepted = new Date(c.accepted_at).getTime()
+                return sum + (accepted - created) / 1000 // Convert to seconds
+              }, 0) / consultationsWithResponseTime.length
+            : 0
+
+          setTodayStats({
+            consultations: completed.length,
+            earnings: totalEarnings,
+            avgRating: avgRating,
+            avgResponseTime: avgResponseTime
+          })
+        }
+      } catch (error) {
+        console.error('Error fetching stats:', error)
+      }
+    }
+
+    fetchStats()
+    setCompletedConsultation(null)
   }
 
   const getUrgencyColor = (level: string) => {
@@ -394,7 +524,7 @@ export default function DoctorPortalPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Tabs defaultValue="consultations" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="consultations">
               Live Consultations
@@ -550,6 +680,49 @@ export default function DoctorPortalPage() {
                         </div>
                       </div>
 
+                      {/* AI Assistant Toggle */}
+                      <div className="flex justify-center">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowAIAssistant(prev => ({
+                            ...prev,
+                            [consultation.id]: !prev[consultation.id]
+                          }))}
+                          className="border-purple-200 text-purple-600 hover:bg-purple-50"
+                        >
+                          <Brain className="h-4 w-4 mr-2" />
+                          {showAIAssistant[consultation.id] ? 'Hide' : 'Show'} AI Clinical Assistant
+                          <Sparkles className="h-3 w-3 ml-2" />
+                        </Button>
+                      </div>
+
+                      {/* AI Assistant Panel */}
+                      {showAIAssistant[consultation.id] && (
+                        <div className="border-t pt-4">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div>
+                              <AIPatientSummary
+                                patientId={consultation.patient_id}
+                                patientName={consultation.patient_name}
+                                consultation={consultation}
+                              />
+                            </div>
+                            <div>
+                              <AIClinicalAssistant
+                                consultation={consultation}
+                                patientData={{
+                                  age: consultation.patient_age,
+                                  name: consultation.patient_name
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      <Separator />
+
                       {/* Action Buttons */}
                       <div className="flex space-x-3">
                         <Button
@@ -578,40 +751,274 @@ export default function DoctorPortalPage() {
           </TabsContent>
 
           <TabsContent value="dashboard">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="lg:col-span-2">
+            <div className="space-y-6">
+              {/* Stats Overview */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center">
-                      <Activity className="h-5 w-5 mr-2" />
-                      Dashboard Overview
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-3 gap-4 mb-6">
-                      <div className="text-center p-4 bg-blue-50 rounded-lg">
-                        <div className="text-2xl font-bold text-blue-600">{todayStats.consultations}</div>
-                        <div className="text-sm text-gray-600">Today's Consultations</div>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Today's Consultations</p>
+                        <p className="text-3xl font-bold text-blue-600">{todayStats.consultations}</p>
                       </div>
-                      <div className="text-center p-4 bg-green-50 rounded-lg">
-                        <div className="text-2xl font-bold text-green-600">${todayStats.earnings.toFixed(2)}</div>
-                        <div className="text-sm text-gray-600">Today's Earnings</div>
-                      </div>
-                      <div className="text-center p-4 bg-purple-50 rounded-lg">
-                        <div className="text-2xl font-bold text-purple-600">{todayStats.avgRating.toFixed(1)}</div>
-                        <div className="text-sm text-gray-600">Average Rating</div>
+                      <div className="p-3 bg-blue-100 rounded-full">
+                        <Stethoscope className="h-6 w-6 text-blue-600" />
                       </div>
                     </div>
-                    <p className="text-gray-600">
-                      Welcome to the AI-powered telehealth platform. You can manage your availability, accept
-                      consultations, and provide urgent care to patients in need.
-                    </p>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Today's Earnings</p>
+                        <p className="text-3xl font-bold text-green-600">${todayStats.earnings.toFixed(2)}</p>
+                      </div>
+                      <div className="p-3 bg-green-100 rounded-full">
+                        <DollarSign className="h-6 w-6 text-green-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Average Rating</p>
+                        <p className="text-3xl font-bold text-purple-600">{todayStats.avgRating.toFixed(1)}</p>
+                      </div>
+                      <div className="p-3 bg-purple-100 rounded-full">
+                        <Activity className="h-6 w-6 text-purple-600" />
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600">Pending Requests</p>
+                        <p className="text-3xl font-bold text-orange-600">{pendingConsultations.length}</p>
+                      </div>
+                      <div className="p-3 bg-orange-100 rounded-full">
+                        <Clock className="h-6 w-6 text-orange-600" />
+                      </div>
+                    </div>
                   </CardContent>
                 </Card>
               </div>
 
-              <div>
-                <EnhancedAvailabilityToggle />
+              {/* Main Content Grid */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Left Column - Recent Activity */}
+                <div className="lg:col-span-2 space-y-6">
+                  {/* Welcome Message */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center">
+                        <Brain className="h-5 w-5 mr-2" />
+                        Welcome, Dr. {doctorName}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-gray-600 mb-4">
+                        Welcome to the AI-powered telehealth platform. You can manage your availability, accept
+                        consultations, and provide urgent care to patients in need.
+                      </p>
+                      <div className="flex gap-3">
+                        <Button 
+                          onClick={() => setActiveTab('consultations')}
+                          className="flex-1"
+                        >
+                          <Stethoscope className="h-4 w-4 mr-2" />
+                          View Consultations
+                        </Button>
+                        <Button 
+                          onClick={() => setActiveTab('availability')}
+                          variant="outline"
+                          className="flex-1"
+                        >
+                          <Clock className="h-4 w-4 mr-2" />
+                          Manage Availability
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Recent Consultations */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center justify-between">
+                        <span className="flex items-center">
+                          <Activity className="h-5 w-5 mr-2" />
+                          Recent Activity
+                        </span>
+                        {pendingConsultations.length > 0 && (
+                          <Badge variant="destructive">{pendingConsultations.length} Pending</Badge>
+                        )}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      {pendingConsultations.length === 0 ? (
+                        <div className="text-center py-8 text-gray-500">
+                          <CheckCircle className="h-12 w-12 mx-auto mb-3 text-gray-300" />
+                          <p>No pending consultation requests</p>
+                          <p className="text-sm mt-1">New requests will appear here</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {pendingConsultations.slice(0, 3).map((consultation: any) => (
+                            <div key={consultation.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                              <div className="flex-1">
+                                <p className="font-medium">{consultation.patient_name || 'Patient'}</p>
+                                <p className="text-sm text-gray-600">
+                                  {consultation.reason || 'Consultation request'}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Requested by: {consultation.nurse_name || 'Nurse'}
+                                </p>
+                              </div>
+                              <Badge className={getUrgencyColor(consultation.urgency_level)}>
+                                {consultation.urgency_level || 'medium'}
+                              </Badge>
+                            </div>
+                          ))}
+                          {pendingConsultations.length > 3 && (
+                            <Button 
+                              variant="outline" 
+                              className="w-full"
+                              onClick={() => setActiveTab('consultations')}
+                            >
+                              View All {pendingConsultations.length} Requests
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Right Column - Availability & Quick Actions */}
+                <div className="space-y-6">
+                  {/* Availability Toggle */}
+                  <EnhancedAvailabilityToggle />
+
+                  {/* Today's Statistics */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base flex items-center">
+                        <Activity className="h-4 w-4 mr-2" />
+                        Today's Statistics
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Consultations */}
+                        <div className="flex flex-col items-center p-4 bg-blue-50 rounded-lg">
+                          <Stethoscope className="h-8 w-8 text-blue-600 mb-2" />
+                          <div className="text-3xl font-bold text-blue-600">{todayStats.consultations}</div>
+                          <div className="text-sm text-gray-600 mt-1">Consultations</div>
+                        </div>
+
+                        {/* Earnings */}
+                        <div className="flex flex-col items-center p-4 bg-green-50 rounded-lg">
+                          <DollarSign className="h-8 w-8 text-green-600 mb-2" />
+                          <div className="text-3xl font-bold text-green-600">${todayStats.earnings.toFixed(0)}</div>
+                          <div className="text-sm text-gray-600 mt-1">Earnings</div>
+                        </div>
+
+                        {/* Avg Response */}
+                        <div className="flex flex-col items-center p-4 bg-purple-50 rounded-lg">
+                          <Clock className="h-8 w-8 text-purple-600 mb-2" />
+                          <div className="text-3xl font-bold text-purple-600">
+                            {formatResponseTime(todayStats.avgResponseTime)}
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">Avg Response</div>
+                        </div>
+
+                        {/* Rating */}
+                        <div className="flex flex-col items-center p-4 bg-orange-50 rounded-lg">
+                          <Activity className="h-8 w-8 text-orange-600 mb-2" />
+                          <div className="text-3xl font-bold text-orange-600">
+                            {todayStats.avgRating > 0 ? todayStats.avgRating.toFixed(1) : '0.0'}
+                          </div>
+                          <div className="text-sm text-gray-600 mt-1">Rating</div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* AI Performance Insights */}
+                  <AIDashboardAnalytics doctorId={doctorId} stats={todayStats} />
+
+                  {/* Quick Stats */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Quick Stats</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Total Consultations</span>
+                        <span className="font-bold">{todayStats.consultations}</span>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Pending Requests</span>
+                        <Badge variant={pendingConsultations.length > 0 ? "destructive" : "secondary"}>
+                          {pendingConsultations.length}
+                        </Badge>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Today's Earnings</span>
+                        <span className="font-bold text-green-600">${todayStats.earnings.toFixed(2)}</span>
+                      </div>
+                      <Separator />
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-gray-600">Average Rating</span>
+                        <span className="font-bold text-purple-600">
+                          {todayStats.avgRating > 0 ? `${todayStats.avgRating.toFixed(1)} ⭐` : 'N/A'}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Quick Actions */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Quick Actions</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <Button 
+                        variant="outline" 
+                        className="w-full justify-start"
+                        onClick={() => setActiveTab('consultations')}
+                      >
+                        <Stethoscope className="h-4 w-4 mr-2" />
+                        View All Consultations
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        className="w-full justify-start"
+                        onClick={() => setActiveTab('availability')}
+                      >
+                        <Clock className="h-4 w-4 mr-2" />
+                        Update Availability
+                      </Button>
+                      <Button 
+                        variant="outline" 
+                        className="w-full justify-start"
+                        onClick={handleLogout}
+                      >
+                        <User className="h-4 w-4 mr-2" />
+                        Logout
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
             </div>
           </TabsContent>
@@ -637,6 +1044,18 @@ export default function DoctorPortalPage() {
             />
           </DialogContent>
         </Dialog>
+      )}
+
+      {/* Rating Dialog */}
+      {completedConsultation && (
+        <RatingDialog
+          open={showRatingDialog}
+          onOpenChange={setShowRatingDialog}
+          consultationId={completedConsultation.id}
+          doctorName={doctorName}
+          ratedBy="doctor"
+          onRatingSubmitted={handleRatingSubmitted}
+        />
       )}
     </div>
   )

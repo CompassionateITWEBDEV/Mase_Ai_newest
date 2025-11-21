@@ -213,9 +213,27 @@ export async function PATCH(request: NextRequest) {
         break
 
       case 'rate':
-        updateData = {
-          rating,
-          feedback
+        const { ratedBy } = body // 'doctor' or 'nurse'
+        
+        if (!ratedBy || !['doctor', 'nurse'].includes(ratedBy)) {
+          return NextResponse.json(
+            { error: 'ratedBy must be either "doctor" or "nurse"' },
+            { status: 400 }
+          )
+        }
+        
+        // Store rating in appropriate column
+        if (ratedBy === 'doctor') {
+          updateData = {
+            doctor_rating: rating,
+            doctor_feedback: feedback,
+            rating // Keep for backward compatibility
+          }
+        } else {
+          updateData = {
+            nurse_rating: rating,
+            nurse_feedback: feedback
+          }
         }
         break
 

@@ -213,20 +213,20 @@ export async function POST(request: NextRequest) {
         let errorMessage = 'Doctor account is inactive. Please contact support.'
         
         if (accountStatus === 'pending') {
-          errorMessage = 'Your account is pending admin activation. You will receive notification once approved.'
+          errorMessage = '⏳ Your account is pending admin activation.\n\nYou will receive a notification once your account has been approved.\n\nPlease check back later or contact the administrator if you have questions.'
         } else if (accountStatus === 'inactive') {
-          errorMessage = 'Your account has not been activated yet. Please contact admin for assistance.'
+          errorMessage = '🔒 Your account has not been activated yet.\n\nPlease contact the administrator to activate your account.\n\nOnce activated, you will be able to login and access the doctor portal.'
         } else if (accountStatus === 'suspended') {
-          errorMessage = 'Your account has been suspended. Please contact support immediately.'
+          errorMessage = '⛔ Your account has been suspended.\n\nPlease contact support immediately for assistance.\n\nEmail: support@example.com'
         }
         
-        console.log(`❌ [DOCTOR LOGIN] Account inactive - Status: ${verificationStatus}`)
+        console.log(`❌ [DOCTOR LOGIN] Account inactive - Status: ${accountStatus}`)
         
         return NextResponse.json(
           { 
             error: errorMessage,
             status: 'inactive',
-            verificationStatus: verificationStatus
+            accountStatus: accountStatus
           },
           { status: 403 }
         )

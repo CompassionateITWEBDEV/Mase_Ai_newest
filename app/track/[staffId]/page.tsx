@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast"
 import TrackMapView from "@/components/track-map-view"
 import { ConsultationRequestDialog } from "@/components/telehealth/ConsultationRequestDialog"
 import { PeerJSVideoCall } from "@/components/telehealth/PeerJSVideoCall"
+import { RatingDialog } from "@/components/telehealth/RatingDialog"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 
@@ -62,6 +63,8 @@ export default function StaffTrackingPage() {
   const [showVideoCall, setShowVideoCall] = useState(false)
   const [videoSession, setVideoSession] = useState<any>(null)
   const [staffName, setStaffName] = useState<string>('')
+  const [showRatingDialog, setShowRatingDialog] = useState(false)
+  const [completedConsultation, setCompletedConsultation] = useState<any>(null)
   
   // Update visit duration in real-time
   useEffect(() => {
@@ -1393,6 +1396,14 @@ export default function StaffTrackingPage() {
           action: 'complete'
         })
       })
+
+      // Store consultation for rating
+      setCompletedConsultation(activeConsultation)
+      
+      // Show rating dialog after a short delay
+      setTimeout(() => {
+        setShowRatingDialog(true)
+      }, 1000)
     }
     
     setActiveConsultation(null)
@@ -1401,6 +1412,16 @@ export default function StaffTrackingPage() {
     toast({
       title: "Consultation Ended",
       description: "Video call has been completed",
+    })
+  }
+
+  const handleNurseRatingSubmitted = () => {
+    // Clear completed consultation
+    setCompletedConsultation(null)
+    
+    toast({
+      title: "Thank You!",
+      description: "Your rating helps improve our service.",
     })
   }
 
@@ -2419,6 +2440,18 @@ export default function StaffTrackingPage() {
           />
         </DialogContent>
       </Dialog>
+    )}
+
+    {/* Rating Dialog for Nurse */}
+    {completedConsultation && (
+      <RatingDialog
+        open={showRatingDialog}
+        onOpenChange={setShowRatingDialog}
+        consultationId={completedConsultation.id}
+        doctorName={completedConsultation.doctor_name || 'Doctor'}
+        ratedBy="nurse"
+        onRatingSubmitted={handleNurseRatingSubmitted}
+      />
     )}
     </>
   )

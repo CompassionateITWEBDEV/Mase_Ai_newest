@@ -5,16 +5,13 @@ import { Switch } from "@/components/ui/switch"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Clock, Users, Activity, BarChart3, DollarSign, Star, Loader2 } from "lucide-react"
+import { Clock, Activity, Loader2 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
 export function EnhancedAvailabilityToggle() {
   const { toast } = useToast()
   const [isAvailable, setIsAvailable] = useState(false)
   const [availabilityMode, setAvailabilityMode] = useState("immediate")
-  const [sessionCount, setSessionCount] = useState(0)
-  const [totalEarnings, setTotalEarnings] = useState(0)
-  const [averageRating, setAverageRating] = useState(4.8)
   const [doctorId, setDoctorId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
@@ -214,40 +211,6 @@ export function EnhancedAvailabilityToggle() {
               </div>
             </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Statistics Card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <BarChart3 className="h-5 w-5 mr-2" />
-            Today's Statistics
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="text-center p-3 bg-blue-50 rounded-lg">
-              <Users className="h-6 w-6 text-blue-600 mx-auto mb-1" />
-              <div className="text-2xl font-bold text-blue-600">{sessionCount}</div>
-              <div className="text-sm text-gray-600">Consultations</div>
-            </div>
-            <div className="text-center p-3 bg-green-50 rounded-lg">
-              <DollarSign className="h-6 w-6 text-green-600 mx-auto mb-1" />
-              <div className="text-2xl font-bold text-green-600">${totalEarnings}</div>
-              <div className="text-sm text-gray-600">Earnings</div>
-            </div>
-            <div className="text-center p-3 bg-purple-50 rounded-lg">
-              <Clock className="h-6 w-6 text-purple-600 mx-auto mb-1" />
-              <div className="text-2xl font-bold text-purple-600">2.3m</div>
-              <div className="text-sm text-gray-600">Avg Response</div>
-            </div>
-            <div className="text-center p-3 bg-orange-50 rounded-lg">
-              <Star className="h-6 w-6 text-orange-600 mx-auto mb-1" />
-              <div className="text-2xl font-bold text-orange-600">{averageRating}</div>
-              <div className="text-sm text-gray-600">Rating</div>
-            </div>
-          </div>
         </CardContent>
       </Card>
     </div>
