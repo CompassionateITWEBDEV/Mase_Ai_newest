@@ -11,6 +11,8 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { UserPlus, Shield, CheckCircle } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
+import { useRouter } from "next/navigation"
 
 export function EnhancedDoctorSignup() {
   const [formData, setFormData] = useState({
@@ -25,14 +27,18 @@ export function EnhancedDoctorSignup() {
     specialty: "",
     licenseNumber: "",
     licenseState: "",
+    licenseExpiration: "",
     yearsExperience: "",
     bio: "",
+    hourlyRate: "125.00",
     agreeToTerms: false,
     agreeToHIPAA: false,
   })
 
   const [step, setStep] = useState(1)
   const [isLoading, setIsLoading] = useState(false)
+  const { toast } = useToast()
+  const router = useRouter()
 
   const handleInputChange = (field: string, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -40,13 +46,122 @@ export function EnhancedDoctorSignup() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    console.log('🏥 [FRONTEND] Starting doctor registration...')
+    
+    // Validation
+    if (formData.password !== formData.confirmPassword) {
+      console.log('❌ [FRONTEND] Validation failed: Password mismatch')
+      toast({
+        title: "❌ Password Mismatch",
+        description: "Passwords do not match. Please try again.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (formData.password.length < 6) {
+      console.log('❌ [FRONTEND] Validation failed: Password too short')
+      toast({
+        title: "❌ Weak Password",
+        description: "Password must be at least 6 characters long.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!/^\d{10}$/.test(formData.npi)) {
+      console.log('❌ [FRONTEND] Validation failed: Invalid NPI format')
+      toast({
+        title: "❌ Invalid NPI",
+        description: "NPI must be exactly 10 digits.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    console.log('✅ [FRONTEND] All validations passed')
     setIsLoading(true)
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 2000))
+    try {
+      console.log('📤 [FRONTEND] Sending registration request to API...')
+      console.log('📋 [FRONTEND] Registration data:', {
+        firstName: formData.firstName,
+        lastName: formData.lastName,
+        email: formData.email,
+        npi: formData.npi,
+        specialty: formData.specialty,
+        licenseState: formData.licenseState,
+      })
 
-    setIsLoading(false)
-    alert("Doctor registration submitted for review!")
+      const response = await fetch('/api/auth/register-doctor', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
+          password: formData.password,
+          npi: formData.npi,
+          dea: formData.dea,
+          specialty: formData.specialty,
+          licenseNumber: formData.licenseNumber,
+          licenseState: formData.licenseState,
+          licenseExpiration: formData.licenseExpiration,
+          yearsExperience: formData.yearsExperience,
+          bio: formData.bio,
+          hourlyRate: formData.hourlyRate,
+        }),
+      })
+
+      console.log('📥 [FRONTEND] Received response:', response.status, response.statusText)
+      const data = await response.json()
+      console.log('📦 [FRONTEND] Response data:', data)
+
+      if (!response.ok) {
+        console.error('❌ [FRONTEND] Registration failed:', data.error)
+        throw new Error(data.error || 'Registration failed')
+      }
+
+      console.log('✅ [FRONTEND] Registration successful!')
+      console.log('🎉 [FRONTEND] Doctor created:', data.doctor)
+
+      toast({
+        title: "✅ Registration Successful!",
+        description: data.message || "Your account has been created and is pending admin verification.",
+        duration: 7000,
+      })
+
+      // Show success alert
+      alert(`🎉 REGISTRATION SUCCESSFUL!\n\nDoctor Account Created:\n\nName: ${data.doctor.name}\nEmail: ${data.doctor.email}\nNPI: ${data.doctor.npi}\nSpecialty: ${data.doctor.specialty}\n\n⚠️ IMPORTANT:\nYour account is pending admin verification.\nYou will be notified once approved and able to login.\n\nYou will be redirected to the login page in 3 seconds.`)
+
+      // Redirect to doctor portal login after 3 seconds
+      setTimeout(() => {
+        console.log('🔄 [FRONTEND] Redirecting to doctor portal...')
+        router.push('/doctor-portal')
+      }, 3000)
+
+    } catch (error: any) {
+      console.error('❌ [FRONTEND] Registration error:', error)
+      console.error('❌ [FRONTEND] Error details:', {
+        message: error.message,
+        stack: error.stack,
+      })
+      
+      toast({
+        title: "❌ Registration Failed",
+        description: error.message || "An error occurred during registration. Please try again.",
+        variant: "destructive",
+        duration: 7000,
+      })
+
+      // Show error alert
+      alert(`❌ REGISTRATION FAILED\n\nError: ${error.message}\n\nPlease check the console for more details and try again.`)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const nextStep = () => setStep((prev) => Math.min(prev + 1, 3))
@@ -223,6 +338,7 @@ export function EnhancedDoctorSignup() {
                       <SelectItem value="AZ">Arizona</SelectItem>
                       <SelectItem value="CA">California</SelectItem>
                       <SelectItem value="FL">Florida</SelectItem>
+                      <SelectItem value="MI">Michigan</SelectItem>
                       <SelectItem value="TX">Texas</SelectItem>
                       <SelectItem value="NY">New York</SelectItem>
                     </SelectContent>
@@ -231,15 +347,44 @@ export function EnhancedDoctorSignup() {
               </div>
 
               <div>
-                <Label htmlFor="yearsExperience">Years of Experience *</Label>
+                <Label htmlFor="licenseExpiration">License Expiration Date *</Label>
                 <Input
-                  type="number"
-                  id="yearsExperience"
-                  value={formData.yearsExperience}
-                  onChange={(e) => handleInputChange("yearsExperience", e.target.value)}
-                  min="0"
+                  type="date"
+                  id="licenseExpiration"
+                  value={formData.licenseExpiration}
+                  onChange={(e) => handleInputChange("licenseExpiration", e.target.value)}
                   required
+                  min={new Date().toISOString().split('T')[0]}
                 />
+                <p className="text-xs text-gray-500 mt-1">
+                  Enter the expiration date of your medical license
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="yearsExperience">Years of Experience *</Label>
+                  <Input
+                    type="number"
+                    id="yearsExperience"
+                    value={formData.yearsExperience}
+                    onChange={(e) => handleInputChange("yearsExperience", e.target.value)}
+                    min="0"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="hourlyRate">Hourly Rate ($) *</Label>
+                  <Input
+                    type="number"
+                    id="hourlyRate"
+                    value={formData.hourlyRate}
+                    onChange={(e) => handleInputChange("hourlyRate", e.target.value)}
+                    min="0"
+                    step="0.01"
+                    required
+                  />
+                </div>
               </div>
 
               <div>

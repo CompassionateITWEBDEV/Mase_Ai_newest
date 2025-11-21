@@ -217,3 +217,4 @@ The ExtendedCare integration is fully configured and ready to use. Just complete
 
 Happy integrating! 🚀
 
+

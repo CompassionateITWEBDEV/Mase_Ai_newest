@@ -54,6 +54,7 @@ import {
   Navigation,
   FileCheck,
   Brain,
+  Dumbbell,
 } from "lucide-react"
 
 interface NavigationItem {
@@ -127,6 +128,12 @@ const navigationSections: NavigationSection[] = [
         href: "/patient-portal",
         icon: Stethoscope,
         description: "Patient self-service portal",
+      },
+      {
+        name: "PT Management",
+        href: "/pt-management",
+        icon: Dumbbell,
+        description: "Physical therapy exercise management",
       },
       {
         name: "Care Team Management",

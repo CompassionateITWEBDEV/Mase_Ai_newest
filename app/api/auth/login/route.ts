@@ -179,6 +179,82 @@ export async function POST(request: NextRequest) {
         },
         redirectTo: '/staff-dashboard',
       })
+    } else if (accountType === 'doctor') {
+      // Check physicians table for doctor login
+      let doctorQuery = supabase
+        .from('physicians')
+        .select('*')
+
+      if (useFallbackAuth) {
+        // Fallback: match by email and password_hash
+        doctorQuery = doctorQuery.eq('email', email).eq('password_hash', password)
+      } else if (userId) {
+        // Try auth_user_id linking
+        doctorQuery = doctorQuery.eq('auth_user_id', userId)
+      } else {
+        // As a last resort, try by email only
+        doctorQuery = doctorQuery.eq('email', email)
+      }
+
+      const { data, error } = await doctorQuery.single()
+
+      if (error || !data) {
+        console.error('Doctor profile not found:', error)
+        return NextResponse.json(
+          { error: 'Invalid email or password' },
+          { status: 401 }
+        )
+      }
+
+      // Check if doctor account is active (support both new and old column)
+      const accountStatus = data.account_status || (data.is_active ? 'active' : 'inactive')
+      if (accountStatus !== 'active') {
+        // Provide helpful message based on account status
+        let errorMessage = 'Doctor account is inactive. Please contact support.'
+        
+        if (accountStatus === 'pending') {
+          errorMessage = 'Your account is pending admin activation. You will receive notification once approved.'
+        } else if (accountStatus === 'inactive') {
+          errorMessage = 'Your account has not been activated yet. Please contact admin for assistance.'
+        } else if (accountStatus === 'suspended') {
+          errorMessage = 'Your account has been suspended. Please contact support immediately.'
+        }
+        
+        console.log(`❌ [DOCTOR LOGIN] Account inactive - Status: ${verificationStatus}`)
+        
+        return NextResponse.json(
+          { 
+            error: errorMessage,
+            status: 'inactive',
+            verificationStatus: verificationStatus
+          },
+          { status: 403 }
+        )
+      }
+
+      // Update last login
+      await supabase
+        .from('physicians')
+        .update({ last_login: new Date().toISOString() })
+        .eq('id', data.id)
+
+      return NextResponse.json({
+        success: true,
+        message: 'Login successful!',
+        user: {
+          id: data.id,
+          email: data.email,
+          name: `Dr. ${data.first_name} ${data.last_name}`,
+          firstName: data.first_name,
+          lastName: data.last_name,
+          npi: data.npi,
+          specialty: data.specialty,
+          isAvailable: data.is_available,
+          telehealthEnabled: data.telehealth_enabled,
+          accountType: 'doctor',
+        },
+        redirectTo: '/doctor-portal',
+      })
     }
 
     return NextResponse.json(

@@ -38,12 +38,14 @@ interface Physician {
   npi: string
   firstName: string
   lastName: string
+  email?: string
   specialty: string
   licenseNumber: string
   licenseState: string
   licenseExpiration: string
   caqhId?: string
   verificationStatus: "verified" | "pending" | "expired" | "error" | "not_verified"
+  accountStatus: "active" | "inactive" | "pending" | "suspended"
   lastVerified: string
   boardCertification?: string
   boardExpiration?: string
@@ -81,6 +83,7 @@ export default function PhysiciansPage() {
   const [isAddPhysicianOpen, setIsAddPhysicianOpen] = useState(false)
   const [isVerificationOpen, setIsVerificationOpen] = useState(false)
   const [isViewDetailsOpen, setIsViewDetailsOpen] = useState(false)
+  const [isCredentialsModalOpen, setIsCredentialsModalOpen] = useState(false)
   const [selectedPhysician, setSelectedPhysician] = useState<Physician | null>(null)
   const [verificationResults, setVerificationResults] = useState<VerificationResult | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
@@ -88,6 +91,12 @@ export default function PhysiciansPage() {
   const [isVerifying, setIsVerifying] = useState<Set<string>>(new Set())
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [credentialsForm, setCredentialsForm] = useState({
+    email: "",
+    password: "",
+    confirmPassword: "",
+  })
+  const [isAddingCredentials, setIsAddingCredentials] = useState(false)
 
   const [newPhysician, setNewPhysician] = useState({
     npi: "",
@@ -121,12 +130,15 @@ export default function PhysiciansPage() {
         npi: p.npi,
         firstName: p.first_name,
         lastName: p.last_name,
+        email: p.email || null,
         specialty: p.specialty || "",
         licenseNumber: p.license_number || "",
         licenseState: p.license_state || "",
         licenseExpiration: p.license_expiration || "",
         caqhId: p.caqh_id,
         verificationStatus: p.verification_status,
+        // Support both new (account_status) and old (is_active) columns
+        accountStatus: p.account_status || (p.is_active ? 'active' : 'inactive'),
         lastVerified: p.last_verified || "Never",
         boardCertification: p.board_certification,
         boardExpiration: p.board_expiration,
@@ -294,6 +306,25 @@ export default function PhysiciansPage() {
         )
       }
 
+      // Step 4: If verification successful, activate doctor account for login
+      if (result.status === "verified") {
+        console.log('✅ Activating doctor account after successful verification...')
+        const activateResponse = await fetch(`/api/physicians/${physicianId}/verify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ activate: true }),
+        })
+
+        if (activateResponse.ok) {
+          console.log('✅ Doctor account activated successfully!')
+          // Show success message
+          alert('✅ Doctor verified and activated! They can now login to the doctor portal.')
+        } else {
+          console.error('❌ Failed to activate doctor account')
+          alert('⚠️ Verification successful but failed to activate account. Please try again.')
+        }
+      }
+
       setVerificationResults(result)
       setSelectedPhysician(physicians.find((p) => p.id === physicianId) || null)
       setIsVerificationOpen(true)
@@ -392,6 +423,97 @@ export default function PhysiciansPage() {
     } catch (err) {
       console.error("Error adding physician:", err)
       setError(err instanceof Error ? err.message : "Failed to add physician")
+    }
+  }
+
+  const handleActivateClick = async (physician: Physician) => {
+    console.log('🔍 Checking physician credentials:', physician.id)
+    console.log('📧 Email value:', physician.email)
+    
+    // Check if physician has email
+    const hasEmail = physician.email && physician.email.trim() !== ''
+    
+    if (!hasEmail) {
+      // Missing credentials - show modal
+      console.log('❌ No email found, showing credentials modal')
+      setSelectedPhysician(physician)
+      setCredentialsForm({ email: "", password: "", confirmPassword: "" })
+      setIsCredentialsModalOpen(true)
+    } else {
+      // Has credentials - activate directly
+      console.log('✅ Has email:', physician.email, '- activating directly')
+      if (confirm(`Activate account for Dr. ${physician.firstName} ${physician.lastName}? They will be able to login to the doctor portal.`)) {
+        try {
+          const response = await fetch(`/api/physicians/${physician.id}/activate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+          })
+          
+          if (response.ok) {
+            alert('✅ Doctor account activated successfully!')
+            fetchPhysicians()
+          } else {
+            const error = await response.json()
+            alert('❌ Failed to activate account: ' + error.error)
+          }
+        } catch (error) {
+          console.error('Activation error:', error)
+          alert('❌ Error activating account')
+        }
+      }
+    }
+  }
+
+  const handleAddCredentialsAndActivate = async () => {
+    // Validate
+    if (!credentialsForm.email || !credentialsForm.password) {
+      alert('❌ Please fill in all fields')
+      return
+    }
+    
+    if (credentialsForm.password !== credentialsForm.confirmPassword) {
+      alert('❌ Passwords do not match')
+      return
+    }
+    
+    if (credentialsForm.password.length < 6) {
+      alert('❌ Password must be at least 6 characters')
+      return
+    }
+    
+    if (!selectedPhysician) return
+    
+    setIsAddingCredentials(true)
+    
+    try {
+      console.log('📧 Adding credentials for:', selectedPhysician.id)
+      const response = await fetch(`/api/physicians/${selectedPhysician.id}/add-credentials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: credentialsForm.email,
+          password: credentialsForm.password,
+          activate: true
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        console.log('✅ Credentials added successfully')
+        alert(`✅ ${data.message}\n\nEmail: ${credentialsForm.email}\nPassword: ${credentialsForm.password}\n\nPlease inform the doctor of their login credentials.`)
+        setIsCredentialsModalOpen(false)
+        setCredentialsForm({ email: "", password: "", confirmPassword: "" })
+        fetchPhysicians()
+      } else {
+        console.error('❌ Error:', data.error)
+        alert('❌ Error: ' + data.error)
+      }
+    } catch (error) {
+      console.error('❌ Failed to add credentials:', error)
+      alert('❌ Failed to add credentials. Please try again.')
+    } finally {
+      setIsAddingCredentials(false)
     }
   }
 
@@ -731,7 +853,8 @@ export default function PhysiciansPage() {
                   <TableHead>NPI</TableHead>
                   <TableHead>License</TableHead>
                   <TableHead>Specialty</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Verification</TableHead>
+                  <TableHead>Account Status</TableHead>
                   <TableHead>License Expiration</TableHead>
                   <TableHead>Last Verified</TableHead>
                   <TableHead>Actions</TableHead>
@@ -760,6 +883,29 @@ export default function PhysiciansPage() {
                       <TableCell>{physician.specialty}</TableCell>
                       <TableCell>{getStatusBadge(physician.verificationStatus)}</TableCell>
                       <TableCell>
+                        {physician.accountStatus === 'active' ? (
+                          <Badge className="bg-green-100 text-green-800">
+                            <CheckCircle className="h-3 w-3 mr-1" />
+                            Active
+                          </Badge>
+                        ) : physician.accountStatus === 'pending' ? (
+                          <Badge className="bg-yellow-100 text-yellow-800">
+                            <Clock className="h-3 w-3 mr-1" />
+                            Pending
+                          </Badge>
+                        ) : physician.accountStatus === 'suspended' ? (
+                          <Badge variant="destructive">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Suspended
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">
+                            <Clock className="h-3 w-3 mr-1" />
+                            Inactive
+                          </Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>
                         <div className={licenseStatus.color}>
                           <div className="font-medium">{physician.licenseExpiration}</div>
                           <div className="text-sm">
@@ -779,12 +925,27 @@ export default function PhysiciansPage() {
                             variant="outline"
                             onClick={() => verifyPhysician(physician.id)}
                             disabled={isVerifying.has(physician.id)}
+                            title="Verify credentials via CAQH"
                           >
                             {isVerifying.has(physician.id) ? (
                               <RefreshCw className="h-4 w-4 animate-spin" />
                             ) : (
                               <UserCheck className="h-4 w-4" />
                             )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={physician.accountStatus === 'active' ? "default" : physician.verificationStatus === "verified" ? "default" : "secondary"}
+                            onClick={() => handleActivateClick(physician)}
+                            disabled={physician.accountStatus === 'active'}
+                            title={
+                              physician.accountStatus === 'active' ? "Account already active" :
+                              physician.accountStatus === 'suspended' ? "Account is suspended" :
+                              "Activate doctor account for login"
+                            }
+                            className={physician.accountStatus === 'active' ? "opacity-50 cursor-not-allowed" : ""}
+                          >
+                            <CheckCircle className="h-4 w-4" />
                           </Button>
                           <Button 
                             size="sm" 
@@ -915,6 +1076,116 @@ export default function PhysiciansPage() {
                 <div className="text-sm text-gray-600">Last Updated: {verificationResults.lastUpdated}</div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Credentials Modal */}
+        <Dialog open={isCredentialsModalOpen} onOpenChange={setIsCredentialsModalOpen}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center">
+                <AlertCircle className="h-5 w-5 mr-2 text-blue-500" />
+                Complete Doctor Registration
+              </DialogTitle>
+              <DialogDescription>
+                This doctor profile is missing login credentials. Add email and password to activate the account.
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedPhysician && (
+              <div className="space-y-4">
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="font-semibold text-lg">
+                    Dr. {selectedPhysician.firstName} {selectedPhysician.lastName}
+                  </p>
+                  <p className="text-sm text-gray-600 mt-1">
+                    NPI: {selectedPhysician.npi}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Specialty: {selectedPhysician.specialty}
+                  </p>
+                </div>
+                
+                <div>
+                  <Label htmlFor="cred-email">Email Address *</Label>
+                  <Input 
+                    id="cred-email"
+                    type="email"
+                    value={credentialsForm.email}
+                    onChange={(e) => setCredentialsForm({...credentialsForm, email: e.target.value})}
+                    placeholder="doctor@example.com"
+                    className="mt-1"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    This will be used for doctor portal login
+                  </p>
+                </div>
+                
+                <div>
+                  <Label htmlFor="cred-password">Password *</Label>
+                  <Input 
+                    id="cred-password"
+                    type="password"
+                    value={credentialsForm.password}
+                    onChange={(e) => setCredentialsForm({...credentialsForm, password: e.target.value})}
+                    placeholder="Minimum 6 characters"
+                    className="mt-1"
+                  />
+                </div>
+                
+                <div>
+                  <Label htmlFor="cred-confirm">Confirm Password *</Label>
+                  <Input 
+                    id="cred-confirm"
+                    type="password"
+                    value={credentialsForm.confirmPassword}
+                    onChange={(e) => setCredentialsForm({...credentialsForm, confirmPassword: e.target.value})}
+                    placeholder="Re-enter password"
+                    className="mt-1"
+                  />
+                </div>
+                
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                  <div className="flex items-start space-x-2">
+                    <AlertCircle className="h-4 w-4 text-yellow-600 mt-0.5" />
+                    <div className="text-sm text-yellow-800">
+                      <p className="font-medium">Important:</p>
+                      <p className="mt-1">These credentials will allow the doctor to login to the portal. Please inform the doctor of their login details.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-end space-x-2 mt-4">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setIsCredentialsModalOpen(false)
+                  setCredentialsForm({ email: "", password: "", confirmPassword: "" })
+                }}
+                disabled={isAddingCredentials}
+              >
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleAddCredentialsAndActivate}
+                disabled={isAddingCredentials}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {isAddingCredentials ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Adding...
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Add Credentials & Activate
+                  </>
+                )}
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
 

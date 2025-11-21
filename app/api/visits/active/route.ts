@@ -45,6 +45,8 @@ export async function GET(request: NextRequest) {
         success: true,
         visit: {
           id: activeVisit.id,
+          patient_id: activeVisit.patient_id,
+          patient_name: activeVisit.patient_name,
           patientName: activeVisit.patient_name,
           patientAddress: activeVisit.patient_address,
           visitType: activeVisit.visit_type,

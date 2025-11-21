@@ -240,6 +240,8 @@ export async function POST(request: NextRequest) {
         addressValidated: addressValidated,
         visit: {
           id: visit.id,
+          patient_id: visit.patient_id,
+          patient_name: visit.patient_name,
           patientName: visit.patient_name,
           patientAddress: visit.patient_address,
           startTime: visit.start_time,
@@ -279,6 +281,8 @@ export async function POST(request: NextRequest) {
       addressValidated: addressValidated,
       visit: {
         id: visit.id,
+        patient_id: visit.patient_id,
+        patient_name: visit.patient_name,
         patientName: visit.patient_name,
         patientAddress: visit.patient_address,
         startTime: visit.start_time,

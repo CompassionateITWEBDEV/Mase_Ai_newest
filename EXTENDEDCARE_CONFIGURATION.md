@@ -275,3 +275,4 @@ The `scripts/configure-extendedcare.js` script:
 **Environment**: Production  
 **Credentials**: Securely stored and encrypted
 
+

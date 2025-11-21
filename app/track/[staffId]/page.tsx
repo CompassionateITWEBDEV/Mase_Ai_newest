@@ -9,10 +9,14 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { MapPin, Navigation, Play, Square, Clock, Users, CheckCircle, AlertCircle, Loader2, DollarSign, Route, XCircle, Gauge, Compass, Activity, Zap, Calendar } from "lucide-react"
+import { MapPin, Navigation, Play, Square, Clock, Users, CheckCircle, AlertCircle, Loader2, DollarSign, Route, XCircle, Gauge, Compass, Activity, Zap, Calendar, Stethoscope, Video } from "lucide-react"
 import { useParams } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
 import TrackMapView from "@/components/track-map-view"
+import { ConsultationRequestDialog } from "@/components/telehealth/ConsultationRequestDialog"
+import { PeerJSVideoCall } from "@/components/telehealth/PeerJSVideoCall"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 
 // Helper function to calculate distance between two coordinates (in miles)
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -51,6 +55,14 @@ export default function StaffTrackingPage() {
   const [visitDuration, setVisitDuration] = useState<number>(0) // Current visit duration in minutes
   const { toast } = useToast()
   
+  // Telehealth consultation states
+  const [showConsultDialog, setShowConsultDialog] = useState(false)
+  const [activeConsultation, setActiveConsultation] = useState<any>(null)
+  const [activeConsultationId, setActiveConsultationId] = useState<string>('')
+  const [showVideoCall, setShowVideoCall] = useState(false)
+  const [videoSession, setVideoSession] = useState<any>(null)
+  const [staffName, setStaffName] = useState<string>('')
+  
   // Update visit duration in real-time
   useEffect(() => {
     if (!currentVisit || !currentVisit.startTime) {
@@ -75,9 +87,9 @@ export default function StaffTrackingPage() {
     return () => clearInterval(interval)
   }, [currentVisit])
 
-  // Fetch staff cost per mile
+  // Fetch staff cost per mile and name
   useEffect(() => {
-    const fetchStaffCostPerMile = async () => {
+    const fetchStaffData = async () => {
       if (!staffId) return
 
       try {
@@ -86,13 +98,27 @@ export default function StaffTrackingPage() {
         if (data.success && data.costPerMile) {
           setStaffCostPerMile(data.costPerMile)
         }
+        
+        // Fetch staff name
+        const staffRes = await fetch(`/api/staff?id=${staffId}`)
+        const staffData = await staffRes.json()
+        console.log('✅ [TRACK] Staff data loaded:', staffData)
+        if (staffData.success && staffData.staff) {
+          console.log('✅ [TRACK] Setting staff name:', staffData.staff.name)
+          setStaffName(staffData.staff.name || 'Nurse')
+        } else {
+          console.warn('⚠️ [TRACK] Staff data not found or incomplete:', staffData)
+          console.warn('⚠️ [TRACK] Staff ID:', staffId)
+          setStaffName('Nurse')
+        }
       } catch (e) {
-        console.error('Error fetching staff cost per mile:', e)
-        // Use default 0.67 if fetch fails
+        console.error('❌ [TRACK] Error fetching staff data:', e)
+        // Use defaults if fetch fails
+        setStaffName('Nurse')
       }
     }
 
-    fetchStaffCostPerMile()
+    fetchStaffData()
   }, [staffId])
 
   // Check for active trip and visit on mount
@@ -117,6 +143,7 @@ export default function StaffTrackingPage() {
           const visitData = await visitRes.json()
           
           if (visitData.success && visitData.visit) {
+            console.log('✅ [TRACK] Active visit loaded:', visitData.visit)
             setCurrentVisit(visitData.visit)
           }
           
@@ -1224,6 +1251,7 @@ export default function StaffTrackingPage() {
 
       const data = await res.json()
       if (data.success) {
+        console.log('✅ [VISIT START] Visit started, data received:', data.visit)
         setCurrentVisit(data.visit)
         setSelectedAppointment(null) // Clear selection after starting visit
         // Refresh scheduled appointments list
@@ -1285,6 +1313,7 @@ export default function StaffTrackingPage() {
 
       const data = await res.json()
       if (data.success) {
+        console.log('✅ [MANUAL VISIT] Visit started, data received:', data.visit)
         setCurrentVisit(data.visit)
         setVisitForm({ patientName: '', patientAddress: '', visitType: 'Wound Care' })
         // Clear last trip duration after using it for visit
@@ -1307,6 +1336,72 @@ export default function StaffTrackingPage() {
         variant: "destructive"
       })
     }
+  }
+
+  // Telehealth consultation handlers
+  const handleConsultationCreated = async (consultationId: string) => {
+    console.log('🩺 [NURSE] Consultation created:', consultationId)
+    setActiveConsultationId(consultationId)
+    setActiveConsultation({ id: consultationId, status: 'pending' })
+    
+    // Poll for doctor acceptance
+    console.log('🔄 [NURSE] Starting to poll for doctor acceptance...')
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/telehealth/consultation?status=accepted&nurseId=${staffId}`)
+        const data = await response.json()
+        
+        if (data.success && data.consultations.length > 0) {
+          const accepted = data.consultations.find((c: any) => c.id === consultationId && c.status === 'accepted')
+          
+          if (accepted) {
+            console.log('✅ [NURSE] Doctor accepted consultation!', accepted)
+            clearInterval(pollInterval)
+            setActiveConsultation(accepted)
+            
+            // With PeerJS, no need to fetch session
+            // Just open the video call and PeerJS will connect
+            console.log('🎥 [NURSE] Starting PeerJS video call...')
+            setShowVideoCall(true)
+            
+            toast({
+              title: "Doctor Accepted!",
+              description: `Dr. ${accepted.doctor_name} has joined the consultation`,
+            })
+          }
+        }
+      } catch (error) {
+        console.error('❌ [NURSE] Poll error:', error)
+      }
+    }, 3000) // Poll every 3 seconds
+    
+    // Stop polling after 5 minutes
+    setTimeout(() => clearInterval(pollInterval), 300000)
+  }
+  
+  const handleVideoCallEnd = async () => {
+    setShowVideoCall(false)
+    setVideoSession(null)
+    
+    // Mark consultation as completed
+    if (activeConsultationId) {
+      await fetch('/api/telehealth/consultation', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          consultationId: activeConsultationId,
+          action: 'complete'
+        })
+      })
+    }
+    
+    setActiveConsultation(null)
+    setActiveConsultationId('')
+    
+    toast({
+      title: "Consultation Ended",
+      description: "Video call has been completed",
+    })
   }
 
   // End Visit
@@ -1425,6 +1520,7 @@ export default function StaffTrackingPage() {
   }
 
   return (
+    <>
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 pb-4 lg:pb-8 ml-0 lg:ml-0">
       {/* Enhanced Professional Header */}
       <div className="bg-white border-b border-gray-200 shadow-md sticky top-0 z-50 backdrop-blur-sm bg-white/95">
@@ -2161,6 +2257,38 @@ export default function StaffTrackingPage() {
                     />
                   </div>
                   
+                  {/* Emergency Doctor Consultation */}
+                  <Alert className="border-red-200 bg-red-50">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <AlertDescription>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="font-semibold text-red-900 mb-1">Need Immediate Doctor Consultation?</p>
+                          <p className="text-xs text-red-700">Request emergency video consultation with an available doctor</p>
+                        </div>
+                        <Button
+                          variant="destructive"
+                          size="lg"
+                          onClick={() => {
+                            console.log('🩺 [CONSULTATION] Opening dialog with data:', {
+                              currentVisit,
+                              staffName,
+                              staffId,
+                              patientId: currentVisit?.patient_id,
+                              patientName: currentVisit?.patient_name
+                            })
+                            setShowConsultDialog(true)
+                          }}
+                          disabled={!currentVisit || activeConsultation}
+                          className="ml-4"
+                        >
+                          <Stethoscope className="h-4 w-4 mr-2" />
+                          {activeConsultation ? 'Consultation Pending...' : 'Request Doctor'}
+                        </Button>
+                      </div>
+                    </AlertDescription>
+                  </Alert>
+                  
                   <div className="flex gap-3">
                     <Button 
                       className="flex-1 h-14 text-base font-bold bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-700 hover:via-teal-700 hover:to-cyan-700 shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-[1.02]" 
@@ -2262,5 +2390,36 @@ export default function StaffTrackingPage() {
         </div>
       </div>
     </div>
+    
+    {/* Consultation Request Dialog */}
+    {currentVisit && (
+      <ConsultationRequestDialog
+        open={showConsultDialog}
+        onOpenChange={setShowConsultDialog}
+        patientId={currentVisit.patient_id}
+        patientName={currentVisit.patient_name || 'Unknown Patient'}
+        nurseId={staffId}
+        nurseName={staffName || 'Nurse'}
+        onConsultationCreated={handleConsultationCreated}
+      />
+    )}
+    
+    {/* Video Call Interface */}
+    {showVideoCall && activeConsultationId && (
+      <Dialog open={showVideoCall} onOpenChange={(open) => !open && handleVideoCallEnd()}>
+        <DialogContent className="max-w-full h-screen p-0 m-0">
+          <VisuallyHidden>
+            <DialogTitle>Video Consultation</DialogTitle>
+          </VisuallyHidden>
+          <PeerJSVideoCall
+            consultationId={activeConsultationId}
+            participantName={staffName || 'Nurse'}
+            participantRole="nurse"
+            onCallEnd={handleVideoCallEnd}
+          />
+        </DialogContent>
+      </Dialog>
+    )}
+    </>
   )
 }
