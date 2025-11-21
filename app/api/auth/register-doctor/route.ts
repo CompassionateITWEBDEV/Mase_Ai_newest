@@ -10,6 +10,7 @@ export async function POST(request: NextRequest) {
       firstName,
       lastName,
       email,
+      phone,
       password,
       npi,
       dea,
@@ -119,6 +120,7 @@ export async function POST(request: NextRequest) {
       first_name: firstName,
       last_name: lastName,
       email: email.toLowerCase(),
+      phone: phone || null,
       password_hash: password, // TODO: Hash with bcrypt in production
       npi: npi,
       dea_number: dea || null,
