@@ -447,3 +447,4 @@ GET /api/integrations/extendedcare/config
 **Enjoy your working ExtendedCare integration!** 🎉
 
 
+

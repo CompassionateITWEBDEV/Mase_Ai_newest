@@ -40,6 +40,10 @@ export function EnhancedDoctorSignup() {
   const { toast } = useToast()
   const router = useRouter()
 
+  console.log('🎨 [FRONTEND] EnhancedDoctorSignup component loaded')
+  console.log('📍 [FRONTEND] Current step:', step)
+  console.log('⏳ [FRONTEND] Loading state:', isLoading)
+
   const handleInputChange = (field: string, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
@@ -48,6 +52,23 @@ export function EnhancedDoctorSignup() {
     e.preventDefault()
     
     console.log('🏥 [FRONTEND] Starting doctor registration...')
+    console.log('📋 [FRONTEND] Form data:', {
+      ...formData,
+      password: '[HIDDEN]',
+      confirmPassword: '[HIDDEN]'
+    })
+    
+    // Check agreement checkboxes first
+    if (!formData.agreeToTerms || !formData.agreeToHIPAA) {
+      console.log('❌ [FRONTEND] Validation failed: Agreements not checked')
+      toast({
+        title: "❌ Agreements Required",
+        description: "Please check both agreement boxes to continue.",
+        variant: "destructive",
+      })
+      alert('⚠️ AGREEMENTS REQUIRED\n\nYou must check both:\n✓ Terms of Service agreement\n✓ HIPAA compliance acknowledgment')
+      return
+    }
     
     // Validation
     if (formData.password !== formData.confirmPassword) {
@@ -57,6 +78,7 @@ export function EnhancedDoctorSignup() {
         description: "Passwords do not match. Please try again.",
         variant: "destructive",
       })
+      alert('❌ PASSWORD MISMATCH\n\nYour passwords do not match. Please check and try again.')
       return
     }
 
@@ -482,9 +504,23 @@ export function EnhancedDoctorSignup() {
                 </Button>
               ) : (
                 <Button
-                  type="submit"
-                  disabled={!formData.agreeToTerms || !formData.agreeToHIPAA || isLoading}
+                  type="button"
+                  disabled={isLoading}
                   className="bg-blue-600 hover:bg-blue-700"
+                  onClick={(e) => {
+                    console.log('🖱️ [FRONTEND] Submit button clicked!')
+                    console.log('📋 [FRONTEND] Current form data:', {
+                      firstName: formData.firstName,
+                      lastName: formData.lastName,
+                      email: formData.email,
+                      npi: formData.npi,
+                      specialty: formData.specialty,
+                      agreeToTerms: formData.agreeToTerms,
+                      agreeToHIPAA: formData.agreeToHIPAA
+                    })
+                    // Call handleSubmit directly
+                    handleSubmit(e as any)
+                  }}
                 >
                   {isLoading ? "Submitting..." : "Submit Application"}
                 </Button>

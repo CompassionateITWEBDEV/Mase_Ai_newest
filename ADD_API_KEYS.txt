@@ -1,0 +1,73 @@
+═══════════════════════════════════════════════════════════
+           FIX THE ERROR - ADD API KEYS
+═══════════════════════════════════════════════════════════
+
+YOUR ERROR:
+  "Error: Failed to process file"
+
+ROOT CAUSE:
+  Missing API keys in .env.local
+
+═══════════════════════════════════════════════════════════
+           SOLUTION (5 MINUTES)
+═══════════════════════════════════════════════════════════
+
+STEP 1: OPEN .env.local FILE
+────────────────────────────────────────────────────────────
+  notepad .env.local
+
+STEP 2: ADD THESE TWO LINES AT THE BOTTOM
+────────────────────────────────────────────────────────────
+  PDFCO_API_KEY=paste_your_key_here
+  OPENAI_API_KEY=paste_your_key_here
+
+STEP 3: GET PDF.CO API KEY (REQUIRED!)
+────────────────────────────────────────────────────────────
+  1. Go to: https://pdf.co
+  2. Sign up FREE (takes 2 minutes)
+  3. Go to Dashboard → API
+  4. Copy your API key
+  5. Paste it after PDFCO_API_KEY=
+
+STEP 4: ADD YOUR OPENAI KEY (YOU HAVE THIS)
+────────────────────────────────────────────────────────────
+  You said you have an OpenAI API key.
+  Paste it after OPENAI_API_KEY=
+
+STEP 5: SAVE FILE AND RESTART SERVER
+────────────────────────────────────────────────────────────
+  1. Save .env.local (Ctrl+S in notepad)
+  2. In your terminal, press Ctrl+C to stop server
+  3. Run: npm run dev
+  4. Test again!
+
+═══════════════════════════════════════════════════════════
+           EXAMPLE .env.local FILE
+═══════════════════════════════════════════════════════════
+
+# Existing variables (keep these)
+NEXT_PUBLIC_SUPABASE_URL=your_url
+SUPABASE_SERVICE_ROLE_KEY=your_key
+BLOB_READ_WRITE_TOKEN=your_token
+
+# NEW - Add these two lines:
+PDFCO_API_KEY=abc123def456xyz789
+OPENAI_API_KEY=sk-proj-abc123def456xyz
+
+═══════════════════════════════════════════════════════════
+           AFTER YOU DO THIS
+═══════════════════════════════════════════════════════════
+
+✓ Error will go away
+✓ File processing will work
+✓ You'll see AI analysis results
+✓ Everything will be functional!
+
+═══════════════════════════════════════════════════════════
+
+THE CODE IS FIXED - YOU JUST NEED TO CONFIGURE IT!
+
+Start here: Open .env.local and add the two API keys.
+
+═══════════════════════════════════════════════════════════
+

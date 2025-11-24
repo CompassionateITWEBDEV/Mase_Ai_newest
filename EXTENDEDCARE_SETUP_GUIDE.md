@@ -282,3 +282,4 @@ After setup is complete:
 **Need help?** Check `EXTENDEDCARE_CONFIGURATION.md` for detailed technical documentation.
 
 
+

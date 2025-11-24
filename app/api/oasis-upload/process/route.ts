@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { put } from "@vercel/blob"
 import { createServiceClient } from "@/lib/supabase/service"
 import { analyzeOasisDocument } from "@/lib/oasis-ai-analyzer"
+import { pdfcoService } from "@/lib/pdfco-service"
 
 function sanitizeText(value: any): string {
   // Handle null, undefined, or non-string values
@@ -28,6 +28,8 @@ function safeExtract(obj: any, defaultValue = ""): string {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log("[OASIS] === Starting file processing ===")
+    
     const formData = await request.formData()
     const file = formData.get("file") as File
     const uploadId = formData.get("uploadId") as string
@@ -38,33 +40,158 @@ export async function POST(request: NextRequest) {
     const notes = formData.get("notes") as string | null
     const assessmentId = formData.get("assessmentId") as string | null
 
+    console.log("[OASIS] Received request:", { uploadId, fileType, fileName: file?.name })
+
     if (!file || !uploadId || !uploadType || !priority || !fileType) {
+      console.error("[OASIS] Missing required fields:", { 
+        hasFile: !!file, 
+        hasUploadId: !!uploadId, 
+        hasUploadType: !!uploadType, 
+        hasPriority: !!priority, 
+        hasFileType: !!fileType 
+      })
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-    console.log("[v0] Processing file:", { uploadId, fileType, fileName: file.name })
-
-    const blob = await put(`oasis/${uploadId}/${file.name}`, file, {
-      access: "public",
-      addRandomSuffix: false,
+    // Check API keys
+    const pdfcoKey = process.env.PDFCO_API_KEY || process.env.PDF_CO_API_KEY
+    const openaiKey = process.env.OPENAI_API_KEY
+    
+    console.log("[OASIS] Environment configured:", {
+      hasPdfcoKey: !!pdfcoKey,
+      hasOpenaiKey: !!openaiKey
     })
 
-    console.log("[v0] File uploaded to blob:", blob.url)
+    if (!pdfcoKey) {
+      console.error("[OASIS] ❌ PDFCO_API_KEY is not configured!")
+      return NextResponse.json({ 
+        error: "Server configuration error: PDFCO_API_KEY is missing. Please add it to .env.local and restart the server." 
+      }, { status: 500 })
+    }
 
-    const fileText = await file.text()
+    if (!openaiKey) {
+      console.error("[OASIS] ❌ OPENAI_API_KEY is not configured!")
+      return NextResponse.json({ 
+        error: "Server configuration error: OPENAI_API_KEY is missing. Please add it to .env.local and restart the server." 
+      }, { status: 500 })
+    }
 
-    console.log("[v0] Creating Supabase service client...")
+    // Create Supabase client for file upload
+    console.log("[OASIS] Creating Supabase client for file storage...")
     const supabase = createServiceClient()
-    console.log("[v0] Supabase service client created successfully")
+
+    // Upload file to Supabase Storage
+    let fileUrl: string
+    try {
+      const fileBuffer = await file.arrayBuffer()
+      const fileName = `${uploadId}/${file.name}`
+      
+      console.log("[OASIS] Uploading file to Supabase Storage:", fileName)
+      
+      // Create bucket if it doesn't exist (will fail silently if it exists)
+      await supabase.storage.createBucket('oasis-uploads', {
+        public: true,
+        fileSizeLimit: 52428800, // 50MB
+      })
+      
+      // Upload file
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('oasis-uploads')
+        .upload(fileName, fileBuffer, {
+          contentType: file.type,
+          upsert: true,
+        })
+
+      if (uploadError) {
+        console.error("[OASIS] ❌ Supabase upload error:", uploadError)
+        throw new Error(`Failed to upload file: ${uploadError.message}`)
+      }
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from('oasis-uploads')
+        .getPublicUrl(fileName)
+
+      fileUrl = urlData.publicUrl
+      console.log("[OASIS] File uploaded successfully:", fileUrl)
+    } catch (storageError) {
+      console.error("[OASIS] ❌ File upload failed:", storageError)
+      throw new Error("Failed to upload file to storage: " + (storageError instanceof Error ? storageError.message : "Unknown error"))
+    }
+
+    // Extract text using PDF.co OCR service
+    console.log("[OASIS] Extracting text from document using PDF.co OCR...")
+    let fileText = ""
+    
+    try {
+      const fileBuffer = Buffer.from(await file.arrayBuffer())
+      const fileExtension = file.name.toLowerCase().split('.').pop()
+      
+      let ocrResult
+      if (fileExtension === 'pdf') {
+        ocrResult = await pdfcoService.processPDF(fileBuffer, file.name)
+      } else if (['jpg', 'jpeg', 'png', 'tiff', 'tif'].includes(fileExtension || '')) {
+        ocrResult = await pdfcoService.processImage(fileBuffer, file.name)
+      } else {
+        // For text files, read directly
+        fileText = await file.text()
+        console.log("[OASIS] Text file read directly, length:", fileText.length)
+      }
+      
+      if (ocrResult) {
+        if (!ocrResult.success) {
+          throw new Error(ocrResult.error || "PDF.co OCR extraction failed")
+        }
+        fileText = ocrResult.text
+        console.log("[OASIS] ✅ PDF.co OCR extraction successful!")
+        console.log("[OASIS] 📄 Total extracted text length:", fileText.length, "characters")
+        console.log("[OASIS] 📊 Estimated pages:", Math.ceil(fileText.length / 2000))
+        console.log("[OASIS] 📝 First 500 chars:", fileText.substring(0, 500))
+      }
+    } catch (ocrError) {
+      console.error("[OASIS] OCR extraction error:", ocrError)
+      // Fallback to trying direct text extraction
+      try {
+        fileText = await file.text()
+        console.log("[OASIS] Fallback: text extracted directly")
+      } catch (fallbackError) {
+        throw new Error("Failed to extract text from document: " + (ocrError instanceof Error ? ocrError.message : "Unknown error"))
+      }
+    }
+
+    if (!fileText || fileText.length < 10) {
+      throw new Error("Extracted text is empty or too short. Please ensure the document contains readable text.")
+    }
+
+    console.log("[OASIS] Supabase client ready for database operations")
 
     if (fileType === "oasis") {
-      console.log("[v0] Analyzing OASIS document with AI...")
+      console.log("[OASIS] Analyzing OASIS document with AI...")
       const analysis = await analyzeOasisDocument(fileText)
 
-      console.log("[v0] AI analysis complete:", {
+      console.log("[OASIS] ✅ Analysis completed!")
+      console.log("[OASIS] 📊 Quality Metrics:", {
         qualityScore: analysis.qualityScore,
-        financialImpact: analysis.financialImpact.increase,
+        confidenceScore: analysis.confidenceScore,
+        completenessScore: analysis.completenessScore,
       })
+      console.log("[OASIS] 👤 Patient Info:", {
+        name: analysis.patientInfo.name,
+        mrn: analysis.patientInfo.mrn,
+        payor: analysis.patientInfo.payor,
+        clinician: analysis.patientInfo.clinician,
+      })
+      console.log("[OASIS] 🏥 Primary Diagnosis:", {
+        code: analysis.primaryDiagnosis?.code,
+        description: analysis.primaryDiagnosis?.description?.substring(0, 50),
+      })
+      console.log("[OASIS] 🏥 Secondary Diagnoses Count:", analysis.secondaryDiagnoses?.length || 0)
+      console.log("[OASIS] 💰 Financial Impact:", {
+        current: analysis.financialImpact?.currentRevenue,
+        optimized: analysis.financialImpact?.optimizedRevenue,
+        increase: analysis.financialImpact?.increase,
+      })
+      console.log("[OASIS] ⚠️ Flagged Issues:", analysis.flaggedIssues?.length || 0)
 
       const insertData = {
         upload_id: uploadId,
@@ -77,7 +204,7 @@ export async function POST(request: NextRequest) {
         clinician_name: sanitizeText(analysis.patientInfo?.clinician),
         file_name: file.name,
         file_size: file.size,
-        file_url: blob.url,
+        file_url: fileUrl,
         file_type: file.type,
         upload_type: uploadType,
         priority,
@@ -85,10 +212,26 @@ export async function POST(request: NextRequest) {
         status: "completed",
         processed_at: new Date().toISOString(),
         extracted_text: sanitizeText(fileText.substring(0, 10000)),
-        primary_diagnosis: safeExtract(analysis.primaryDiagnosis),
+        // Store FULL diagnosis objects, not just strings
+        primary_diagnosis: analysis.primaryDiagnosis || {
+          code: "Not visible",
+          description: "Not visible",
+          confidence: 0
+        },
         secondary_diagnoses: Array.isArray(analysis.secondaryDiagnoses)
-          ? analysis.secondaryDiagnoses.map((d) => safeExtract(d))
+          ? analysis.secondaryDiagnoses
           : [],
+        // Store functional status, medications, extracted data, missing info, inconsistencies
+        functional_status: analysis.functionalStatus || [],
+        medications: analysis.medications || [],
+        extracted_data: {
+          ...(analysis.extractedData || {}),
+          // Ensure patientInfo is included in extracted_data
+          patientInfo: analysis.patientInfo || null
+        },
+        missing_information: analysis.missingInformation || [],
+        inconsistencies: analysis.inconsistencies || [],
+        debug_info: analysis.debugInfo || {},
         suggested_codes: analysis.suggestedCodes || [],
         corrections: analysis.corrections || [],
         risk_factors: analysis.riskFactors || [],
@@ -103,12 +246,12 @@ export async function POST(request: NextRequest) {
         financial_impact: analysis.financialImpact || {},
       }
 
-      console.log("[v0] Inserting assessment into database...")
+      console.log("[OASIS] Inserting assessment into database...")
 
       const { data: assessment, error } = await supabase.from("oasis_assessments").insert(insertData).select().single()
 
       if (error) {
-        console.error("[v0] Database error details:", {
+        console.error("[OASIS] Database error details:", {
           message: error.message,
           details: error.details,
           hint: error.hint,
@@ -117,7 +260,7 @@ export async function POST(request: NextRequest) {
         throw new Error(`Failed to store assessment: ${error.message}`)
       }
 
-      console.log("[v0] Assessment stored in database:", assessment.id)
+      console.log("[OASIS] Assessment stored in database:", assessment.id)
 
       return NextResponse.json({
         success: true,
@@ -135,7 +278,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Assessment ID required for doctor orders" }, { status: 400 })
       }
 
-      console.log("[v0] Processing doctor's order for assessment:", assessmentId)
+      console.log("[OASIS] Processing doctor's order for assessment:", assessmentId)
 
       // Get the OASIS assessment
       const { data: assessment, error: fetchError } = await supabase
@@ -145,7 +288,7 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (fetchError || !assessment) {
-        console.error("[v0] Error fetching assessment:", fetchError)
+        console.error("[OASIS] Error fetching assessment:", fetchError)
         return NextResponse.json({ error: "Assessment not found" }, { status: 404 })
       }
 
@@ -156,7 +299,7 @@ export async function POST(request: NextRequest) {
         upload_id: uploadId,
         file_name: file.name,
         file_size: file.size,
-        file_url: blob.url,
+        file_url: fileUrl,
         file_type: file.type,
         extracted_text: sanitizeText(fileText.substring(0, 10000)),
         matches_oasis: analysis.flaggedIssues.length === 0,
@@ -164,7 +307,7 @@ export async function POST(request: NextRequest) {
       })
 
       if (orderError) {
-        console.error("[v0] Error storing doctor order:", orderError)
+        console.error("[OASIS] Error storing doctor order:", orderError)
         throw new Error("Failed to store doctor order")
       }
 
@@ -176,7 +319,7 @@ export async function POST(request: NextRequest) {
         })
         .eq("upload_id", assessmentId)
 
-      console.log("[v0] Doctor order processed and stored")
+      console.log("[OASIS] Doctor order processed and stored")
 
       return NextResponse.json({
         success: true,
@@ -188,11 +331,17 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ error: "Invalid file type" }, { status: 400 })
   } catch (error) {
-    console.error("[v0] Processing error:", error)
+    console.error("[OASIS] ❌ Processing error:", error)
+    console.error("[OASIS] Error stack:", error instanceof Error ? error.stack : "No stack trace")
+    
+    const errorMessage = error instanceof Error ? error.message : "Unknown error"
+    console.error("[OASIS] Error message:", errorMessage)
+    
     return NextResponse.json(
       {
         error: "Failed to process file",
-        details: error instanceof Error ? error.message : "Unknown error",
+        details: errorMessage,
+        help: "Check server console for detailed logs. Ensure PDFCO_API_KEY and OPENAI_API_KEY are set in .env.local"
       },
       { status: 500 },
     )

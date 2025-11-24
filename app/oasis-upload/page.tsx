@@ -173,8 +173,27 @@ export default function OasisUpload() {
       })
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Processing failed")
+        let errorData: any = {}
+        let errorText = ""
+        
+        try {
+          errorText = await response.text()
+          console.error("Raw error response:", errorText)
+          
+          if (errorText) {
+            errorData = JSON.parse(errorText)
+          }
+        } catch (parseError) {
+          console.error("Failed to parse error response:", parseError)
+          errorData = { error: "Server error", details: errorText || `HTTP ${response.status}` }
+        }
+        
+        console.error("Server error response:", errorData)
+        
+        const errorMsg = errorData.details 
+          ? `${errorData.error}: ${errorData.details}` 
+          : errorData.error || `Server error (${response.status}). Check server console for details.`
+        throw new Error(errorMsg)
       }
 
       const result = await response.json()
@@ -525,7 +544,7 @@ export default function OasisUpload() {
                             onClick={() => (window.location.href = `/oasis-qa/optimization/${file.id}`)}
                           >
                             <Eye className="h-4 w-4 mr-2" />
-                            View Details
+                            View Optimization Report
                           </Button>
                         </div>
 
