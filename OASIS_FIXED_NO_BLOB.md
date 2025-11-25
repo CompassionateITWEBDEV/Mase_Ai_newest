@@ -185,3 +185,4 @@ OPENAI_API_KEY=sk-proj-your_key
 
 **Test it now - it should work perfectly! 🎯**
 
+

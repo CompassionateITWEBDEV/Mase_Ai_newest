@@ -167,7 +167,19 @@ export async function POST(request: NextRequest) {
 
     if (fileType === "oasis") {
       console.log("[OASIS] Analyzing OASIS document with AI...")
-      const analysis = await analyzeOasisDocument(fileText)
+      console.log("[OASIS] 📋 Configuration:", {
+        qaType: uploadType,
+        priority: priority,
+        patientId: patientId || 'None',
+        hasNotes: !!notes
+      })
+      
+      const analysis = await analyzeOasisDocument(fileText, undefined, {
+        qaType: uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+        notes: notes || '',
+        priority: priority as 'low' | 'medium' | 'high' | 'urgent',
+        patientId: patientId || ''
+      })
 
       console.log("[OASIS] ✅ Analysis completed!")
       console.log("[OASIS] 📊 Quality Metrics:", {
@@ -193,6 +205,24 @@ export async function POST(request: NextRequest) {
       })
       console.log("[OASIS] ⚠️ Flagged Issues:", analysis.flaggedIssues?.length || 0)
 
+      // Helper to validate and parse date - returns null if invalid
+      const parseValidDate = (dateValue: any): string | null => {
+        if (!dateValue) return null
+        if (typeof dateValue !== 'string') return null
+        // Check for invalid date strings
+        const invalidPatterns = ['Not visible', 'Not found', 'N/A', 'Unknown', 'not visible', 'not found']
+        if (invalidPatterns.some(pattern => dateValue.toLowerCase().includes(pattern.toLowerCase()))) {
+          return null
+        }
+        // Try to parse the date
+        const parsed = new Date(dateValue)
+        if (isNaN(parsed.getTime())) {
+          console.log('[OASIS] ⚠️ Invalid date format:', dateValue)
+          return null
+        }
+        return parsed.toISOString()
+      }
+
       const insertData = {
         upload_id: uploadId,
         patient_id: patientId,
@@ -200,7 +230,7 @@ export async function POST(request: NextRequest) {
         mrn: sanitizeText(analysis.patientInfo?.mrn),
         visit_type: sanitizeText(analysis.patientInfo?.visitType),
         payor: sanitizeText(analysis.patientInfo?.payor),
-        visit_date: analysis.patientInfo?.visitDate || new Date().toISOString(),
+        visit_date: parseValidDate(analysis.patientInfo?.visitDate) || new Date().toISOString(),
         clinician_name: sanitizeText(analysis.patientInfo?.clinician),
         file_name: file.name,
         file_size: file.size,
@@ -292,7 +322,19 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Assessment not found" }, { status: 404 })
       }
 
-      const analysis = await analyzeOasisDocument(assessment.extracted_text, fileText)
+      console.log("[OASIS] 📋 Configuration for doctor order analysis:", {
+        qaType: uploadType,
+        priority: priority,
+        patientId: patientId || 'None',
+        hasNotes: !!notes
+      })
+
+      const analysis = await analyzeOasisDocument(assessment.extracted_text, fileText, {
+        qaType: uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+        notes: notes || '',
+        priority: priority as 'low' | 'medium' | 'high' | 'urgent',
+        patientId: patientId || ''
+      })
 
       const { error: orderError } = await supabase.from("doctor_orders").insert({
         assessment_id: assessmentId,

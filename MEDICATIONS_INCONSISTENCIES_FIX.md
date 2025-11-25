@@ -253,3 +253,4 @@ The fix ensures that:
 
 **Next Step**: Run the database migration script to add the `medications` column, then upload a new PDF to test!
 
+

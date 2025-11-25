@@ -143,3 +143,4 @@ New PDF → AI extracts medications → Stores in DB → API returns data → UI
 
 **The key**: You must run the migration AND upload a new PDF to see these sections!
 
+

@@ -100,6 +100,58 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     console.log("[OASIS] 🔍 EXTRACTED DATA:", JSON.stringify(extractedData, null, 2))
     console.log("[OASIS] 🔍 PATIENT INFO FROM EXTRACTED DATA:", JSON.stringify(extractedData?.patientInfo, null, 2))
 
+    // ⚠️ PRIORITIZE extracted_data over individual database columns
+    // The extracted_data contains the freshly analyzed JSON data
+    // Only use database columns as fallback if extracted_data doesn't have the data
+    
+    // Helper to get data from extracted_data first, then fallback to DB column
+    const getFromExtractedData = (extractedPath: string, dbValue: any) => {
+      const paths = extractedPath.split('.')
+      let value = extractedData
+      for (const path of paths) {
+        value = value?.[path]
+      }
+      return value || dbValue
+    }
+
+    // Get primary diagnosis from extracted_data first
+    const extractedPrimaryDx = extractedData?.primaryDiagnosis || extractedData?.extractedData?.primaryDiagnosis
+    const finalPrimaryDiagnosis = extractedPrimaryDx || primaryDiagnosis
+
+    // Get secondary diagnoses from extracted_data first
+    const extractedSecondaryDx = extractedData?.secondaryDiagnoses || extractedData?.otherDiagnoses || extractedData?.extractedData?.otherDiagnoses
+    const finalSecondaryDiagnoses = (Array.isArray(extractedSecondaryDx) && extractedSecondaryDx.length > 0) 
+      ? extractedSecondaryDx 
+      : secondaryDiagnoses
+
+    // Get functional status from extracted_data first
+    const extractedFunctionalStatus = extractedData?.functionalStatus || extractedData?.extractedData?.functionalStatus
+    const finalFunctionalStatus = (Array.isArray(extractedFunctionalStatus) && extractedFunctionalStatus.length > 0)
+      ? extractedFunctionalStatus
+      : safeJsonParse(assessment.functional_status)
+
+    // Get medications from extracted_data first
+    const extractedMedications = extractedData?.medications || extractedData?.extractedData?.medications
+    const finalMedications = (Array.isArray(extractedMedications) && extractedMedications.length > 0)
+      ? extractedMedications
+      : (safeJsonParse(assessment.medications) || [])
+
+    // Get missing information from extracted_data first
+    const extractedMissingInfo = extractedData?.missingInformation || extractedData?.missing_information
+    const finalMissingInfo = (Array.isArray(extractedMissingInfo) && extractedMissingInfo.length > 0)
+      ? extractedMissingInfo
+      : safeJsonParse(assessment.missing_information)
+
+    // Get inconsistencies from extracted_data first
+    const extractedInconsistencies = extractedData?.inconsistencies
+    const finalInconsistencies = (Array.isArray(extractedInconsistencies) && extractedInconsistencies.length > 0)
+      ? extractedInconsistencies
+      : safeJsonParse(assessment.inconsistencies)
+
+    console.log("[OASIS] ✅ Using extracted_data as primary source for all analysis results")
+    console.log("[OASIS] 💊 Medications from extracted_data:", finalMedications?.length || 0)
+    console.log("[OASIS] 🎯 Functional Status from extracted_data:", finalFunctionalStatus?.length || 0)
+
     return NextResponse.json({
       success: true,
       data: {
@@ -108,46 +160,50 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           fileName: assessment.file_name,
           processedAt: assessment.processed_at,
           extractedText: assessment.extracted_text,
-          qualityScore: assessment.quality_score,
-          confidence: assessment.confidence_score,
-          completenessScore: assessment.completeness_score,
-          // ACTUAL EXTRACTED DIAGNOSES FROM OASIS DOCUMENT (PARSED)
-          primaryDiagnosis: primaryDiagnosis,
-          secondaryDiagnoses: secondaryDiagnoses,
-          // Functional Status (M1800-M1870)
-          functionalStatus: safeJsonParse(assessment.functional_status),
-          // Medications (M2001-M2003)
-          medications: safeJsonParse(assessment.medications) || [],
+          uploadType: assessment.upload_type || 'comprehensive-qa',
+          priority: assessment.priority || 'medium',
+          notes: assessment.notes || '',
+          qualityScore: extractedData?.qualityScore || assessment.quality_score,
+          confidence: extractedData?.confidenceScore || assessment.confidence_score,
+          completenessScore: extractedData?.completenessScore || assessment.completeness_score,
+          // ⚠️ PRIORITIZE: Use extracted_data diagnoses (freshly analyzed) over DB columns
+          primaryDiagnosis: finalPrimaryDiagnosis,
+          secondaryDiagnoses: finalSecondaryDiagnoses,
+          // ⚠️ PRIORITIZE: Use extracted_data functional status (freshly analyzed)
+          functionalStatus: finalFunctionalStatus,
+          // ⚠️ PRIORITIZE: Use extracted_data medications (freshly analyzed)
+          medications: finalMedications,
           // Full Extracted Data
           extractedData: extractedData,
           // Patient Info from extracted data (for easy access)
-          patientInfo: extractedData?.patientInfo || null,
-          // Missing Information
-          missingInformation: safeJsonParse(assessment.missing_information),
-          // Inconsistencies
-          inconsistencies: safeJsonParse(assessment.inconsistencies),
+          patientInfo: extractedData?.patientInfo || extractedData?.extractedData?.patientInfo || null,
+          // ⚠️ PRIORITIZE: Use extracted_data missing information (freshly analyzed)
+          missingInformation: finalMissingInfo,
+          // ⚠️ PRIORITIZE: Use extracted_data inconsistencies (freshly analyzed)
+          inconsistencies: finalInconsistencies,
           // Debug Info
-          debugInfo: safeJsonParse(assessment.debug_info),
-          // Additional AI suggestions
-          suggestedCodes: safeJsonParse(assessment.suggested_codes),
-          corrections: safeJsonParse(assessment.corrections),
-          riskFactors: safeJsonParse(assessment.risk_factors),
-          recommendations: safeJsonParse(assessment.recommendations),
-          flaggedIssues: safeJsonParse(assessment.flagged_issues),
-          financialImpact: safeJsonParse(assessment.financial_impact),
+          debugInfo: extractedData?.debugInfo || safeJsonParse(assessment.debug_info),
+          // Additional AI suggestions - prioritize extracted_data
+          suggestedCodes: extractedData?.suggestedCodes || safeJsonParse(assessment.suggested_codes),
+          corrections: extractedData?.corrections || safeJsonParse(assessment.corrections),
+          riskFactors: extractedData?.riskFactors || safeJsonParse(assessment.risk_factors),
+          recommendations: extractedData?.recommendations || safeJsonParse(assessment.recommendations),
+          flaggedIssues: extractedData?.flaggedIssues || safeJsonParse(assessment.flagged_issues),
+          financialImpact: extractedData?.financialImpact || safeJsonParse(assessment.financial_impact),
         },
         patientData: {
-          name: assessment.patient_name,
-          firstName: assessment.patient_name?.split(" ")[0],
-          lastName: assessment.patient_name?.split(" ").slice(1).join(" "),
-          mrn: assessment.mrn,
-          visitType: assessment.visit_type,
-          payor: assessment.payor,
-          visitDate: assessment.visit_date,
-          clinician: assessment.clinician_name,
+          // ⚠️ PRIORITIZE: Use extracted_data patient info over DB columns
+          name: extractedData?.patientInfo?.name || extractedData?.extractedData?.patientInfo?.name || assessment.patient_name,
+          firstName: extractedData?.patientInfo?.name?.split(" ")[0] || assessment.patient_name?.split(" ")[0],
+          lastName: extractedData?.patientInfo?.name?.split(" ").slice(1).join(" ") || assessment.patient_name?.split(" ").slice(1).join(" "),
+          mrn: extractedData?.patientInfo?.mrn || extractedData?.extractedData?.patientInfo?.mrn || assessment.mrn,
+          visitType: extractedData?.patientInfo?.visitType || extractedData?.extractedData?.patientInfo?.visitType || assessment.visit_type,
+          payor: extractedData?.patientInfo?.payor || extractedData?.extractedData?.patientInfo?.payor || assessment.payor,
+          visitDate: extractedData?.patientInfo?.visitDate || extractedData?.extractedData?.patientInfo?.visitDate || assessment.visit_date,
+          clinician: extractedData?.patientInfo?.clinician || extractedData?.extractedData?.patientInfo?.clinician || assessment.clinician_name,
         },
-        // Also include patientInfo from extracted_data as fallback
-        patientInfoFromExtraction: extractedData?.patientInfo || null,
+        // Also include patientInfo from extracted_data as primary source
+        patientInfoFromExtraction: extractedData?.patientInfo || extractedData?.extractedData?.patientInfo || null,
         doctorOrders: doctorOrders || [],
       },
     })

@@ -27,3 +27,4 @@ COMMENT ON COLUMN oasis_assessments.missing_information IS 'List of missing OASI
 COMMENT ON COLUMN oasis_assessments.inconsistencies IS 'Detected inconsistencies between document sections with severity and recommendations';
 COMMENT ON COLUMN oasis_assessments.debug_info IS 'Debug information for troubleshooting extraction issues';
 
+

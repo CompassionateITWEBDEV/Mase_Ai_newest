@@ -16,3 +16,4 @@ FROM information_schema.columns
 WHERE table_name = 'oasis_assessments' 
 AND column_name = 'medications';
 
+

@@ -9,9 +9,35 @@ export interface OCRResult {
   error?: string
 }
 
+// Helper function to create fetch with timeout
+async function fetchWithTimeout(url: string, options: RequestInit, timeoutMs: number = 60000): Promise<Response> {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+  
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    return response
+  } catch (error: any) {
+    clearTimeout(timeoutId)
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs / 1000} seconds`)
+    }
+    throw error
+  }
+}
+
 export class PDFcoService {
   private apiKey: string
   private baseUrl = "https://api.pdf.co/v1"
+  // Increased timeouts for better reliability
+  private uploadTimeout = 120000  // 2 minutes for upload
+  private ocrTimeout = 180000     // 3 minutes for OCR
+  private statusCheckTimeout = 30000  // 30 seconds for status check
+  private downloadTimeout = 60000 // 1 minute for download
 
   constructor() {
     this.apiKey = process.env.PDFCO_API_KEY || process.env.PDF_CO_API_KEY || ""
@@ -30,13 +56,19 @@ export class PDFcoService {
       const blob = new Blob([fileBuffer])
       formData.append("file", blob, fileName)
 
-      const response = await fetch(`${this.baseUrl}/file/upload`, {
-        method: "POST",
-        headers: {
-          "x-api-key": this.apiKey,
+      console.log(`[PDF.co] Uploading file: ${fileName} (${fileBuffer.length} bytes)`)
+      
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/file/upload`,
+        {
+          method: "POST",
+          headers: {
+            "x-api-key": this.apiKey,
+          },
+          body: formData,
         },
-        body: formData,
-      })
+        this.uploadTimeout
+      )
 
       const data = await response.json()
 
@@ -44,6 +76,7 @@ export class PDFcoService {
         throw new Error(data.message || "Failed to upload file to PDF.co")
       }
 
+      console.log(`[PDF.co] ✅ File uploaded successfully`)
       return data.url
     } catch (error) {
       console.error("PDF.co upload error:", error)
@@ -64,22 +97,26 @@ export class PDFcoService {
         }
       }
 
-      // Start async OCR job
-      console.log("Starting async OCR job for:", fileUrl)
-      const response = await fetch(`${this.baseUrl}/pdf/convert/to/text`, {
-        method: "POST",
-        headers: {
-          "x-api-key": this.apiKey,
-          "Content-Type": "application/json",
+      // Start async OCR job with timeout
+      console.log("[PDF.co] Starting async OCR job...")
+      const response = await fetchWithTimeout(
+        `${this.baseUrl}/pdf/convert/to/text`,
+        {
+          method: "POST",
+          headers: {
+            "x-api-key": this.apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            url: fileUrl,
+            inline: false, // Use async mode
+            async: true,   // Enable async processing
+            pages: "",     // Process all pages
+            name: "ocr-result.txt",
+          }),
         },
-        body: JSON.stringify({
-          url: fileUrl,
-          inline: false, // Use async mode
-          async: true,   // Enable async processing
-          pages: "",     // Process all pages
-          name: "ocr-result.txt",
-        }),
-      })
+        this.ocrTimeout
+      )
 
       const data = await response.json()
 
@@ -94,48 +131,70 @@ export class PDFcoService {
         throw new Error("No job ID returned from PDF.co")
       }
 
-      console.log("OCR job started, jobId:", jobId)
+      console.log("[PDF.co] OCR job started, jobId:", jobId)
 
       // Poll job status until complete (max 5 minutes for large PDFs)
       const maxAttempts = 60 // 60 attempts * 5 seconds = 300 seconds (5 minutes)
       let attempts = 0
+      let consecutiveErrors = 0
+      const maxConsecutiveErrors = 3
 
       while (attempts < maxAttempts) {
         await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5 seconds
         attempts++
 
-        console.log(`Checking job status (attempt ${attempts}/${maxAttempts})...`)
+        console.log(`[PDF.co] Checking job status (attempt ${attempts}/${maxAttempts})...`)
 
-        const statusResponse = await fetch(`${this.baseUrl}/job/check?jobid=${jobId}`, {
-          headers: {
-            "x-api-key": this.apiKey,
-          },
-        })
+        try {
+          const statusResponse = await fetchWithTimeout(
+            `${this.baseUrl}/job/check?jobid=${jobId}`,
+            {
+              headers: {
+                "x-api-key": this.apiKey,
+              },
+            },
+            this.statusCheckTimeout
+          )
 
-        const statusData = await statusResponse.json()
+          const statusData = await statusResponse.json()
+          consecutiveErrors = 0 // Reset on successful response
 
-        if (statusData.status === "success") {
-          console.log("✅ OCR job completed successfully")
-          
-          // Download the result
-          const textResponse = await fetch(statusData.url)
-          const text = await textResponse.text()
+          if (statusData.status === "success") {
+            console.log("[PDF.co] ✅ OCR job completed successfully")
+            
+            // Download the result with timeout
+            const textResponse = await fetchWithTimeout(
+              statusData.url,
+              {},
+              this.downloadTimeout
+            )
+            const text = await textResponse.text()
 
-          return {
-            success: true,
-            text: text || "",
+            console.log(`[PDF.co] ✅ Downloaded OCR result: ${text.length} characters`)
+            return {
+              success: true,
+              text: text || "",
+            }
+          } else if (statusData.status === "error" || statusData.status === "aborted") {
+            throw new Error(`OCR job failed: ${statusData.error || "Unknown error"}`)
           }
-        } else if (statusData.status === "error" || statusData.status === "aborted") {
-          throw new Error(`OCR job failed: ${statusData.error || "Unknown error"}`)
-        }
 
-        // Still working, continue polling
-        console.log(`Job status: ${statusData.status}`)
+          // Still working, continue polling
+          console.log(`[PDF.co] Job status: ${statusData.status}`)
+        } catch (statusError: any) {
+          consecutiveErrors++
+          console.warn(`[PDF.co] ⚠️ Status check error (${consecutiveErrors}/${maxConsecutiveErrors}):`, statusError.message)
+          
+          if (consecutiveErrors >= maxConsecutiveErrors) {
+            throw new Error(`Too many consecutive status check failures: ${statusError.message}`)
+          }
+          // Continue polling despite error
+        }
       }
 
       throw new Error("OCR processing timeout - job took too long")
     } catch (error) {
-      console.error("PDF.co OCR error:", error)
+      console.error("[PDF.co] OCR error:", error)
       return {
         success: false,
         text: "",
@@ -149,15 +208,16 @@ export class PDFcoService {
    */
   async processImage(fileBuffer: Buffer, fileName: string): Promise<OCRResult> {
     try {
+      console.log(`[PDF.co] 🖼️ Processing image: ${fileName}`)
+      
       // Upload file first
       const fileUrl = await this.uploadFile(fileBuffer, fileName)
-      console.log("File uploaded to:", fileUrl)
 
       // Perform OCR
       const ocrResult = await this.performOCR(fileUrl)
       return ocrResult
     } catch (error) {
-      console.error("Image processing error:", error)
+      console.error("[PDF.co] Image processing error:", error)
       return {
         success: false,
         text: "",
@@ -171,15 +231,21 @@ export class PDFcoService {
    */
   async processPDF(fileBuffer: Buffer, fileName: string): Promise<OCRResult> {
     try {
+      console.log(`[PDF.co] 📄 Processing PDF: ${fileName} (${Math.round(fileBuffer.length / 1024)} KB)`)
+      
       // Upload file first
       const fileUrl = await this.uploadFile(fileBuffer, fileName)
-      console.log("PDF uploaded to:", fileUrl)
 
       // Perform OCR
       const ocrResult = await this.performOCR(fileUrl)
+      
+      if (ocrResult.success) {
+        console.log(`[PDF.co] ✅ PDF processed successfully - extracted ${ocrResult.text.length} characters`)
+      }
+      
       return ocrResult
     } catch (error) {
-      console.error("PDF processing error:", error)
+      console.error("[PDF.co] PDF processing error:", error)
       return {
         success: false,
         text: "",
