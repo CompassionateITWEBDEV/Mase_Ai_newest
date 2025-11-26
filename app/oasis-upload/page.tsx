@@ -263,31 +263,86 @@ export default function OasisUpload() {
     title: string,
     description: string,
     icon: React.ReactNode,
-    color: string,
-  ) => (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          {icon}
-          {title}
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div
-          {...dropzone.getRootProps()}
-          className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-            dropzone.isDragActive ? `border-${color}-500 bg-${color}-50` : "border-gray-300 hover:border-gray-400"
-          }`}
-        >
-          <input {...dropzone.getInputProps()} />
-          <Upload className={`h-6 w-6 text-${color}-600 mx-auto mb-2`} />
-          <p className="text-sm font-medium">{dropzone.isDragActive ? "Drop file here" : "Click or drag to upload"}</p>
-          <p className="text-xs text-muted-foreground mt-1">PDF, TXT, or Image (Max 10MB)</p>
-        </div>
-      </CardContent>
-    </Card>
-  )
+    colorClass: string,
+  ) => {
+    const colorMap: Record<string, { border: string; bg: string; text: string; iconBg: string }> = {
+      blue: {
+        border: "border-blue-300",
+        bg: "bg-blue-50",
+        text: "text-blue-600",
+        iconBg: "bg-blue-100",
+      },
+      green: {
+        border: "border-green-300",
+        bg: "bg-green-50",
+        text: "text-green-600",
+        iconBg: "bg-green-100",
+      },
+      purple: {
+        border: "border-purple-300",
+        bg: "bg-purple-50",
+        text: "text-purple-600",
+        iconBg: "bg-purple-100",
+      },
+      pink: {
+        border: "border-pink-300",
+        bg: "bg-pink-50",
+        text: "text-pink-600",
+        iconBg: "bg-pink-100",
+      },
+      orange: {
+        border: "border-orange-300",
+        bg: "bg-orange-50",
+        text: "text-orange-600",
+        iconBg: "bg-orange-100",
+      },
+      teal: {
+        border: "border-teal-300",
+        bg: "bg-teal-50",
+        text: "text-teal-600",
+        iconBg: "bg-teal-100",
+      },
+      indigo: {
+        border: "border-indigo-300",
+        bg: "bg-indigo-50",
+        text: "text-indigo-600",
+        iconBg: "bg-indigo-100",
+      },
+    }
+
+    const colors = colorMap[colorClass] || colorMap.blue
+
+    return (
+      <Card className="border-2 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-[1.02]">
+        <CardHeader className="bg-gradient-to-r from-white to-gray-50 border-b">
+          <CardTitle className="flex items-center gap-3">
+            <div className={`h-10 w-10 rounded-lg ${colors.iconBg} flex items-center justify-center ${colors.text}`}>
+              {icon}
+            </div>
+            <span className="text-lg">{title}</span>
+          </CardTitle>
+          <CardDescription className="mt-1">{description}</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6">
+          <div
+            {...dropzone.getRootProps()}
+            className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-300 ${
+              dropzone.isDragActive
+                ? `${colors.border} ${colors.bg} scale-105 shadow-lg`
+                : `${colors.border} hover:${colors.bg} hover:shadow-md`
+            }`}
+          >
+            <input {...dropzone.getInputProps()} />
+            <div className={`h-16 w-16 ${colors.iconBg} rounded-full flex items-center justify-center mx-auto mb-4 transition-transform ${dropzone.isDragActive ? "scale-110" : ""}`}>
+              <Upload className={`h-8 w-8 ${colors.text}`} />
+            </div>
+            <p className="text-sm font-semibold mb-1">{dropzone.isDragActive ? "Drop file here" : "Click or drag to upload"}</p>
+            <p className="text-xs text-muted-foreground">PDF, TXT, or Image (Max 10MB)</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   const completedFiles = files.filter((f) => f.status === "completed")
   const chartFiles = files.filter((f) => f.chartId === chartId)
@@ -297,26 +352,47 @@ export default function OasisUpload() {
     chartFiles.filter((f) => f.type !== "oasis" && f.status === "completed").length >= 2
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Clinical Documentation QA</h1>
-        <p className="text-muted-foreground">
-          Upload complete patient chart for comprehensive QA analysis and QAPI reporting
-        </p>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/20">
+      <div className="container mx-auto p-6 space-y-6">
+        {/* Enhanced Header */}
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-purple-600 to-indigo-600 p-8 text-white shadow-xl">
+          <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiPjxnIGZpbGw9IiNmZmZmZmYiIGZpbGwtb3BhY2l0eT0iMC4xIj48Y2lyY2xlIGN4PSIzMCIgY3k9IjMwIiByPSIyIi8+PC9nPjwvZz48L3N2Zz4=')] opacity-20"></div>
+          <div className="relative z-10">
+            <div className="flex items-center gap-4 mb-3">
+              <div className="h-16 w-16 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shadow-lg">
+                <FileCheck className="h-8 w-8 text-white" />
+              </div>
+              <div className="flex-1">
+                <h1 className="text-4xl font-bold mb-2">Clinical Documentation QA</h1>
+                <p className="text-blue-100 text-lg">
+                  Upload complete patient chart for comprehensive QA analysis and QAPI reporting
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
 
       <Tabs defaultValue="upload" className="space-y-6">
-        <TabsList>
-          <TabsTrigger value="upload">Upload Documents</TabsTrigger>
-          <TabsTrigger value="results">Results & QAPI Report</TabsTrigger>
+        <TabsList className="bg-white border-2 shadow-md p-1">
+          <TabsTrigger value="upload" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-blue-600 data-[state=active]:to-indigo-600 data-[state=active]:text-white">
+            Upload Documents
+          </TabsTrigger>
+          <TabsTrigger value="results" className="data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-600 data-[state=active]:to-green-600 data-[state=active]:text-white">
+            Results & QAPI Report
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="upload" className="space-y-6">
           {/* Configuration */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Configuration</CardTitle>
-              <CardDescription>Configure QA processing settings</CardDescription>
+          <Card className="border-2 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 border-b">
+              <CardTitle className="flex items-center gap-3 text-xl">
+                <div className="h-10 w-10 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-md">
+                  <Activity className="h-5 w-5" />
+                </div>
+                Configuration
+              </CardTitle>
+              <CardDescription className="text-base mt-2">Configure QA processing settings</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-3 gap-4">
@@ -381,7 +457,7 @@ export default function OasisUpload() {
           </Card>
 
           {/* Document Upload Zones */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {renderUploadZone(
               oasisDropzone,
               "OASIS Assessment",
@@ -435,29 +511,48 @@ export default function OasisUpload() {
 
           {/* File List */}
           {chartFiles.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Uploaded Documents ({chartFiles.length})</CardTitle>
-                <CardDescription>Chart ID: {chartId}</CardDescription>
+            <Card className="border-2 shadow-lg">
+              <CardHeader className="bg-gradient-to-r from-gray-50 to-slate-50 border-b">
+                <CardTitle className="flex items-center gap-3 text-xl">
+                  <div className="h-10 w-10 rounded-lg bg-gray-600 flex items-center justify-center text-white shadow-md">
+                    <FileText className="h-5 w-5" />
+                  </div>
+                  Uploaded Documents ({chartFiles.length})
+                </CardTitle>
+                <CardDescription className="text-base mt-2">Chart ID: <span className="font-mono font-semibold">{chartId}</span></CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="p-6 space-y-3">
                 {chartFiles.map((file) => (
-                  <div key={file.id} className="flex items-center justify-between p-4 border rounded-lg">
-                    <div className="flex items-center space-x-3 flex-1">
-                      {getStatusIcon(file.status)}
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium">{file.file.name}</p>
-                          <Badge variant="outline">{getDocumentTypeLabel(file.type)}</Badge>
+                  <div
+                    key={file.id}
+                    className="flex items-center justify-between p-4 border-2 rounded-xl hover:shadow-md transition-all bg-white"
+                  >
+                    <div className="flex items-center space-x-4 flex-1">
+                      <div className="flex-shrink-0">{getStatusIcon(file.status)}</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-gray-900 truncate">{file.file.name}</p>
+                          <Badge variant="outline" className="flex-shrink-0">{getDocumentTypeLabel(file.type)}</Badge>
                         </div>
-                        <p className="text-sm text-muted-foreground">{(file.file.size / 1024 / 1024).toFixed(2)} MB</p>
-                        {file.status === "uploading" && <Progress value={file.progress} className="mt-2" />}
+                        <div className="flex items-center gap-3 mt-1">
+                          <p className="text-xs text-muted-foreground">{(file.file.size / 1024 / 1024).toFixed(2)} MB</p>
+                          {file.status === "uploading" && (
+                            <div className="flex-1 max-w-xs">
+                              <Progress value={file.progress} className="h-2" />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
-                      <Badge variant={file.status === "completed" ? "default" : "secondary"}>{file.status}</Badge>
-                      <Button variant="ghost" size="sm" onClick={() => removeFile(file.id)}>
+                    <div className="flex items-center space-x-2 flex-shrink-0">
+                      <Badge
+                        variant={file.status === "completed" ? "default" : file.status === "error" ? "destructive" : "secondary"}
+                        className="capitalize"
+                      >
+                        {file.status}
+                      </Badge>
+                      <Button variant="ghost" size="sm" onClick={() => removeFile(file.id)} className="hover:bg-red-50 hover:text-red-600">
                         <X className="h-4 w-4" />
                       </Button>
                     </div>
@@ -469,15 +564,23 @@ export default function OasisUpload() {
         </TabsContent>
 
         <TabsContent value="results">
-          <Card>
-            <CardHeader>
+          <Card className="border-2 shadow-lg">
+            <CardHeader className="bg-gradient-to-r from-emerald-50 to-green-50 border-b">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>QA Results & QAPI Report</CardTitle>
-                  <CardDescription>Comprehensive analysis of all uploaded documents</CardDescription>
+                  <CardTitle className="flex items-center gap-3 text-xl">
+                    <div className="h-10 w-10 rounded-lg bg-emerald-600 flex items-center justify-center text-white shadow-md">
+                      <FileCheck className="h-5 w-5" />
+                    </div>
+                    QA Results & QAPI Report
+                  </CardTitle>
+                  <CardDescription className="text-base mt-2">Comprehensive analysis of all uploaded documents</CardDescription>
                 </div>
                 {canGenerateQAPIReport && (
-                  <Button onClick={() => (window.location.href = `/oasis-qa/qapi-report/${chartId}`)}>
+                  <Button
+                    onClick={() => (window.location.href = `/oasis-qa/qapi-report/${chartId}`)}
+                    className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 shadow-md"
+                  >
                     <FileCheck className="h-4 w-4 mr-2" />
                     Generate QAPI Report
                   </Button>
@@ -486,22 +589,34 @@ export default function OasisUpload() {
             </CardHeader>
             <CardContent>
               {completedFiles.length === 0 ? (
-                <div className="text-center py-8">
-                  <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                  <h3 className="font-medium mb-2">No Results Yet</h3>
+                <div className="text-center py-16">
+                  <div className="h-20 w-20 rounded-full bg-gray-100 flex items-center justify-center mx-auto mb-4">
+                    <FileText className="h-10 w-10 text-gray-400" />
+                  </div>
+                  <h3 className="text-xl font-semibold mb-2 text-gray-900">No Results Yet</h3>
                   <p className="text-muted-foreground">Upload and process documents to see QA results</p>
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-6 p-6">
                   {/* Summary Stats */}
-                  <div className="grid grid-cols-4 gap-4">
-                    <div className="p-4 bg-blue-50 rounded-lg">
-                      <p className="text-sm font-medium text-blue-900">Documents Processed</p>
-                      <p className="text-2xl font-bold text-blue-600">{completedFiles.length}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="p-6 bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl border-2 border-blue-200 shadow-md hover:shadow-lg transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-blue-700 uppercase tracking-wide">Documents Processed</p>
+                        <div className="h-10 w-10 rounded-lg bg-blue-200 flex items-center justify-center">
+                          <FileText className="h-5 w-5 text-blue-600" />
+                        </div>
+                      </div>
+                      <p className="text-3xl font-bold text-blue-600">{completedFiles.length}</p>
                     </div>
-                    <div className="p-4 bg-green-50 rounded-lg">
-                      <p className="text-sm font-medium text-green-900">Avg Quality Score</p>
-                      <p className="text-2xl font-bold text-green-600">
+                    <div className="p-6 bg-gradient-to-br from-green-50 to-green-100 rounded-xl border-2 border-green-200 shadow-md hover:shadow-lg transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-green-700 uppercase tracking-wide">Avg Quality Score</p>
+                        <div className="h-10 w-10 rounded-lg bg-green-200 flex items-center justify-center">
+                          <CheckCircle className="h-5 w-5 text-green-600" />
+                        </div>
+                      </div>
+                      <p className="text-3xl font-bold text-green-600">
                         {completedFiles.length > 0
                           ? Math.round(
                               completedFiles.reduce(
@@ -518,9 +633,14 @@ export default function OasisUpload() {
                         %
                       </p>
                     </div>
-                    <div className="p-4 bg-orange-50 rounded-lg">
-                      <p className="text-sm font-medium text-orange-900">Total Issues</p>
-                      <p className="text-2xl font-bold text-orange-600">
+                    <div className="p-6 bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl border-2 border-orange-200 shadow-md hover:shadow-lg transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-orange-700 uppercase tracking-wide">Total Issues</p>
+                        <div className="h-10 w-10 rounded-lg bg-orange-200 flex items-center justify-center">
+                          <AlertCircle className="h-5 w-5 text-orange-600" />
+                        </div>
+                      </div>
+                      <p className="text-3xl font-bold text-orange-600">
                         {completedFiles.reduce(
                           (sum, f) =>
                             sum +
@@ -532,9 +652,14 @@ export default function OasisUpload() {
                         )}
                       </p>
                     </div>
-                    <div className="p-4 bg-purple-50 rounded-lg">
-                      <p className="text-sm font-medium text-purple-900">Revenue Impact</p>
-                      <p className="text-2xl font-bold text-purple-600">
+                    <div className="p-6 bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl border-2 border-purple-200 shadow-md hover:shadow-lg transition-all">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-sm font-semibold text-purple-700 uppercase tracking-wide">Revenue Impact</p>
+                        <div className="h-10 w-10 rounded-lg bg-purple-200 flex items-center justify-center">
+                          <Activity className="h-5 w-5 text-purple-600" />
+                        </div>
+                      </div>
+                      <p className="text-3xl font-bold text-purple-600">
                         $
                         {completedFiles
                           .reduce((sum, f) => {
@@ -553,14 +678,14 @@ export default function OasisUpload() {
                   {/* Document Results */}
                   <div className="space-y-4">
                     {completedFiles.map((file) => (
-                      <div key={file.id} className="p-6 border rounded-lg space-y-4">
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <h3 className="font-medium">{file.file.name}</h3>
-                              <Badge>{getDocumentTypeLabel(file.type)}</Badge>
+                      <div key={file.id} className="p-6 border-2 rounded-xl space-y-4 bg-white hover:shadow-lg transition-all">
+                        <div className="flex items-center justify-between flex-wrap gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <h3 className="font-semibold text-lg text-gray-900 truncate">{file.file.name}</h3>
+                              <Badge variant="outline" className="flex-shrink-0">{getDocumentTypeLabel(file.type)}</Badge>
                             </div>
-                            <p className="text-sm text-muted-foreground">Processed successfully</p>
+                            <p className="text-sm text-muted-foreground mt-1">Processed successfully</p>
                           </div>
                           <Button
                             variant="outline"
@@ -574,6 +699,7 @@ export default function OasisUpload() {
                                 window.location.href = `/oasis-qa/optimization/${file.id}`
                               }
                             }}
+                            className="hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700"
                           >
                             <Eye className="h-4 w-4 mr-2" />
                             View Optimization Report
@@ -581,10 +707,10 @@ export default function OasisUpload() {
                         </div>
 
                         {file.analysis && (
-                          <div className="grid grid-cols-3 gap-4">
-                            <div className="p-3 bg-blue-50 rounded">
-                              <p className="text-xs font-medium text-blue-900">Quality Score</p>
-                              <p className="text-xl font-bold text-blue-600">
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="p-4 bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg border border-blue-200">
+                              <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Quality Score</p>
+                              <p className="text-2xl font-bold text-blue-600">
                                 {file.analysis.qualityScore ||
                                   file.analysis.qualityScores?.overall ||
                                   file.analysis.quality_score ||
@@ -592,9 +718,9 @@ export default function OasisUpload() {
                                 %
                               </p>
                             </div>
-                            <div className="p-3 bg-green-50 rounded">
-                              <p className="text-xs font-medium text-green-900">Confidence</p>
-                              <p className="text-xl font-bold text-green-600">
+                            <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
+                              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Confidence</p>
+                              <p className="text-2xl font-bold text-green-600">
                                 {file.analysis.confidence ||
                                   file.analysis.qualityScores?.confidence ||
                                   file.analysis.confidence_score ||
@@ -602,9 +728,9 @@ export default function OasisUpload() {
                                 %
                               </p>
                             </div>
-                            <div className="p-3 bg-orange-50 rounded">
-                              <p className="text-xs font-medium text-orange-900">Issues</p>
-                              <p className="text-xl font-bold text-orange-600">
+                            <div className="p-4 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg border border-orange-200">
+                              <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-2">Issues</p>
+                              <p className="text-2xl font-bold text-orange-600">
                                 {file.analysis.flaggedIssues?.length ||
                                   file.analysis.findings?.length ||
                                   (Array.isArray(file.analysis.findings) ? file.analysis.findings.length : 0) ||
@@ -622,6 +748,7 @@ export default function OasisUpload() {
           </Card>
         </TabsContent>
       </Tabs>
+      </div>
     </div>
   )
 }
