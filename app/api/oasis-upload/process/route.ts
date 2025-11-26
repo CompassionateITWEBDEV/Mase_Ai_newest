@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
 import { analyzeOasisDocument } from "@/lib/oasis-ai-analyzer"
 import { pdfcoService } from "@/lib/pdfco-service"
+import { analyzeClinicalDocument, analyzePlanOfCare } from "@/lib/clinical-qa-analyzer"
 
 function sanitizeText(value: any): string {
   // Handle null, undefined, or non-string values
@@ -539,6 +540,214 @@ export async function POST(request: NextRequest) {
         message: "PT Visit note processed successfully",
         uploadId: uploadId,
         analysis: analysis,
+      })
+    } else if (fileType === "poc") {
+      console.log("[POC] ========================================")
+      console.log("[POC] Processing Plan of Care (485) form...")
+      console.log("[POC] Upload ID:", uploadId)
+      console.log("[POC] File Name:", file.name)
+      console.log("[POC] File Size:", file.size, "bytes")
+      console.log("[POC] ========================================")
+
+      // Track processing start time
+      const processingStartTime = Date.now()
+      console.log("[POC] ⏱️ Processing started at:", new Date(processingStartTime).toISOString())
+
+      console.log("[POC] Extracted text length:", fileText.length, "characters")
+      console.log("[POC] Estimated pages:", Math.ceil(fileText.length / 2000))
+      console.log("[POC] ========================================")
+
+      // Extract key information directly from text for validation
+      const directExtractions = {
+        mrn: fileText.match(/Medical Record No[.:\s]*([A-Z0-9]+)/i)?.[1] || 
+              fileText.match(/MRN[.:\s]*([A-Z0-9]+)/i)?.[1] || null,
+        orderNumber: fileText.match(/Order\s*#?[.:\s]*(\d+)/i)?.[1] || null,
+        patientName: fileText.match(/(?:Patient Name|Name)[:\s]*([A-Z][a-z]+(?:,\s*[A-Z][a-z]+(?:\s+[A-Z])?)+)/i)?.[1]?.trim() || null,
+        physicianName: fileText.match(/(?:Physician|Attending Physician)[:\s]*([A-Z][A-Z\s,]+M\.?D\.?)/i)?.[1]?.trim() || null,
+        physicianNPI: fileText.match(/NPI[:\s]*(\d+)/i)?.[1] || null,
+        startOfCare: fileText.match(/Start of Care Date[:\s]*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1] || null,
+        certificationStart: fileText.match(/Certification Period[:\s]*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1] || null,
+        certificationEnd: fileText.match(/Certification Period[:\s]*\d{1,2}\/\d{1,2}\/\d{4}\s*[-–]\s*(\d{1,2}\/\d{1,2}\/\d{4})/i)?.[1] || null,
+      }
+
+      console.log("[POC] Direct text extractions for validation:")
+      console.log("[POC] MRN:", directExtractions.mrn)
+      console.log("[POC] Order #:", directExtractions.orderNumber)
+      console.log("[POC] Patient Name:", directExtractions.patientName)
+      console.log("[POC] Physician:", directExtractions.physicianName)
+      console.log("[POC] ========================================")
+
+      // Analyze Plan of Care using specialized analyzer
+      const aiAnalysisStartTime = Date.now()
+      const pocAnalysis = await analyzePlanOfCare(fileText)
+      const aiAnalysisEndTime = Date.now()
+      const aiAnalysisDuration = aiAnalysisEndTime - aiAnalysisStartTime
+
+      // Validate and override extracted data with direct extractions if AI missed them
+      if (pocAnalysis.extractedData) {
+        if (!pocAnalysis.extractedData.patientInfo.mrn || pocAnalysis.extractedData.patientInfo.mrn === "N/A") {
+          pocAnalysis.extractedData.patientInfo.mrn = directExtractions.mrn || pocAnalysis.extractedData.patientInfo.mrn || "N/A"
+        }
+        if (!pocAnalysis.extractedData.orderInfo.orderNumber || pocAnalysis.extractedData.orderInfo.orderNumber === "N/A") {
+          pocAnalysis.extractedData.orderInfo.orderNumber = directExtractions.orderNumber || pocAnalysis.extractedData.orderInfo.orderNumber || "N/A"
+        }
+        if (!pocAnalysis.extractedData.patientInfo.name || pocAnalysis.extractedData.patientInfo.name === "N/A") {
+          pocAnalysis.extractedData.patientInfo.name = directExtractions.patientName || pocAnalysis.extractedData.patientInfo.name || "N/A"
+        }
+        if (!pocAnalysis.extractedData.physicianInfo.name || pocAnalysis.extractedData.physicianInfo.name === "N/A") {
+          pocAnalysis.extractedData.physicianInfo.name = directExtractions.physicianName || pocAnalysis.extractedData.physicianInfo.name || "N/A"
+        }
+        if (!pocAnalysis.extractedData.physicianInfo.npi || pocAnalysis.extractedData.physicianInfo.npi === "N/A") {
+          pocAnalysis.extractedData.physicianInfo.npi = directExtractions.physicianNPI || pocAnalysis.extractedData.physicianInfo.npi || "N/A"
+        }
+        if (!pocAnalysis.extractedData.orderInfo.startOfCareDate || pocAnalysis.extractedData.orderInfo.startOfCareDate === "N/A") {
+          pocAnalysis.extractedData.orderInfo.startOfCareDate = directExtractions.startOfCare || pocAnalysis.extractedData.orderInfo.startOfCareDate || "N/A"
+        }
+        if (!pocAnalysis.extractedData.orderInfo.certificationPeriod.start || pocAnalysis.extractedData.orderInfo.certificationPeriod.start === "N/A") {
+          pocAnalysis.extractedData.orderInfo.certificationPeriod.start = directExtractions.certificationStart || pocAnalysis.extractedData.orderInfo.certificationPeriod.start || "N/A"
+        }
+        if (!pocAnalysis.extractedData.orderInfo.certificationPeriod.end || pocAnalysis.extractedData.orderInfo.certificationPeriod.end === "N/A") {
+          pocAnalysis.extractedData.orderInfo.certificationPeriod.end = directExtractions.certificationEnd || pocAnalysis.extractedData.orderInfo.certificationPeriod.end || "N/A"
+        }
+      }
+
+      console.log("[POC] ⏱️ AI Analysis completed in:", (aiAnalysisDuration / 1000).toFixed(2), "seconds")
+      console.log("[POC] ========================================")
+      console.log("[POC] ✅ Plan of Care QA Analysis Completed!")
+      console.log("[POC] ========================================")
+      console.log("[POC] 📊 QA ANALYSIS RESULTS:")
+      console.log("[POC] ========================================")
+      console.log(pocAnalysis.qaAnalysis)
+      console.log("[POC] ========================================")
+      console.log("[POC] Missing Information Count:", pocAnalysis.structuredData.missingInformation.length)
+      console.log("[POC] Inconsistencies Count:", pocAnalysis.structuredData.inconsistencies.length)
+      console.log("[POC] Medication Issues Count:", pocAnalysis.structuredData.medicationIssues.length)
+      console.log("[POC] Clinical Logic Gaps Count:", pocAnalysis.structuredData.clinicalLogicGaps.length)
+      console.log("[POC] Compliance Risks Count:", pocAnalysis.structuredData.complianceRisks.length)
+      console.log("[POC] Signature/Date Problems Count:", pocAnalysis.structuredData.signatureDateProblems.length)
+      console.log("[POC] ========================================")
+      console.log("[POC] 📋 EXTRACTED DATA VERIFICATION:")
+      console.log("[POC] Patient:", pocAnalysis.extractedData.patientInfo.name)
+      console.log("[POC] MRN:", pocAnalysis.extractedData.patientInfo.mrn)
+      console.log("[POC] Order #:", pocAnalysis.extractedData.orderInfo.orderNumber)
+      console.log("[POC] Physician:", pocAnalysis.extractedData.physicianInfo.name)
+      console.log("[POC] Medications Count:", pocAnalysis.extractedData.medications.length)
+      console.log("[POC] Diagnoses Count:", pocAnalysis.extractedData.diagnoses.other.length + 1)
+      console.log("[POC] ========================================")
+
+      // Calculate total processing time
+      const processingEndTime = Date.now()
+      const totalProcessingDuration = processingEndTime - processingStartTime
+      const processingDurationSeconds = (totalProcessingDuration / 1000).toFixed(2)
+
+      console.log("[POC] ⏱️ Total processing time:", processingDurationSeconds, "seconds")
+
+      // Convert to standard ClinicalQAResult format for storage
+      const analysis = await analyzeClinicalDocument(fileText, "poc")
+
+      // Store Plan of Care in clinical_documents table
+      const insertData = {
+        upload_id: uploadId,
+        chart_id: chartId || `chart-${Date.now()}`,
+        document_type: "poc",
+        patient_id: patientId || null,
+        patient_name: sanitizeText(analysis.patientInfo?.name || ""),
+        file_name: file.name,
+        file_size: file.size,
+        file_url: fileUrl,
+        extracted_text: sanitizeText(fileText.substring(0, 10000)),
+        document_date: analysis.patientInfo?.visitDate ? new Date(analysis.patientInfo.visitDate).toISOString() : new Date().toISOString(),
+        clinician_name: sanitizeText(analysis.patientInfo?.clinician || ""),
+        discipline: "N/A",
+        status: "completed",
+        processed_at: new Date().toISOString(),
+      }
+
+      console.log("[POC] Storing Plan of Care in database...")
+      const { data: pocDocument, error: insertError } = await supabase
+        .from("clinical_documents")
+        .insert(insertData)
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error("[POC] ❌ Database insert error:", insertError)
+        throw new Error(`Failed to store Plan of Care: ${insertError.message}`)
+      }
+
+      console.log("[POC] ✅ Plan of Care stored in database with ID:", pocDocument.id)
+
+      // Store analysis in qa_analysis table with POC-specific data
+      const findingsWithPOCData = {
+        flaggedIssues: analysis.flaggedIssues,
+        pocQAAnalysis: pocAnalysis.qaAnalysis,
+        pocStructuredData: pocAnalysis.structuredData,
+        pocExtractedData: pocAnalysis.extractedData,
+        processingTime: {
+          totalSeconds: parseFloat(processingDurationSeconds),
+          aiAnalysisSeconds: parseFloat((aiAnalysisDuration / 1000).toFixed(2)),
+          startTime: new Date(processingStartTime).toISOString(),
+          endTime: new Date(processingEndTime).toISOString(),
+        },
+      }
+
+      const analysisData = {
+        document_id: pocDocument.id,
+        document_type: "poc",
+        chart_id: chartId || pocDocument.chart_id || `chart-${Date.now()}`,
+        quality_score: analysis.qualityScores.overall,
+        compliance_score: analysis.qualityScores.compliance,
+        completeness_score: analysis.qualityScores.completeness,
+        accuracy_score: analysis.qualityScores.accuracy,
+        confidence_score: analysis.qualityScores.confidence,
+        findings: findingsWithPOCData,
+        recommendations: analysis.recommendations,
+        missing_elements: analysis.missingElements,
+        coding_suggestions: analysis.suggestedCodes,
+        revenue_impact: analysis.financialImpact,
+        regulatory_issues: analysis.regulatoryIssues,
+        documentation_gaps: analysis.documentationGaps,
+        analyzed_at: new Date().toISOString(),
+      }
+
+      console.log("[POC] Storing QA analysis for Plan of Care...")
+      const { error: qaAnalysisError } = await supabase
+        .from("qa_analysis")
+        .insert(analysisData)
+
+      if (qaAnalysisError) {
+        console.error("[POC] QA Analysis insert error:", qaAnalysisError)
+        throw new Error(`Failed to store Plan of Care QA analysis: ${qaAnalysisError.message}`)
+      }
+      console.log("[POC] ✅ QA Analysis stored successfully.")
+
+      console.log("[POC] ========================================")
+      console.log("[POC] 🎉 Plan of Care processing complete!")
+      console.log("[POC] Upload ID:", uploadId)
+      console.log("[POC] ========================================")
+
+      console.log("[POC] ========================================")
+      console.log("[POC] 📋 EXTRACTED DATA SUMMARY:")
+      console.log("[POC] ========================================")
+      console.log("[POC] Patient:", pocAnalysis.extractedData.patientInfo.name)
+      console.log("[POC] MRN:", pocAnalysis.extractedData.patientInfo.mrn)
+      console.log("[POC] Order #:", pocAnalysis.extractedData.orderInfo.orderNumber)
+      console.log("[POC] Physician:", pocAnalysis.extractedData.physicianInfo.name)
+      console.log("[POC] Medications Count:", pocAnalysis.extractedData.medications.length)
+      console.log("[POC] Diagnoses Count:", pocAnalysis.extractedData.diagnoses.other.length + 1)
+      console.log("[POC] Certification Period:", pocAnalysis.extractedData.orderInfo.certificationPeriod.start, "to", pocAnalysis.extractedData.orderInfo.certificationPeriod.end)
+      console.log("[POC] ========================================")
+
+      return NextResponse.json({
+        success: true,
+        message: "Plan of Care processed successfully",
+        uploadId: uploadId,
+        analysis: {
+          ...analysis,
+          pocQAAnalysis: pocAnalysis.qaAnalysis,
+          pocStructuredData: pocAnalysis.structuredData,
+          pocExtractedData: pocAnalysis.extractedData,
+        },
       })
     }
 

@@ -9,7 +9,6 @@ import {
   FileText, 
   AlertCircle,
   CheckCircle2,
-  DollarSign,
   User,
   Calendar,
   Stethoscope,
@@ -46,12 +45,6 @@ interface PTVisitData {
     recommendations: any[]
     missingElements: any[]
     codingSuggestions: any[]
-    revenueImpact: {
-      currentRevenue: number
-      optimizedRevenue: number
-      increase: number
-      breakdown: any[]
-    }
     regulatoryIssues: any[]
     documentationGaps: any[]
     analyzedAt: string
@@ -376,67 +369,6 @@ export default function PTVisitOptimizationPage() {
                     </div>
                   )
                 })}
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Financial Impact - Enhanced */}
-        {analysis?.revenueImpact && (
-          <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow bg-gradient-to-br from-emerald-50 to-green-50">
-            <CardHeader className="border-b border-emerald-200">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-emerald-600 to-green-600 flex items-center justify-center text-white shadow-md">
-                  <DollarSign className="h-5 w-5" />
-                </div>
-                Financial Impact Analysis
-              </CardTitle>
-              <CardDescription className="text-base mt-2">
-                Revenue optimization opportunities identified through AI analysis
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="p-6 rounded-xl bg-white border-2 border-gray-200 shadow-md hover:shadow-lg transition-all">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold text-gray-600 uppercase tracking-wide">Current Revenue</p>
-                    <div className="h-10 w-10 rounded-lg bg-gray-100 flex items-center justify-center">
-                      <DollarSign className="h-5 w-5 text-gray-600" />
-                    </div>
-                  </div>
-                  <p className="text-3xl font-bold text-gray-800">
-                    ${analysis.revenueImpact.currentRevenue.toLocaleString()}
-                  </p>
-                </div>
-                <div className="p-6 rounded-xl bg-white border-2 border-green-200 shadow-md hover:shadow-lg transition-all">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold text-green-600 uppercase tracking-wide">Optimized Revenue</p>
-                    <div className="h-10 w-10 rounded-lg bg-green-100 flex items-center justify-center">
-                      <TrendingUp className="h-5 w-5 text-green-600" />
-                    </div>
-                  </div>
-                  <p className="text-3xl font-bold text-green-700">
-                    ${analysis.revenueImpact.optimizedRevenue.toLocaleString()}
-                  </p>
-                </div>
-                <div className="p-6 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 text-white shadow-lg hover:shadow-xl transition-all transform hover:scale-105">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-semibold text-blue-100 uppercase tracking-wide">Potential Increase</p>
-                    <div className="h-10 w-10 rounded-lg bg-white/20 backdrop-blur-sm flex items-center justify-center">
-                      <DollarSign className="h-5 w-5" />
-                    </div>
-                  </div>
-                  <p className="text-3xl font-bold">
-                    +${analysis.revenueImpact.increase.toLocaleString()}
-                  </p>
-                  <div className="mt-3 pt-3 border-t border-white/20">
-                    <p className="text-xs text-blue-100">
-                      {analysis.revenueImpact.currentRevenue > 0
-                        ? `${Math.round((analysis.revenueImpact.increase / analysis.revenueImpact.currentRevenue) * 100)}% increase`
-                        : "New revenue opportunity"}
-                    </p>
-                  </div>
-                </div>
               </div>
             </CardContent>
           </Card>

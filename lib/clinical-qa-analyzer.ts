@@ -172,6 +172,107 @@ export interface ClinicalQAResult {
     skilledTreatment?: { current: string[]; suggested: string[]; rationale: string }
     documentationImprovements?: Array<{ section: string; current: string; suggested: string; rationale: string }>
   }
+  // Plan of Care specific QA analysis
+  pocQAAnalysis?: string
+  pocStructuredData?: {
+    missingInformation: Array<{ issue: string; whyItMatters: string }>
+    inconsistencies: Array<{ issue: string; conflictsWith: string }>
+    medicationIssues: Array<{ issue: string; problemType: string }>
+    clinicalLogicGaps: Array<{ issue: string; explanation: string }>
+    complianceRisks: Array<{ issue: string; reason: string }>
+    signatureDateProblems: Array<{ issue: string; conflict: string }>
+  }
+  pocExtractedData?: {
+    patientInfo: {
+      name: string
+      mrn: string
+      dob: string
+      gender: string
+      address: string
+      phone: string
+    }
+    orderInfo: {
+      orderNumber: string
+      startOfCareDate: string
+      certificationPeriod: { start: string; end: string }
+      providerNumber: string
+      patientHIClaimNo: string
+    }
+    physicianInfo: {
+      name: string
+      npi: string
+      address: string
+      phone: string
+      fax: string
+    }
+    agencyInfo: {
+      name: string
+      address: string
+      phone: string
+      fax: string
+    }
+    clinicalStatus: {
+      prognosis: string
+      mentalCognitiveStatus: string
+      functionalLimitations: string[]
+      safety: string[]
+      advanceDirectives: string
+      psychosocialStatus: string
+    }
+    emergencyPreparedness: {
+      emergencyTriage: string
+      evacuationZone: string
+      additionalInfo: string
+    }
+    medications: Array<{
+      name: string
+      dosage: string
+      frequency: string
+      route: string
+      prn: boolean
+      prnRationale?: string
+    }>
+    diagnoses: {
+      principal: { code: string; description: string }
+      other: Array<{ code: string; description: string }>
+    }
+    dmeInfo: {
+      dmeItems: string[]
+      providerName: string
+      providerPhone: string
+      suppliesProvided: string
+    }
+    caregiverInfo: {
+      status: string
+      details: string
+    }
+    goals: {
+      patientGoals: string[]
+      ptGoals: string[]
+      measurableGoals: string[]
+    }
+    treatmentPlan: {
+      disciplines: string[]
+      frequencies: string[]
+      effectiveDate: string
+      orders: string[]
+    }
+    signatures: {
+      nurseTherapistSignature: string
+      nurseTherapistDate: string
+      physicianSignature: string
+      physicianSignatureDate: string
+      dateHHAReceivedSigned: string
+      f2fDate: string
+    }
+    homeboundNarrative: string
+    medicalNecessity: string
+    rehabilitationPotential: string
+    dischargePlan: {
+      dischargeTo: string
+      dischargeWhen: string
+    }
+  }
 }
 
 const DOCUMENT_TYPE_PROMPTS: Record<DocumentType, string> = {
@@ -182,12 +283,40 @@ const DOCUMENT_TYPE_PROMPTS: Record<DocumentType, string> = {
 - Revenue optimization opportunities
 - Regulatory compliance (CMS OASIS requirements)`,
 
-  poc: `Analyze this Plan of Care for:
-- Alignment with physician orders and OASIS assessment
-- Appropriate goals and interventions
-- Frequency and duration appropriateness
-- Skilled need justification
-- Regulatory compliance (Medicare CoPs)`,
+  poc: `You are an AI QA Auditor specializing in CMS Home Health Plan of Care (485) forms.
+
+Analyze the Plan of Care PDF text and identify ONLY:
+
+1. Missing information
+2. Documentation errors
+3. Inconsistencies
+4. Conflicting clinical data
+5. Signature/date problems
+6. Medication list issues
+7. Incorrect or weak homebound narrative
+8. Incorrect, missing, or weak medical necessity justification
+9. Therapy order inconsistencies
+10. Diagnosis vs functional status mismatch
+11. Missing PRN rationale
+12. Compliance risks based on Medicare Conditions of Participation
+
+Do NOT rewrite the document.
+Do NOT optimize it.
+Only analyze and report findings.
+
+CHECK FOR:
+- Missing DME provider details
+- Missing caregiver information
+- Missing Evacuation Zone / Emergency Preparedness details
+- Incorrect Certification Period or F2F dates
+- Late physician signatures
+- Duplicated safety instructions
+- Incorrect medication spelling, route, dosage, or frequency
+- ICD-10 codes that don't match clinical narrative
+- Missing measurable goals
+- Weak or incomplete therapy goals
+- Missing functional limitations
+- Missing prognosis or clinical summaries`,
 
   physician_order: `Analyze this Physician Order for:
 - Completeness of required elements (diagnoses, treatments, frequency, duration)
@@ -239,11 +368,555 @@ Extract EVERY detail from ALL pages of the document.`,
 - Regulatory compliance (evaluation requirements)`,
 }
 
+// Specialized Plan of Care analyzer with QA format and accurate data extraction
+export async function analyzePlanOfCare(extractedText: string): Promise<{
+  qaAnalysis: string
+  structuredData: {
+    missingInformation: Array<{ issue: string; whyItMatters: string }>
+    inconsistencies: Array<{ issue: string; conflictsWith: string }>
+    medicationIssues: Array<{ issue: string; problemType: string }>
+    clinicalLogicGaps: Array<{ issue: string; explanation: string }>
+    complianceRisks: Array<{ issue: string; reason: string }>
+    signatureDateProblems: Array<{ issue: string; conflict: string }>
+  }
+  extractedData: {
+    patientInfo: {
+      name: string
+      mrn: string
+      dob: string
+      gender: string
+      address: string
+      phone: string
+    }
+    orderInfo: {
+      orderNumber: string
+      startOfCareDate: string
+      certificationPeriod: {
+        start: string
+        end: string
+      }
+      providerNumber: string
+      patientHIClaimNo: string
+    }
+    physicianInfo: {
+      name: string
+      npi: string
+      address: string
+      phone: string
+      fax: string
+    }
+    agencyInfo: {
+      name: string
+      address: string
+      phone: string
+      fax: string
+    }
+    clinicalStatus: {
+      prognosis: string
+      mentalCognitiveStatus: string
+      functionalLimitations: string[]
+      safety: string[]
+      advanceDirectives: string
+      psychosocialStatus: string
+    }
+    emergencyPreparedness: {
+      emergencyTriage: string
+      evacuationZone: string
+      additionalInfo: string
+    }
+    medications: Array<{
+      name: string
+      dosage: string
+      frequency: string
+      route: string
+      prn: boolean
+      prnRationale?: string
+    }>
+    diagnoses: {
+      principal: { code: string; description: string }
+      other: Array<{ code: string; description: string }>
+    }
+    dmeInfo: {
+      dmeItems: string[]
+      providerName: string
+      providerPhone: string
+      suppliesProvided: string
+    }
+    caregiverInfo: {
+      status: string
+      details: string
+    }
+    goals: {
+      patientGoals: string[]
+      ptGoals: string[]
+      measurableGoals: string[]
+    }
+    treatmentPlan: {
+      disciplines: string[]
+      frequencies: string[]
+      effectiveDate: string
+      orders: string[]
+    }
+    signatures: {
+      nurseTherapistSignature: string
+      nurseTherapistDate: string
+      physicianSignature: string
+      physicianSignatureDate: string
+      dateHHAReceivedSigned: string
+      f2fDate: string
+    }
+    homeboundNarrative: string
+    medicalNecessity: string
+    rehabilitationPotential: string
+    dischargePlan: {
+      dischargeTo: string
+      dischargeWhen: string
+    }
+  }
+}> {
+  const prompt = `You are an AI QA Auditor specializing in CMS Home Health Plan of Care (485) forms.
+
+FIRST: Extract ALL accurate data from the Plan of Care document. Extract EVERY detail from EVERY page.
+
+EXTRACT THE FOLLOWING DATA ACCURATELY:
+
+1. PATIENT INFORMATION:
+   - Patient Name (exact as written)
+   - Medical Record Number (MRN) - look for "Medical Record No." or "MRN"
+   - Date of Birth (DOB)
+   - Gender
+   - Address (complete)
+   - Phone number
+
+2. ORDER INFORMATION:
+   - Order Number
+   - Start of Care Date
+   - Certification Period (start and end dates)
+   - Provider Number
+   - Patient HI Claim Number
+
+3. PHYSICIAN INFORMATION:
+   - Physician Name (exact as written)
+   - NPI Number
+   - Address (complete)
+   - Office Phone
+   - Fax Number
+
+4. AGENCY INFORMATION:
+   - Agency Name
+   - Address (complete)
+   - Office Phone
+   - Fax Number
+
+5. CLINICAL STATUS:
+   - Prognosis
+   - Mental/Cognitive Status
+   - Functional Limitations (all listed)
+   - Safety (all items checked)
+   - Advance Directives (full text)
+   - Psychosocial Status
+
+6. EMERGENCY PREPAREDNESS:
+   - Emergency Triage level and description
+   - Evacuation Zone (if mentioned)
+   - Additional Emergency Preparedness Information
+
+7. MEDICATIONS:
+   - Extract ALL medications with:
+     * Medication name (exact spelling)
+     * Dosage
+     * Frequency
+     * Route (PO, PR, INH, etc.)
+     * PRN status (Yes/No)
+     * PRN rationale (if PRN)
+
+8. DIAGNOSES:
+   - Principal Diagnosis (code and description)
+   - All Other Diagnoses (codes and descriptions)
+
+9. DME INFORMATION:
+   - DME items listed
+   - DME Provider Name
+   - DME Provider Phone
+   - Supplies Provided
+
+10. CAREGIVER INFORMATION:
+    - Caregiver Status
+    - Details about caregiver
+
+11. GOALS:
+    - Patient's personal healthcare goals
+    - PT goals (all listed)
+    - Measurable goals
+
+12. TREATMENT PLAN:
+    - Disciplines ordered (PT, OT, SN, etc.)
+    - Frequencies for each discipline
+    - Effective Date
+    - Specific orders/treatments
+
+13. SIGNATURES AND DATES:
+    - Nurse/Therapist Signature and Date
+    - Physician Signature and Date
+    - Date HHA Received Signed
+    - F2F (Face-to-Face) Date
+
+14. NARRATIVES:
+    - Homebound Narrative (complete text)
+    - Medical Necessity (complete text)
+    - F2F Addendum/Admission Narrative (if present)
+
+15. REHABILITATION AND DISCHARGE:
+    - Rehabilitation Potential
+    - Discharge To Care Of
+    - Discharge When
+
+⚠️⚠️⚠️ CRITICAL EXTRACTION INSTRUCTIONS: ⚠️⚠️⚠️
+- Extract EXACT values as they appear in the document
+- For MRN: Look for "Medical Record No." or "MRN" - extract the EXACT value (e.g., "Duncan12202024")
+- For Order #: Extract the EXACT order number (e.g., "61124823")
+- For Dates: Extract dates in the EXACT format shown (e.g., "12/20/2024", "2/18/2025", "6/30/2025")
+- For Medications: Extract EXACT medication names, dosages, frequencies, routes - preserve spelling even if it looks incorrect
+- For Diagnoses: Extract EXACT ICD-10 codes and descriptions as written
+- For Signatures: Extract EXACT names and dates as shown
+- If a field is blank, mark it as "Missing" or "N/A" - do NOT make up values
+- Extract ALL medications from ALL pages - check both medication sections
+- Extract ALL diagnoses - principal and all other diagnoses
+- Extract complete addresses, phone numbers, and all contact information
+- For DME Provider: If fields are blank, mark as "Missing" - do NOT leave empty
+
+SECOND: After extracting all data, analyze for QA issues:
+
+1. Missing information
+2. Documentation errors
+3. Inconsistencies
+4. Conflicting clinical data
+5. Signature/date problems
+6. Medication list issues
+7. Incorrect or weak homebound narrative
+8. Incorrect, missing, or weak medical necessity justification
+9. Therapy order inconsistencies
+10. Diagnosis vs functional status mismatch
+11. Missing PRN rationale
+12. Compliance risks based on Medicare Conditions of Participation
+
+CHECK FOR:
+- Missing DME provider details
+- Missing caregiver information
+- Missing Evacuation Zone / Emergency Preparedness details
+- Incorrect Certification Period or F2F dates
+- Late physician signatures
+- Duplicated safety instructions
+- Incorrect medication spelling, route, dosage, or frequency
+- ICD-10 codes that don't match clinical narrative
+- Missing measurable goals
+- Weak or incomplete therapy goals
+- Missing functional limitations
+- Missing prognosis or clinical summaries
+
+PLAN OF CARE TEXT TO ANALYZE (ALL PAGES - EXTRACT EVERYTHING):
+${extractedText.substring(0, 50000)}
+
+OUTPUT FORMAT (return as JSON):
+{
+  "qaAnalysis": "Full text analysis in the exact format specified below",
+  "structuredData": {
+    "missingInformation": [{"issue": "Description", "whyItMatters": "Explanation"}],
+    "inconsistencies": [{"issue": "Description", "conflictsWith": "What it conflicts with"}],
+    "medicationIssues": [{"issue": "Description", "problemType": "Type of problem"}],
+    "clinicalLogicGaps": [{"issue": "Description", "explanation": "Explanation"}],
+    "complianceRisks": [{"issue": "Description", "reason": "Reason"}],
+    "signatureDateProblems": [{"issue": "Description", "conflict": "Conflict details"}]
+  },
+  "extractedData": {
+    "patientInfo": {
+      "name": "EXACT patient name from document",
+      "mrn": "EXACT MRN from document (e.g., 'Duncan12202024')",
+      "dob": "Date of birth",
+      "gender": "Male/Female",
+      "address": "Complete address",
+      "phone": "Phone number"
+    },
+    "orderInfo": {
+      "orderNumber": "Order # (e.g., '61124823')",
+      "startOfCareDate": "Start of Care Date",
+      "certificationPeriod": {"start": "Start date", "end": "End date"},
+      "providerNumber": "Provider No.",
+      "patientHIClaimNo": "Patient HI Claim No."
+    },
+    "physicianInfo": {
+      "name": "EXACT physician name (e.g., 'HAZIN, RIBHI M.D.')",
+      "npi": "NPI number",
+      "address": "Complete address",
+      "phone": "Office phone",
+      "fax": "Fax number"
+    },
+    "agencyInfo": {
+      "name": "Agency name",
+      "address": "Complete address",
+      "phone": "Office phone",
+      "fax": "Fax number"
+    },
+    "clinicalStatus": {
+      "prognosis": "Prognosis",
+      "mentalCognitiveStatus": "Mental/Cognitive Status",
+      "functionalLimitations": ["All functional limitations listed"],
+      "safety": ["All safety items checked"],
+      "advanceDirectives": "Full advance directives text",
+      "psychosocialStatus": "Psychosocial status"
+    },
+    "emergencyPreparedness": {
+      "emergencyTriage": "Emergency Triage level and description",
+      "evacuationZone": "Evacuation Zone if mentioned",
+      "additionalInfo": "Additional emergency preparedness information"
+    },
+    "medications": [
+      {
+        "name": "EXACT medication name",
+        "dosage": "Dosage (e.g., '50 MG')",
+        "frequency": "Frequency (e.g., 'Two times daily')",
+        "route": "Route (e.g., 'By mouth (PO)')",
+        "prn": true/false,
+        "prnRationale": "PRN rationale if PRN"
+      }
+    ],
+    "diagnoses": {
+      "principal": {"code": "ICD-10 code", "description": "Description"},
+      "other": [{"code": "ICD-10 code", "description": "Description"}]
+    },
+    "dmeInfo": {
+      "dmeItems": ["All DME items"],
+      "providerName": "DME Provider Name (or 'Missing' if blank)",
+      "providerPhone": "DME Provider Phone (or 'Missing' if blank)",
+      "suppliesProvided": "Supplies provided (or 'Missing' if blank)"
+    },
+    "caregiverInfo": {
+      "status": "Caregiver status",
+      "details": "Caregiver details"
+    },
+    "goals": {
+      "patientGoals": ["All patient personal healthcare goals"],
+      "ptGoals": ["All PT goals"],
+      "measurableGoals": ["All measurable goals"]
+    },
+    "treatmentPlan": {
+      "disciplines": ["PT", "OT", "SN", etc.],
+      "frequencies": ["Frequencies for each discipline"],
+      "effectiveDate": "Effective Date",
+      "orders": ["All specific orders/treatments"]
+    },
+    "signatures": {
+      "nurseTherapistSignature": "Nurse/Therapist signature name",
+      "nurseTherapistDate": "Nurse/Therapist signature date",
+      "physicianSignature": "Physician signature name",
+      "physicianSignatureDate": "Physician signature date",
+      "dateHHAReceivedSigned": "Date HHA received signed",
+      "f2fDate": "F2F (Face-to-Face) date"
+    },
+    "homeboundNarrative": "Complete homebound narrative text",
+    "medicalNecessity": "Complete medical necessity text",
+    "rehabilitationPotential": "Rehabilitation potential",
+    "dischargePlan": {
+      "dischargeTo": "Discharge To Care Of",
+      "dischargeWhen": "Discharge When"
+    }
+  }
+}
+
+The qaAnalysis field should contain the full text in this exact format:
+
+Plan of Care QA Analysis:
+
+Missing Information:
+• [Issue] – [Why it matters]
+
+Inconsistencies:
+• [Issue] – [What it conflicts with]
+
+Medication Issues:
+• [Issue] – [Type of problem]
+
+Clinical Logic Gaps:
+• [Issue] – [Explanation]
+
+Compliance Risks:
+• [Issue] – [Reason]
+
+Signature/Date Problems:
+• [Issue] – [Conflict]
+
+Plan of Care QA analysis completed.`
+
+  try {
+    console.log(`[POC] Analyzing Plan of Care document with OpenAI...`)
+
+    const { text } = await generateText({
+      model: openai("gpt-4o-mini"),
+      prompt,
+      temperature: 0.1, // Lower temperature for more accurate extraction
+      maxTokens: 12000, // Increased for comprehensive data extraction
+    })
+
+    let jsonText = text.trim()
+    if (jsonText.startsWith("```")) {
+      jsonText = jsonText.replace(/```json\n?/g, "").replace(/```\n?/g, "")
+    }
+
+    const jsonStart = jsonText.indexOf("{")
+    const jsonEnd = jsonText.lastIndexOf("}") + 1
+    if (jsonStart === -1 || jsonEnd === 0) {
+      throw new Error("No JSON object found in response")
+    }
+
+    jsonText = jsonText.substring(jsonStart, jsonEnd)
+    const analysis = JSON.parse(jsonText)
+
+    // Validate structure
+    const validatedAnalysis = {
+      qaAnalysis: analysis.qaAnalysis || "Plan of Care QA analysis completed.",
+      structuredData: {
+        missingInformation: Array.isArray(analysis.structuredData?.missingInformation) 
+          ? analysis.structuredData.missingInformation 
+          : [],
+        inconsistencies: Array.isArray(analysis.structuredData?.inconsistencies)
+          ? analysis.structuredData.inconsistencies
+          : [],
+        medicationIssues: Array.isArray(analysis.structuredData?.medicationIssues)
+          ? analysis.structuredData.medicationIssues
+          : [],
+        clinicalLogicGaps: Array.isArray(analysis.structuredData?.clinicalLogicGaps)
+          ? analysis.structuredData.clinicalLogicGaps
+          : [],
+        complianceRisks: Array.isArray(analysis.structuredData?.complianceRisks)
+          ? analysis.structuredData.complianceRisks
+          : [],
+        signatureDateProblems: Array.isArray(analysis.structuredData?.signatureDateProblems)
+          ? analysis.structuredData.signatureDateProblems
+          : [],
+      },
+      extractedData: analysis.extractedData || {
+        patientInfo: { name: "N/A", mrn: "N/A", dob: "N/A", gender: "N/A", address: "N/A", phone: "N/A" },
+        orderInfo: { orderNumber: "N/A", startOfCareDate: "N/A", certificationPeriod: { start: "N/A", end: "N/A" }, providerNumber: "N/A", patientHIClaimNo: "N/A" },
+        physicianInfo: { name: "N/A", npi: "N/A", address: "N/A", phone: "N/A", fax: "N/A" },
+        agencyInfo: { name: "N/A", address: "N/A", phone: "N/A", fax: "N/A" },
+        clinicalStatus: { prognosis: "N/A", mentalCognitiveStatus: "N/A", functionalLimitations: [], safety: [], advanceDirectives: "N/A", psychosocialStatus: "N/A" },
+        emergencyPreparedness: { emergencyTriage: "N/A", evacuationZone: "N/A", additionalInfo: "N/A" },
+        medications: [],
+        diagnoses: { principal: { code: "N/A", description: "N/A" }, other: [] },
+        dmeInfo: { dmeItems: [], providerName: "N/A", providerPhone: "N/A", suppliesProvided: "N/A" },
+        caregiverInfo: { status: "N/A", details: "N/A" },
+        goals: { patientGoals: [], ptGoals: [], measurableGoals: [] },
+        treatmentPlan: { disciplines: [], frequencies: [], effectiveDate: "N/A", orders: [] },
+        signatures: { nurseTherapistSignature: "N/A", nurseTherapistDate: "N/A", physicianSignature: "N/A", physicianSignatureDate: "N/A", dateHHAReceivedSigned: "N/A", f2fDate: "N/A" },
+        homeboundNarrative: "N/A",
+        medicalNecessity: "N/A",
+        rehabilitationPotential: "N/A",
+        dischargePlan: { dischargeTo: "N/A", dischargeWhen: "N/A" },
+      },
+    }
+
+    console.log(`[POC] Plan of Care analysis completed successfully`)
+    return validatedAnalysis
+  } catch (error) {
+    console.error(`[POC] Plan of Care analysis error:`, error)
+    throw new Error(`Failed to analyze Plan of Care: ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
 export async function analyzeClinicalDocument(
   extractedText: string,
   documentType: DocumentType,
   relatedDocuments?: Array<{ type: string; text: string }>,
 ): Promise<ClinicalQAResult> {
+  // Handle Plan of Care separately with specialized analyzer
+  if (documentType === "poc") {
+    const pocAnalysis = await analyzePlanOfCare(extractedText)
+    
+    // Convert POC analysis to standard ClinicalQAResult format
+    return {
+      patientInfo: {
+        name: "Unknown Patient",
+        mrn: "N/A",
+        visitDate: new Date().toISOString().split("T")[0],
+        clinician: "Unknown",
+        clinicianType: "Unknown",
+      },
+      qualityScores: {
+        overall: 75,
+        completeness: 75,
+        accuracy: 75,
+        compliance: 75,
+        confidence: 75,
+      },
+      diagnoses: [],
+      suggestedCodes: [],
+      corrections: [],
+      missingElements: pocAnalysis.structuredData.missingInformation.map(item => ({
+        element: item.issue,
+        category: "required",
+        severity: "high",
+        recommendation: item.whyItMatters,
+      })),
+      flaggedIssues: [
+        ...pocAnalysis.structuredData.inconsistencies.map(item => ({
+          issue: item.issue,
+          severity: "medium",
+          location: "Plan of Care",
+          suggestion: item.conflictsWith,
+          category: "inconsistency",
+        })),
+        ...pocAnalysis.structuredData.medicationIssues.map(item => ({
+          issue: item.issue,
+          severity: "high",
+          location: "Medication List",
+          suggestion: item.problemType,
+          category: "medication",
+        })),
+        ...pocAnalysis.structuredData.clinicalLogicGaps.map(item => ({
+          issue: item.issue,
+          severity: "medium",
+          location: "Clinical Documentation",
+          suggestion: item.explanation,
+          category: "clinical",
+        })),
+        ...pocAnalysis.structuredData.signatureDateProblems.map(item => ({
+          issue: item.issue,
+          severity: "high",
+          location: "Signature/Date Section",
+          suggestion: item.conflict,
+          category: "compliance",
+        })),
+      ],
+      riskFactors: pocAnalysis.structuredData.complianceRisks.map(item => ({
+        factor: item.issue,
+        severity: "high",
+        recommendation: item.reason,
+        mitigation: "Address compliance risk immediately",
+      })),
+      recommendations: [],
+      regulatoryIssues: pocAnalysis.structuredData.complianceRisks.map(item => ({
+        regulation: "CMS Conditions of Participation",
+        issue: item.issue,
+        severity: "high",
+        remediation: item.reason,
+      })),
+      documentationGaps: pocAnalysis.structuredData.missingInformation.map(item => ({
+        gap: item.issue,
+        impact: item.whyItMatters,
+        recommendation: "Add missing information to ensure compliance",
+      })),
+      financialImpact: {
+        currentRevenue: 0,
+        optimizedRevenue: 0,
+        increase: 0,
+        breakdown: [],
+      },
+      pocQAAnalysis: pocAnalysis.qaAnalysis,
+      pocStructuredData: pocAnalysis.structuredData,
+      pocExtractedData: pocAnalysis.extractedData,
+    }
+  }
+
   const typeSpecificPrompt = DOCUMENT_TYPE_PROMPTS[documentType]
 
   const relatedDocsContext = relatedDocuments?.length
@@ -791,7 +1464,7 @@ Return ONLY a valid JSON object with this structure (no markdown, no extra text)
 
     // For PT notes, allow more tokens for detailed extraction
     const maxTokens = documentType === "pt_note" ? 8000 : 4000
-    
+
     const { text } = await generateText({
       model: openai("gpt-4o-mini"), // Using GPT-4o-mini - same as OASIS analyzer
       prompt,

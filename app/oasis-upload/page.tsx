@@ -568,6 +568,8 @@ export default function OasisUpload() {
                             onClick={() => {
                               if (file.type === "pt-note") {
                                 window.location.href = `/pt-visit-qa/optimization/${file.id}`
+                              } else if (file.type === "poc") {
+                                window.location.href = `/poc-qa/optimization/${file.id}`
                               } else {
                                 window.location.href = `/oasis-qa/optimization/${file.id}`
                               }
