@@ -127,8 +127,7 @@ interface OptimizationData {
     suggestedDescription?: string
     clinicalRationale?: string
   }>
-  painAssessment: Array<{
-    // Same format as Functional Status
+  painStatus: Array<{
     item: string
     currentValue: string
     currentDescription: string
@@ -136,8 +135,7 @@ interface OptimizationData {
     suggestedDescription?: string
     clinicalRationale?: string
   }>
-  moodAssessment: Array<{
-    // Same format as Functional Status
+  integumentaryStatus: Array<{
     item: string
     currentValue: string
     currentDescription: string
@@ -145,8 +143,47 @@ interface OptimizationData {
     suggestedDescription?: string
     clinicalRationale?: string
   }>
-  cognitiveAssessment: Array<{
-    // Same format as Functional Status
+  respiratoryStatus: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  cardiacStatus: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  eliminationStatus: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  neuroEmotionalBehavioralStatus: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  emotionalStatus: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  behavioralStatus: Array<{
     item: string
     currentValue: string
     currentDescription: string
@@ -177,6 +214,62 @@ interface OptimizationData {
     clientResponse: string
     outcome: string
   }
+  // Advanced Optimization Features
+  comorbidityOpportunities?: {
+    currentLevel: "None" | "Low" | "Medium" | "High"
+    suggestedDiagnoses: Array<{
+      code: string
+      description: string
+      revenueImpact: number
+      supportingEvidence: string
+      documentationNeeded: string
+      confidence: number
+    }>
+    potentialIncrease: number
+  }
+  lupaRiskAnalysis?: {
+    estimatedVisitCount: number
+    threshold: number
+    isAtRisk: boolean
+    riskLevel: "Safe" | "Warning" | "High Risk" | "Critical"
+    potentialPenalty: number
+    recommendation: string
+  }
+  therapyThresholdAnalysis?: {
+    currentTherapyVisits: number
+    currentThreshold: string
+    suggestedThreshold: string
+    revenueImpact: number
+    eligibilityCriteria: string[]
+    recommendation: string
+  }
+  priorityActions?: Array<{
+    rank: number
+    action: string
+    category: "Functional Status" | "Diagnosis" | "Visit Count" | "Therapy" | "Documentation"
+    impact: "Critical" | "High" | "Medium" | "Low"
+    revenueImpact: number
+    timeRequired: string
+    difficulty: "Easy" | "Medium" | "Hard"
+    specificSteps: string[]
+  }>
+  documentationQualityScore?: {
+    overallScore: number
+    breakdown: {
+      completeness: number
+      accuracy: number
+      clinicalJustification: number
+      revenueOptimization: number
+    }
+    benchmarkComparison: "Top Quartile" | "Above Average" | "Average" | "Below Average" | "Needs Improvement"
+    improvementAreas: Array<{
+      area: string
+      currentScore: number
+      targetScore: number
+      potentialGain: number
+      recommendations: string[]
+    }>
+  }
 }
 
 // Helper function to determine which sections to show based on QA Type
@@ -185,12 +278,20 @@ const getSectionVisibility = (qaType: string) => {
     case 'coding-review':
       return {
         revenueOptimization: false, // Hide - not relevant for coding
+        priorityActions: false, // Hide - not coding focus
+        documentationQualityScore: false, // Hide - not coding focus
+        lupaRiskAnalysis: false, // Hide - not coding focus
+        comorbidityOpportunities: true, // ✅ SHOW - Related to diagnosis coding
+        therapyThresholdAnalysis: false, // Hide - not coding focus
         diagnosisCodes: true, // ✅ PRIMARY FOCUS
         functionalStatus: false, // Hide - focus on codes only
         medicationManagement: false, // Hide - not coding focus
-        painAssessment: false, // Hide - not coding focus
-        moodAssessment: false, // Hide - not coding focus
-        cognitiveAssessment: false, // Hide - not coding focus
+        painStatus: false, // Hide - not coding focus
+        integumentaryStatus: false,
+        respiratoryStatus: false,
+        cardiacStatus: false,
+        eliminationStatus: false,
+        neuroEmotionalBehavioralStatus: false,
         missingInformation: true, // Always show
         inconsistencies: true, // Always show
         outcomeSummary: true, // Always show
@@ -199,12 +300,20 @@ const getSectionVisibility = (qaType: string) => {
     case 'financial-optimization':
       return {
         revenueOptimization: true, // ✅ PRIMARY FOCUS - revenue metrics
+        priorityActions: true, // ✅ NEW - Action list for optimization
+        documentationQualityScore: true, // ✅ NEW - Overall quality metrics
+        lupaRiskAnalysis: true, // ✅ NEW - Critical for avoiding penalties
+        comorbidityOpportunities: true, // ✅ NEW - Additional revenue opportunities
+        therapyThresholdAnalysis: true, // ✅ NEW - Therapy optimization
         diagnosisCodes: true, // ✅ Show - affects clinical group
         functionalStatus: true, // ✅ CRITICAL - affects HIPPS code
         medicationManagement: false, // Hide - not revenue-critical
-        painAssessment: false, // Hide - not revenue-critical
-        moodAssessment: false, // Hide - not revenue-critical
-        cognitiveAssessment: false, // Hide - not revenue-critical
+        painStatus: false, // Hide - not revenue-critical
+        integumentaryStatus: false,
+        respiratoryStatus: false,
+        cardiacStatus: false,
+        eliminationStatus: false,
+        neuroEmotionalBehavioralStatus: false,
         missingInformation: true, // Always show
         inconsistencies: true, // Always show
         outcomeSummary: true, // Always show
@@ -213,12 +322,20 @@ const getSectionVisibility = (qaType: string) => {
     case 'qapi-audit':
       return {
         revenueOptimization: true, // Show - compliance includes revenue
+        priorityActions: true, // ✅ NEW - Show action list
+        documentationQualityScore: true, // ✅ NEW - PRIMARY FOCUS for QAPI
+        lupaRiskAnalysis: true, // ✅ NEW - Compliance check
+        comorbidityOpportunities: false, // Hide - not QAPI focus
+        therapyThresholdAnalysis: false, // Hide - not QAPI focus
         diagnosisCodes: true, // Show - compliance check
         functionalStatus: true, // Show - documentation completeness
         medicationManagement: true, // Show - safety and compliance
-        painAssessment: true, // Show - quality measures
-        moodAssessment: true, // Show - quality measures
-        cognitiveAssessment: true, // Show - quality measures
+        painStatus: true, // Show - quality measures
+        integumentaryStatus: true, // Show - wound care documentation
+        respiratoryStatus: true, // Show - respiratory assessment
+        cardiacStatus: true, // Show - cardiac monitoring
+        eliminationStatus: true, // Show - continence assessment
+        neuroEmotionalBehavioralStatus: true, // Show - behavioral health
         missingInformation: true, // ✅ PRIMARY FOCUS
         inconsistencies: true, // ✅ PRIMARY FOCUS
         outcomeSummary: true, // Always show
@@ -228,12 +345,20 @@ const getSectionVisibility = (qaType: string) => {
     default:
       return {
         revenueOptimization: true, // Show everything
+        priorityActions: true, // ✅ NEW - Show all actions
+        documentationQualityScore: true, // ✅ NEW - Show quality metrics
+        lupaRiskAnalysis: true, // ✅ NEW - Show LUPA analysis
+        comorbidityOpportunities: true, // ✅ NEW - Show comorbidity opportunities
+        therapyThresholdAnalysis: true, // ✅ NEW - Show therapy analysis
         diagnosisCodes: true,
         functionalStatus: true,
         medicationManagement: true,
-        painAssessment: true,
-        moodAssessment: true,
-        cognitiveAssessment: true,
+        painStatus: true,
+        integumentaryStatus: true,
+        respiratoryStatus: true,
+        cardiacStatus: true,
+        eliminationStatus: true,
+        neuroEmotionalBehavioralStatus: true,
         missingInformation: true,
         inconsistencies: true,
         outcomeSummary: true,
@@ -346,6 +471,12 @@ export default function OasisOptimizationReport() {
         'placeholder',
         '[PATIENT_NAME]',
         '[ID]',
+        'extract patient',
+        'extract MRN',
+        'extract primary',
+        // Only filter EXACT prompt examples, not real diagnosis descriptions
+        'Value: 0 (Independent)', // Generic example
+        'Value: 0 (Able to', // Generic example pattern
       ]
       const lowerValue = value.toLowerCase()
       return fakePatterns.some(pattern => lowerValue.includes(pattern.toLowerCase()))
@@ -403,74 +534,72 @@ export default function OasisOptimizationReport() {
     
     console.log('[OASIS] 💊 Medications after fake data filter:', medications.length, 'items')
 
-    // ⚠️ PRIORITIZE: Use extracted_data pain assessment (freshly analyzed)
-    const painSource = extractedData?.painAssessment || analysisResults?.painAssessment || []
-    
-    // Filter out fake/example data
-    let painAssessment = (painSource || [])
-      .filter((item: any) => {
-        // Skip if looks like fake/example data
-        if (isFakeOrExampleData(item?.item)) return false
-        if (isFakeOrExampleData(item?.currentValue)) return false
-        if (isFakeOrExampleData(item?.currentDescription)) return false
-        return true
-      })
-      .map((item: any) => ({
-        item: item?.item || "Pain Assessment Item",
-        currentValue: String(item?.currentValue ?? item?.current_value ?? "Not visible"),
-        currentDescription: item?.currentDescription || item?.current_description || "Not visible",
-        suggestedValue: item?.suggestedValue || item?.suggested_value || "",
-        suggestedDescription: item?.suggestedDescription || item?.suggested_description || "",
-        clinicalRationale: item?.clinicalRationale || item?.clinical_rationale || "",
-      }))
-    
-    console.log('[OASIS] 😣 Pain Assessment after fake data filter:', painAssessment.length, 'items')
+    // ⚠️ PRIORITIZE: Extract all new status sections
+    const mapStatusItems = (source: any[], itemType: string) => {
+      return (source || [])
+        .filter((item: any) => {
+          if (isFakeOrExampleData(item?.item)) return false
+          if (isFakeOrExampleData(item?.currentValue)) return false
+          if (isFakeOrExampleData(item?.currentDescription)) return false
+          return true
+        })
+        .map((item: any) => ({
+          item: item?.item || `${itemType} Item`,
+          currentValue: String(item?.currentValue ?? item?.current_value ?? "Not visible"),
+          currentDescription: item?.currentDescription || item?.current_description || "Not visible",
+          suggestedValue: item?.suggestedValue || item?.suggested_value || "",
+          suggestedDescription: item?.suggestedDescription || item?.suggested_description || "",
+          clinicalRationale: item?.clinicalRationale || item?.clinical_rationale || "",
+        }))
+    }
 
-    // ⚠️ PRIORITIZE: Use extracted_data mood assessment (freshly analyzed)
-    const moodSource = extractedData?.moodAssessment || analysisResults?.moodAssessment || []
-    
-    // Filter out fake/example data
-    let moodAssessment = (moodSource || [])
-      .filter((item: any) => {
-        // Skip if looks like fake/example data
-        if (isFakeOrExampleData(item?.item)) return false
-        if (isFakeOrExampleData(item?.currentValue)) return false
-        if (isFakeOrExampleData(item?.currentDescription)) return false
-        return true
-      })
-      .map((item: any) => ({
-        item: item?.item || "Mood Assessment Item",
-        currentValue: String(item?.currentValue ?? item?.current_value ?? "Not visible"),
-        currentDescription: item?.currentDescription || item?.current_description || "Not visible",
-        suggestedValue: item?.suggestedValue || item?.suggested_value || "",
-        suggestedDescription: item?.suggestedDescription || item?.suggested_description || "",
-        clinicalRationale: item?.clinicalRationale || item?.clinical_rationale || "",
-      }))
-    
-    console.log('[OASIS] 😊 Mood Assessment after fake data filter:', moodAssessment.length, 'items')
+    const painStatus = mapStatusItems(
+      extractedData?.painStatus || analysisResults?.painStatus || [],
+      "Pain Status"
+    )
+    console.log('[OASIS] 🩹 Pain Status after fake data filter:', painStatus.length, 'items')
 
-    // ⚠️ PRIORITIZE: Use extracted_data cognitive assessment (freshly analyzed)
-    const cognitiveSource = extractedData?.cognitiveAssessment || analysisResults?.cognitiveAssessment || []
-    
-    // Filter out fake/example data
-    let cognitiveAssessment = (cognitiveSource || [])
-      .filter((item: any) => {
-        // Skip if looks like fake/example data
-        if (isFakeOrExampleData(item?.item)) return false
-        if (isFakeOrExampleData(item?.currentValue)) return false
-        if (isFakeOrExampleData(item?.currentDescription)) return false
-        return true
-      })
-      .map((item: any) => ({
-        item: item?.item || "Cognitive Assessment Item",
-        currentValue: String(item?.currentValue ?? item?.current_value ?? "Not visible"),
-        currentDescription: item?.currentDescription || item?.current_description || "Not visible",
-        suggestedValue: item?.suggestedValue || item?.suggested_value || "",
-        suggestedDescription: item?.suggestedDescription || item?.suggested_description || "",
-        clinicalRationale: item?.clinicalRationale || item?.clinical_rationale || "",
-      }))
-    
-    console.log('[OASIS] 🧠 Cognitive Assessment after fake data filter:', cognitiveAssessment.length, 'items')
+    const integumentaryStatus = mapStatusItems(
+      extractedData?.integumentaryStatus || analysisResults?.integumentaryStatus || [],
+      "Integumentary Status"
+    )
+    console.log('[OASIS] 🏥 Integumentary Status after fake data filter:', integumentaryStatus.length, 'items')
+
+    const respiratoryStatus = mapStatusItems(
+      extractedData?.respiratoryStatus || analysisResults?.respiratoryStatus || [],
+      "Respiratory Status"
+    )
+    console.log('[OASIS] 🫁 Respiratory Status after fake data filter:', respiratoryStatus.length, 'items')
+
+    const cardiacStatus = mapStatusItems(
+      extractedData?.cardiacStatus || analysisResults?.cardiacStatus || [],
+      "Cardiac Status"
+    )
+    console.log('[OASIS] ❤️ Cardiac Status after fake data filter:', cardiacStatus.length, 'items')
+
+    const eliminationStatus = mapStatusItems(
+      extractedData?.eliminationStatus || analysisResults?.eliminationStatus || [],
+      "Elimination Status"
+    )
+    console.log('[OASIS] 🚽 Elimination Status after fake data filter:', eliminationStatus.length, 'items')
+
+    const neuroEmotionalBehavioralStatus = mapStatusItems(
+      extractedData?.neuroEmotionalBehavioralStatus || analysisResults?.neuroEmotionalBehavioralStatus || [],
+      "Neuro/Emotional/Behavioral Status"
+    )
+    console.log('[OASIS] 🧠 Neuro/Emotional/Behavioral Status after fake data filter:', neuroEmotionalBehavioralStatus.length, 'items')
+
+    const emotionalStatus = mapStatusItems(
+      extractedData?.emotionalStatus || analysisResults?.emotionalStatus || [],
+      "Emotional Status"
+    )
+    console.log('[OASIS] 😊 Emotional Status after fake data filter:', emotionalStatus.length, 'items')
+
+    const behavioralStatus = mapStatusItems(
+      extractedData?.behavioralStatus || analysisResults?.behavioralStatus || [],
+      "Behavioral Status"
+    )
+    console.log('[OASIS] 🎭 Behavioral Status after fake data filter:', behavioralStatus.length, 'items')
 
     // ⚠️ PRIORITIZE: Use extracted_data missing information (freshly analyzed)
     const missingInfoSource = extractedData?.missingInformation || analysisResults?.missingInformation || []
@@ -489,10 +618,11 @@ export default function OasisOptimizationReport() {
       console.log('[OASIS] ✅ No missing information found in extracted_data')
     }
 
-    // ⚠️ PRIORITIZE: Use extracted_data inconsistencies (freshly analyzed)
+    // ⚠️ PRIORITIZE: Use extracted_data inconsistencies (freshly analyzed from document)
+    // These inconsistencies are detected by AI from ACTUAL extracted data, NOT from database
     const inconsistenciesSource = extractedData?.inconsistencies || analysisResults?.inconsistencies || []
     
-    // Filter out fake/generic inconsistencies
+    // Filter out fake/generic inconsistencies (safety net to prevent AI hallucinations)
     let inconsistencies = (inconsistenciesSource || [])
       .filter((entry: any) => {
         const sectionA = entry?.sectionA || entry?.section_a || ""
@@ -696,9 +826,14 @@ export default function OasisOptimizationReport() {
       },
       functionalStatus,
       medications,
-      painAssessment,
-      moodAssessment,
-      cognitiveAssessment,
+      painStatus,
+      integumentaryStatus,
+      respiratoryStatus,
+      cardiacStatus,
+      eliminationStatus,
+      neuroEmotionalBehavioralStatus,
+      emotionalStatus,
+      behavioralStatus,
       missingInformation: baseMissingInformation,
       inconsistencies,
       debugInfo,
@@ -714,6 +849,12 @@ export default function OasisOptimizationReport() {
           analysisResults?.codingOutcome ||
           `Revenue increase of $${financialImpact.additionalRevenue || 0} per episode achieved for ${patientData?.firstName || patientData?.name?.split(" ")[0] || "patient"} through proper functional assessment scoring and diagnosis optimization. AI confidence level of ${Math.round(((analysisResults?.confidence || 98.9) * 10)) / 10}% ensures sustainable and compliant billing practices.`,
       },
+      // Advanced Optimization Features
+      comorbidityOpportunities: analysisResults?.comorbidityOpportunities,
+      lupaRiskAnalysis: analysisResults?.lupaRiskAnalysis,
+      therapyThresholdAnalysis: analysisResults?.therapyThresholdAnalysis,
+      priorityActions: analysisResults?.priorityActions,
+      documentationQualityScore: analysisResults?.documentationQualityScore,
     }
   }
 
@@ -824,62 +965,51 @@ export default function OasisOptimizationReport() {
       })
     }
 
-    // ⚠️ Check CURRENT pain assessment data
-    const validPainItems = data.painAssessment?.filter(item => 
+    // ⚠️ Check CURRENT status sections data
+    const validPainItems = data.painStatus?.filter(item => 
       item.item && !isTrulyMissing(item.item) && 
       item.currentValue && !isTrulyMissing(item.currentValue)
     ) || []
     
-    console.log('[OASIS] 😣 CURRENT Pain Assessment Count:', validPainItems.length, 'items')
+    console.log('[OASIS] 🩹 CURRENT Pain Status Count:', validPainItems.length, 'items')
     
-    // Flag Pain Assessment as missing if there are NO valid items
     if (validPainItems.length === 0) {
       missingFields.push({
-        field: "Pain Assessment (Pain Status)",
-        location: "Pain Status Section - Section J (typically pages 10-12 of OASIS form)",
-        impact: "HIGH - Pain assessment is required for proper care planning and documentation.",
-        recommendation: "Review the Pain Status section (J0510 - Pain Effect on Sleep, J0520 - Pain Interference with Therapy, J0530 - Pain Interference with Activities).",
-        required: true,
-      })
-    }
-
-    // ⚠️ Check CURRENT mood assessment data
-    const validMoodItems = data.moodAssessment?.filter(item => 
-      item.item && !isTrulyMissing(item.item) && 
-      item.currentValue && !isTrulyMissing(item.currentValue)
-    ) || []
-    
-    console.log('[OASIS] 😊 CURRENT Mood Assessment Count:', validMoodItems.length, 'items')
-    
-    // Flag Mood Assessment as missing if there are NO valid items
-    if (validMoodItems.length === 0) {
-      missingFields.push({
-        field: "Mood Assessment",
-        location: "Mood/Behavioral Status Section - Section D (typically pages 5-6 of OASIS form)",
-        impact: "MEDIUM - Mood assessment helps identify depression/anxiety for proper care planning.",
-        recommendation: "Review the Mood section (D0200 - Patient Mood/PHQ-2, D0300 - When Anxious, D0500 - Depression Screening).",
+        field: "Pain Status",
+        location: "PAIN STATUS section (check document for labeled section)",
+        impact: "HIGH - Pain status documentation is important for care planning.",
+        recommendation: "Locate the PAIN STATUS section and extract all pain-related information.",
         required: false,
       })
     }
 
-    // ⚠️ Check CURRENT cognitive assessment data
-    const validCognitiveItems = data.cognitiveAssessment?.filter(item => 
-      item.item && !isTrulyMissing(item.item) && 
-      item.currentValue && !isTrulyMissing(item.currentValue)
-    ) || []
-    
-    console.log('[OASIS] 🧠 CURRENT Cognitive Assessment Count:', validCognitiveItems.length, 'items')
-    
-    // Flag Cognitive Assessment as missing if there are NO valid items
-    if (validCognitiveItems.length === 0) {
-      missingFields.push({
-        field: "Cognitive Assessment",
-        location: "Cognitive Status Section - Section C (typically pages 4-5 of OASIS form)",
-        impact: "MEDIUM - Cognitive assessment (BIMS, Delirium) helps identify care needs and safety concerns.",
-        recommendation: "Review the Cognitive section (C0200 - Delirium Assessment, C0500 - BIMS Score).",
-        required: false,
-      })
-    }
+    // Check other status sections
+    const statusSections = [
+      { data: data.integumentaryStatus, name: "Integumentary Status", emoji: "🏥", location: "INTEGUMENTARY STATUS section" },
+      { data: data.respiratoryStatus, name: "Respiratory Status", emoji: "🫁", location: "RESPIRATORY STATUS section" },
+      { data: data.cardiacStatus, name: "Cardiac Status", emoji: "❤️", location: "CARDIAC STATUS section" },
+      { data: data.eliminationStatus, name: "Elimination Status", emoji: "🚽", location: "ELIMINATION STATUS section" },
+      { data: data.neuroEmotionalBehavioralStatus, name: "Neuro/Emotional/Behavioral Status", emoji: "🧠", location: "NEURO/EMOTIONAL/BEHAVIORAL STATUS section" },
+    ]
+
+    statusSections.forEach(section => {
+      const validItems = section.data?.filter((item: any) => 
+        item.item && !isTrulyMissing(item.item) && 
+        item.currentValue && !isTrulyMissing(item.currentValue)
+      ) || []
+      
+      console.log(`[OASIS] ${section.emoji} CURRENT ${section.name} Count:`, validItems.length, 'items')
+      
+      if (validItems.length === 0) {
+        missingFields.push({
+          field: section.name,
+          location: section.location,
+          impact: "MEDIUM - This section contains important clinical assessment data.",
+          recommendation: `Locate the ${section.location.toUpperCase()} and extract all relevant information.`,
+          required: false,
+        })
+      }
+    })
     
     console.log('[OASIS] 📋 Frontend detected TRULY missing fields:', missingFields.length, 'items')
     if (missingFields.length > 0) {
@@ -1280,6 +1410,398 @@ export default function OasisOptimizationReport() {
       </Card>
       )}
 
+      {/* Priority Action List - NEW! */}
+      {data.priorityActions && data.priorityActions.length > 0 && (
+        <Card className="shadow-2xl border-0 overflow-hidden bg-gradient-to-br from-amber-50 to-yellow-50 ring-4 ring-amber-300 ring-offset-2">
+          <div className="bg-gradient-to-r from-amber-500 via-yellow-500 to-orange-500 p-1"></div>
+          <CardHeader className="bg-gradient-to-r from-amber-50 to-yellow-50 pb-4">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-amber-100 rounded-full">
+                <CheckCircle2 className="h-7 w-7 text-amber-700" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-2">
+                  <CardTitle className="text-2xl text-amber-900">📋 Priority Action List</CardTitle>
+                  <Badge className="bg-amber-600 text-white font-bold px-3 py-1.5 shadow-lg animate-pulse">
+                    🎯 START HERE
+                  </Badge>
+                </div>
+                <CardDescription className="text-amber-700 text-base">
+                  Complete these actions in order for maximum revenue optimization impact
+                </CardDescription>
+              </div>
+              <div className="text-right">
+                <div className="text-3xl font-bold text-amber-900">
+                  ${data.priorityActions.reduce((sum, action) => sum + action.revenueImpact, 0).toLocaleString()}
+                </div>
+                <div className="text-sm text-amber-600">Total Potential</div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4 pt-4">
+            {data.priorityActions.map((action, index) => (
+              <div key={index} className={`border-2 rounded-xl p-5 bg-white shadow-md hover:shadow-lg transition-all duration-200 ${
+                action.impact === 'Critical' ? 'border-red-300 bg-red-50/30' :
+                action.impact === 'High' ? 'border-amber-300' :
+                action.impact === 'Medium' ? 'border-yellow-300' : 'border-slate-300'
+              }`}>
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${
+                      action.rank === 1 ? 'bg-amber-600' :
+                      action.rank === 2 ? 'bg-amber-500' :
+                      action.rank === 3 ? 'bg-amber-400' : 'bg-amber-300'
+                    }`}>
+                      {action.rank}
+                    </div>
+                    <div>
+                      <p className="font-bold text-slate-900 text-lg">{action.action}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge className={`${
+                          action.category === 'Visit Count' ? 'bg-purple-100 text-purple-800' :
+                          action.category === 'Functional Status' ? 'bg-indigo-100 text-indigo-800' :
+                          action.category === 'Diagnosis' ? 'bg-pink-100 text-pink-800' :
+                          action.category === 'Therapy' ? 'bg-green-100 text-green-800' :
+                          'bg-slate-100 text-slate-800'
+                        }`}>
+                          {action.category}
+                        </Badge>
+                        <Badge className={`${
+                          action.impact === 'Critical' ? 'bg-red-600 text-white' :
+                          action.impact === 'High' ? 'bg-orange-500 text-white' :
+                          action.impact === 'Medium' ? 'bg-yellow-500 text-white' :
+                          'bg-slate-400 text-white'
+                        }`}>
+                          {action.impact} Impact
+                        </Badge>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-emerald-600">
+                      +${action.revenueImpact.toLocaleString()}
+                    </div>
+                    <div className="text-xs text-slate-500">{action.timeRequired}</div>
+                  </div>
+                </div>
+                
+                <div className="bg-slate-50 rounded-lg p-4 mt-3">
+                  <p className="text-sm font-semibold text-slate-700 mb-2">Action Steps:</p>
+                  <ol className="space-y-1 text-sm text-slate-600">
+                    {action.specificSteps.map((step, stepIndex) => (
+                      <li key={stepIndex} className="flex items-start gap-2">
+                        <span className="text-amber-600 font-bold">{stepIndex + 1}.</span>
+                        <span>{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </div>
+                
+                <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-200">
+                  <div className="flex items-center gap-2 text-sm text-slate-600">
+                    <span className="font-semibold">Difficulty:</span>
+                    <Badge className={`${
+                      action.difficulty === 'Easy' ? 'bg-green-100 text-green-800' :
+                      action.difficulty === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-red-100 text-red-800'
+                    }`}>
+                      {action.difficulty === 'Easy' ? '⭐ Easy' :
+                       action.difficulty === 'Medium' ? '⭐⭐ Medium' :
+                       '⭐⭐⭐ Hard'}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Documentation Quality Score - NEW! */}
+      {data.documentationQualityScore && (
+        <Card className="shadow-xl border-0 overflow-hidden bg-gradient-to-br from-blue-50 to-cyan-50">
+          <div className="bg-gradient-to-r from-blue-500 to-cyan-500 p-1"></div>
+          <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-blue-100 rounded-full">
+                  <TrendingUp className="h-6 w-6 text-blue-700" />
+                </div>
+                <div>
+                  <CardTitle className="text-2xl text-blue-900">Documentation Quality Score</CardTitle>
+                  <CardDescription className="text-blue-700">
+                    Overall performance metrics and improvement opportunities
+                  </CardDescription>
+                </div>
+              </div>
+              <div className="text-right">
+                <div className={`text-5xl font-bold ${
+                  data.documentationQualityScore.overallScore >= 90 ? 'text-green-600' :
+                  data.documentationQualityScore.overallScore >= 80 ? 'text-blue-600' :
+                  data.documentationQualityScore.overallScore >= 70 ? 'text-yellow-600' :
+                  'text-red-600'
+                }`}>
+                  {data.documentationQualityScore.overallScore}
+                </div>
+                <div className="text-sm text-slate-600">/100</div>
+                <Badge className={`mt-2 ${
+                  data.documentationQualityScore.benchmarkComparison === 'Top Quartile' ? 'bg-green-600 text-white' :
+                  data.documentationQualityScore.benchmarkComparison === 'Above Average' ? 'bg-blue-600 text-white' :
+                  data.documentationQualityScore.benchmarkComparison === 'Average' ? 'bg-yellow-600 text-white' :
+                  'bg-red-600 text-white'
+                }`}>
+                  {data.documentationQualityScore.benchmarkComparison}
+                </Badge>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="bg-white rounded-lg p-4 border-2 border-blue-200">
+                <p className="text-xs text-slate-500 mb-1">Completeness</p>
+                <p className="text-2xl font-bold text-blue-600">{data.documentationQualityScore.breakdown.completeness}</p>
+                <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
+                  <div className="bg-blue-600 h-2 rounded-full" style={{width: `${data.documentationQualityScore.breakdown.completeness}%`}}></div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-4 border-2 border-emerald-200">
+                <p className="text-xs text-slate-500 mb-1">Accuracy</p>
+                <p className="text-2xl font-bold text-emerald-600">{data.documentationQualityScore.breakdown.accuracy}</p>
+                <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
+                  <div className="bg-emerald-600 h-2 rounded-full" style={{width: `${data.documentationQualityScore.breakdown.accuracy}%`}}></div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-4 border-2 border-purple-200">
+                <p className="text-xs text-slate-500 mb-1">Clinical Justification</p>
+                <p className="text-2xl font-bold text-purple-600">{data.documentationQualityScore.breakdown.clinicalJustification}</p>
+                <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
+                  <div className="bg-purple-600 h-2 rounded-full" style={{width: `${data.documentationQualityScore.breakdown.clinicalJustification}%`}}></div>
+                </div>
+              </div>
+              <div className="bg-white rounded-lg p-4 border-2 border-green-200">
+                <p className="text-xs text-slate-500 mb-1">Revenue Optimization</p>
+                <p className="text-2xl font-bold text-green-600">{data.documentationQualityScore.breakdown.revenueOptimization}</p>
+                <div className="w-full bg-slate-200 rounded-full h-2 mt-2">
+                  <div className="bg-green-600 h-2 rounded-full" style={{width: `${data.documentationQualityScore.breakdown.revenueOptimization}%`}}></div>
+                </div>
+              </div>
+            </div>
+
+            {data.documentationQualityScore.improvementAreas.length > 0 && (
+              <div className="bg-white rounded-lg p-4 border-2 border-blue-200">
+                <p className="font-semibold text-slate-900 mb-3">🎯 Improvement Opportunities:</p>
+                <div className="space-y-3">
+                  {data.documentationQualityScore.improvementAreas.map((area, index) => (
+                    <div key={index} className="bg-blue-50 rounded p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="font-semibold text-blue-900">{area.area}</p>
+                        <div className="text-sm">
+                          <span className="text-slate-600">{area.currentScore}</span>
+                          <span className="text-slate-400 mx-1">→</span>
+                          <span className="text-blue-600 font-bold">{area.targetScore}</span>
+                          <span className="text-emerald-600 ml-2 font-bold">+{area.potentialGain}</span>
+                        </div>
+                      </div>
+                      <ul className="space-y-1">
+                        {area.recommendations.map((rec, recIndex) => (
+                          <li key={recIndex} className="text-sm text-slate-700 flex items-start gap-2">
+                            <span className="text-blue-500">✓</span>
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* LUPA Risk Analysis - NEW! */}
+      {data.lupaRiskAnalysis && data.lupaRiskAnalysis.isAtRisk && (
+        <Card className="shadow-2xl border-0 overflow-hidden bg-gradient-to-br from-red-50 to-rose-50 ring-4 ring-red-500 ring-offset-2 animate-pulse-slow">
+          <div className="bg-gradient-to-r from-red-600 via-rose-600 to-red-700 p-1"></div>
+          <CardHeader className="bg-gradient-to-r from-red-50 to-rose-50">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-red-100 rounded-full">
+                <AlertCircle className="h-7 w-7 text-red-700" />
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-3 mb-2">
+                  <CardTitle className="text-2xl text-red-900">⚠️ LUPA RISK ALERT</CardTitle>
+                  <Badge className={`font-bold px-3 py-1.5 ${
+                    data.lupaRiskAnalysis.riskLevel === 'Critical' ? 'bg-red-700 text-white animate-pulse' :
+                    data.lupaRiskAnalysis.riskLevel === 'High Risk' ? 'bg-red-600 text-white' :
+                    'bg-orange-500 text-white'
+                  }`}>
+                    {data.lupaRiskAnalysis.riskLevel.toUpperCase()}
+                  </Badge>
+                </div>
+                <CardDescription className="text-red-700 text-base">
+                  Low Utilization Payment Adjustment - Urgent action required to avoid payment reduction
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-4">
+            <div className="grid grid-cols-2 gap-6">
+              <div className="bg-white rounded-xl p-5 border-2 border-red-200">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-slate-600">Current Est. Visits</p>
+                  <Badge className="bg-red-100 text-red-800 text-lg px-3 py-1">
+                    {data.lupaRiskAnalysis.estimatedVisitCount}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-slate-600">Required Minimum</p>
+                  <Badge className="bg-green-100 text-green-800 text-lg px-3 py-1">
+                    {data.lupaRiskAnalysis.threshold}
+                  </Badge>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-200">
+                  <p className="text-sm font-semibold text-red-600">
+                    Deficit: {data.lupaRiskAnalysis.threshold - data.lupaRiskAnalysis.estimatedVisitCount} visits needed
+                  </p>
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-red-600 to-rose-700 rounded-xl p-5 text-white">
+                <p className="text-sm text-red-100 mb-2">Potential Loss</p>
+                <div className="text-4xl font-bold mb-1">
+                  -${data.lupaRiskAnalysis.potentialPenalty.toLocaleString()}
+                </div>
+                <p className="text-sm text-red-200">70% payment reduction if LUPA threshold not met</p>
+              </div>
+            </div>
+            
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-4">
+              <p className="font-bold text-amber-900 mb-2">🚨 URGENT RECOMMENDATION:</p>
+              <p className="text-slate-700">{data.lupaRiskAnalysis.recommendation}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Comorbidity Opportunities - NEW! */}
+      {data.comorbidityOpportunities && data.comorbidityOpportunities.suggestedDiagnoses.length > 0 && (
+        <Card className="shadow-xl border-0 overflow-hidden bg-gradient-to-br from-purple-50 to-pink-50">
+          <div className="bg-gradient-to-r from-purple-500 to-pink-500 p-1"></div>
+          <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-purple-100 rounded-full">
+                <Activity className="h-6 w-6 text-purple-700" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-2xl text-purple-900">💊 Comorbidity Adjustment Opportunities</CardTitle>
+                <CardDescription className="text-purple-700">
+                  Additional diagnoses that may increase reimbursement
+                </CardDescription>
+              </div>
+              <div className="text-right">
+                <div className="text-3xl font-bold text-emerald-600">
+                  +${data.comorbidityOpportunities.potentialIncrease.toLocaleString()}
+                </div>
+                <div className="text-sm text-slate-600">Potential Increase</div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-4">
+            {data.comorbidityOpportunities.suggestedDiagnoses.map((diagnosis, index) => (
+              <div key={index} className="bg-white border-2 border-purple-200 rounded-xl p-5 hover:shadow-md transition-all">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <p className="font-bold text-purple-900 text-lg">{diagnosis.code}</p>
+                      <Badge className="bg-emerald-500 text-white">
+                        +${diagnosis.revenueImpact}
+                      </Badge>
+                      <Badge className="bg-slate-200 text-slate-700">
+                        {diagnosis.confidence}% confidence
+                      </Badge>
+                    </div>
+                    <p className="text-slate-700">{diagnosis.description}</p>
+                  </div>
+                </div>
+                
+                <div className="space-y-3 mt-4">
+                  <div className="bg-blue-50 rounded p-3">
+                    <p className="text-sm font-semibold text-blue-900 mb-1">📋 Supporting Evidence:</p>
+                    <p className="text-sm text-slate-700">{diagnosis.supportingEvidence}</p>
+                  </div>
+                  
+                  <div className="bg-amber-50 rounded p-3">
+                    <p className="text-sm font-semibold text-amber-900 mb-1">📝 Documentation Needed:</p>
+                    <p className="text-sm text-slate-700">{diagnosis.documentationNeeded}</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Therapy Threshold Analysis - NEW! */}
+      {data.therapyThresholdAnalysis && data.therapyThresholdAnalysis.revenueImpact > 0 && (
+        <Card className="shadow-xl border-0 overflow-hidden bg-gradient-to-br from-green-50 to-emerald-50">
+          <div className="bg-gradient-to-r from-green-500 to-emerald-500 p-1"></div>
+          <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-green-100 rounded-full">
+                <Activity className="h-6 w-6 text-green-700" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-2xl text-green-900">🏋️ Therapy Threshold Opportunity</CardTitle>
+                <CardDescription className="text-green-700">
+                  Therapy visit recommendations for enhanced reimbursement
+                </CardDescription>
+              </div>
+              <div className="text-right">
+                <div className="text-3xl font-bold text-emerald-600">
+                  +${data.therapyThresholdAnalysis.revenueImpact.toLocaleString()}
+                </div>
+                <div className="text-sm text-slate-600">Per Episode</div>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-4">
+            <div className="grid grid-cols-2 gap-6">
+              <div className="bg-white rounded-xl p-5 border-2 border-slate-200">
+                <p className="text-sm text-slate-600 mb-2">Current Therapy Visits</p>
+                <p className="text-3xl font-bold text-slate-900">{data.therapyThresholdAnalysis.currentTherapyVisits}</p>
+                <Badge className="bg-red-100 text-red-800 mt-2">{data.therapyThresholdAnalysis.currentThreshold}</Badge>
+              </div>
+              
+              <div className="bg-gradient-to-br from-green-600 to-emerald-700 rounded-xl p-5 text-white">
+                <p className="text-sm text-green-100 mb-2">Suggested Threshold</p>
+                <p className="text-3xl font-bold">{data.therapyThresholdAnalysis.suggestedThreshold.replace(' visits', '')}</p>
+                <Badge className="bg-white text-green-800 mt-2 font-bold">Optimized</Badge>
+              </div>
+            </div>
+            
+            {data.therapyThresholdAnalysis.eligibilityCriteria.length > 0 && (
+              <div className="bg-green-50 rounded-lg p-4 border-2 border-green-200">
+                <p className="font-semibold text-green-900 mb-2">✅ Eligibility Criteria:</p>
+                <ul className="space-y-1">
+                  {data.therapyThresholdAnalysis.eligibilityCriteria.map((criteria, index) => (
+                    <li key={index} className="text-sm text-slate-700 flex items-start gap-2">
+                      <span className="text-green-600">✓</span>
+                      <span>{criteria}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <p className="font-semibold text-blue-900 mb-1">💡 Recommendation:</p>
+              <p className="text-sm text-slate-700">{data.therapyThresholdAnalysis.recommendation}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Diagnosis Codes - Modern Design */}
       {(data.diagnoses.primary.code && 
         data.diagnoses.primary.code !== "No diagnosis code found" && 
@@ -1573,176 +2095,82 @@ export default function OasisOptimizationReport() {
         </Card>
       )}
 
-      {/* Pain Assessment Section */}
-      {getSectionVisibility(data.qaType).painAssessment && 
-       data.painAssessment && data.painAssessment.length > 0 && 
-       data.painAssessment.some(item => item.item && item.item !== "Not visible") && (
-        <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 border-0">
-          <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50 border-b">
-            <div className="flex items-center gap-2">
-              <Heart className="h-5 w-5 text-orange-600" />
-              <CardTitle className="text-xl">Pain Assessment</CardTitle>
-            </div>
-            <CardDescription>J0510-J0530 pain status evaluation with AI insights</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-6">
-            {data.painAssessment
-              .filter(item => {
-                // Show pain items with valid data
-                if (!item.item || item.item === "Not visible" || item.item === "Not found") return false
-                // Always show OASIS pain fields
-                if (item.item.includes("J0510") || item.item.includes("J0520") || 
-                    item.item.includes("J0530") || item.item.includes("GG0170") ||
-                    item.item.includes("M1242")) return true
-                // Show if has any valid data
-                if (item.currentValue && item.currentValue !== "Not visible") return true
-                if (item.currentDescription && item.currentDescription !== "Not visible") return true
-                return false
-              })
-              .map((item, index) => (
-              <div key={index} className="border-2 border-orange-100 rounded-xl p-5 bg-gradient-to-r from-white to-orange-50/30 hover:shadow-md transition-all duration-200">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900">{item.item}</p>
-                    <p className="text-sm text-slate-600 mt-1">
-                      <span className="font-medium text-slate-800">Current:</span>{" "}
-                      {item.currentValue || "N/A"} 
-                      {item.currentDescription && item.currentDescription !== "Not visible" 
-                        ? ` – ${item.currentDescription}` 
-                        : ""}
-                    </p>
-                    {item.suggestedValue && (
-                      <p className="text-sm text-emerald-600 mt-1">
-                        <span className="font-medium text-emerald-700">Suggested:</span>{" "}
-                        {item.suggestedValue} 
-                        {item.suggestedDescription ? ` – ${item.suggestedDescription}` : ""}
+      {/* Render helper function for status sections */}
+      {(() => {
+        const renderStatusSection = (
+          sectionKey: string,
+          sectionData: any[],
+          title: string,
+          description: string,
+          icon: any,
+          colorFrom: string,
+          colorTo: string,
+          badgeColor: string
+        ) => {
+          if (!getSectionVisibility(data.qaType)[sectionKey as keyof ReturnType<typeof getSectionVisibility>]) return null
+          if (!sectionData || sectionData.length === 0) return null
+          if (!sectionData.some(item => item.item && item.item !== "Not visible")) return null
+
+          return (
+            <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 border-0">
+              <CardHeader className={`bg-gradient-to-r from-${colorFrom} to-${colorTo} border-b`}>
+                <div className="flex items-center gap-2">
+                  {icon}
+                  <CardTitle className="text-xl">{title}</CardTitle>
+                </div>
+                <CardDescription>{description}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-6">
+                {sectionData
+                  .filter(item => {
+                    if (!item.item || item.item === "Not visible" || item.item === "Not found") return false
+                    if (item.currentValue && item.currentValue !== "Not visible") return true
+                    if (item.currentDescription && item.currentDescription !== "Not visible") return true
+                    return false
+                  })
+                  .map((item, index) => (
+                    <div key={index} className={`border-2 border-${badgeColor}-100 rounded-xl p-5 bg-gradient-to-r from-white to-${badgeColor}-50/30 hover:shadow-md transition-all duration-200`}>
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1">
+                          <p className="font-semibold text-slate-900">{item.item}</p>
+                          <p className="text-sm text-slate-600 mt-1">
+                            <span className="font-medium text-slate-800">Current:</span>{" "}
+                            {item.currentValue || "N/A"} 
+                            {item.currentDescription && item.currentDescription !== "Not visible" 
+                              ? ` – ${item.currentDescription}` 
+                              : ""}
                           </p>
-                        )}
-                  </div>
-                  <Badge className="bg-orange-200 text-orange-800">{item.currentValue || "N/A"}</Badge>
-                </div>
-                {item.clinicalRationale && (
-                  <p className="text-sm text-muted-foreground mt-3 italic">{item.clinicalRationale}</p>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+                          {item.suggestedValue && (
+                            <p className="text-sm text-emerald-600 mt-1">
+                              <span className="font-medium text-emerald-700">Suggested:</span>{" "}
+                              {item.suggestedValue} 
+                              {item.suggestedDescription ? ` – ${item.suggestedDescription}` : ""}
+                            </p>
+                          )}
+                        </div>
+                        <Badge className={`bg-${badgeColor}-200 text-${badgeColor}-800`}>{item.currentValue || "N/A"}</Badge>
+                      </div>
+                      {item.clinicalRationale && (
+                        <p className="text-sm text-muted-foreground mt-3 italic">{item.clinicalRationale}</p>
+                      )}
+                    </div>
+                  ))}
+              </CardContent>
+            </Card>
+          )
+        }
 
-      {/* Mood Assessment Section */}
-      {getSectionVisibility(data.qaType).moodAssessment && 
-       data.moodAssessment && data.moodAssessment.length > 0 && 
-       data.moodAssessment.some(item => item.item && item.item !== "Not visible") && (
-        <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 border-0">
-          <CardHeader className="bg-gradient-to-r from-yellow-50 to-amber-50 border-b">
-            <div className="flex items-center gap-2">
-              <Smile className="h-5 w-5 text-yellow-600" />
-              <CardTitle className="text-xl">Mood Assessment</CardTitle>
-            </div>
-            <CardDescription>D0200-D0700 behavioral health screening with AI analysis</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-6">
-            {data.moodAssessment
-              .filter(item => {
-                // Show mood items with valid data
-                if (!item.item || item.item === "Not visible" || item.item === "Not found") return false
-                // Always show OASIS mood fields
-                if (item.item.includes("D0200") || item.item.includes("D0300") || 
-                    item.item.includes("D0500") || item.item.includes("D0700") ||
-                    item.item.includes("PHQ")) return true
-                // Show if has any valid data
-                if (item.currentValue && item.currentValue !== "Not visible") return true
-                if (item.currentDescription && item.currentDescription !== "Not visible") return true
-                return false
-              })
-              .map((item, index) => (
-              <div key={index} className="border-2 border-yellow-100 rounded-xl p-5 bg-gradient-to-r from-white to-yellow-50/30 hover:shadow-md transition-all duration-200">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900">{item.item}</p>
-                    <p className="text-sm text-slate-600 mt-1">
-                      <span className="font-medium text-slate-800">Current:</span>{" "}
-                      {item.currentValue || "N/A"} 
-                      {item.currentDescription && item.currentDescription !== "Not visible" 
-                        ? ` – ${item.currentDescription}` 
-                        : ""}
-                    </p>
-                    {item.suggestedValue && (
-                      <p className="text-sm text-emerald-600 mt-1">
-                        <span className="font-medium text-emerald-700">Suggested:</span>{" "}
-                        {item.suggestedValue} 
-                        {item.suggestedDescription ? ` – ${item.suggestedDescription}` : ""}
-                      </p>
-                    )}
-                  </div>
-                  <Badge className="bg-yellow-200 text-yellow-800">{item.currentValue || "N/A"}</Badge>
-                </div>
-                {item.clinicalRationale && (
-                  <p className="text-sm text-muted-foreground mt-3 italic">{item.clinicalRationale}</p>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Cognitive Assessment Section */}
-      {getSectionVisibility(data.qaType).cognitiveAssessment && 
-       data.cognitiveAssessment && data.cognitiveAssessment.length > 0 && 
-       data.cognitiveAssessment.some(item => item.item && item.item !== "Not visible") && (
-        <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 border-0">
-          <CardHeader className="bg-gradient-to-r from-purple-50 to-violet-50 border-b">
-            <div className="flex items-center gap-2">
-              <Brain className="h-5 w-5 text-purple-600" />
-              <CardTitle className="text-xl">Cognitive Assessment</CardTitle>
-            </div>
-            <CardDescription>C0200-C0500 cognitive status and BIMS evaluation</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 pt-6">
-            {data.cognitiveAssessment
-              .filter(item => {
-                // Show cognitive items with valid data
-                if (!item.item || item.item === "Not visible" || item.item === "Not found") return false
-                // Always show OASIS cognitive fields
-                if (item.item.includes("C0200") || item.item.includes("C0300") || 
-                    item.item.includes("C0400") || item.item.includes("C0500") ||
-                    item.item.includes("BIMS") || item.item.includes("Delirium")) return true
-                // Show if has any valid data
-                if (item.currentValue && item.currentValue !== "Not visible") return true
-                if (item.currentDescription && item.currentDescription !== "Not visible") return true
-                return false
-              })
-              .map((item, index) => (
-              <div key={index} className="border-2 border-purple-100 rounded-xl p-5 bg-gradient-to-r from-white to-purple-50/30 hover:shadow-md transition-all duration-200">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <p className="font-semibold text-slate-900">{item.item}</p>
-                    <p className="text-sm text-slate-600 mt-1">
-                      <span className="font-medium text-slate-800">Current:</span>{" "}
-                      {item.currentValue || "N/A"} 
-                      {item.currentDescription && item.currentDescription !== "Not visible" 
-                        ? ` – ${item.currentDescription}` 
-                        : ""}
-                    </p>
-                    {item.suggestedValue && (
-                      <p className="text-sm text-emerald-600 mt-1">
-                        <span className="font-medium text-emerald-700">Suggested:</span>{" "}
-                        {item.suggestedValue} 
-                        {item.suggestedDescription ? ` – ${item.suggestedDescription}` : ""}
-                      </p>
-                    )}
-                  </div>
-                  <Badge className="bg-purple-200 text-purple-800">{item.currentValue || "N/A"}</Badge>
-                </div>
-                {item.clinicalRationale && (
-                  <p className="text-sm text-muted-foreground mt-3 italic">{item.clinicalRationale}</p>
-                )}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
+        return (
+          <>
+            {renderStatusSection('painStatus', data.painStatus, 'Pain Status', 'Comprehensive pain evaluation and management', <Heart className="h-5 w-5 text-orange-600" />, 'orange-50', 'amber-50', 'orange')}
+            {renderStatusSection('integumentaryStatus', data.integumentaryStatus, 'Integumentary Status', 'Skin integrity and wound assessment', <Activity className="h-5 w-5 text-rose-600" />, 'rose-50', 'pink-50', 'rose')}
+            {renderStatusSection('respiratoryStatus', data.respiratoryStatus, 'Respiratory Status', 'Respiratory function and oxygen assessment', <Activity className="h-5 w-5 text-sky-600" />, 'sky-50', 'blue-50', 'sky')}
+            {renderStatusSection('cardiacStatus', data.cardiacStatus, 'Cardiac Status', 'Cardiovascular assessment and monitoring', <Heart className="h-5 w-5 text-red-600" />, 'red-50', 'rose-50', 'red')}
+            {renderStatusSection('eliminationStatus', data.eliminationStatus, 'Elimination Status', 'Bowel and bladder function assessment', <Activity className="h-5 w-5 text-amber-600" />, 'amber-50', 'yellow-50', 'amber')}
+            {renderStatusSection('neuroEmotionalBehavioralStatus', data.neuroEmotionalBehavioralStatus, 'Neuro/Emotional/Behavioral Status', 'Neurological, emotional, and behavioral assessment', <Brain className="h-5 w-5 text-purple-600" />, 'purple-50', 'violet-50', 'purple')}
+          </>
+        )
+      })()}
 
       {/* Missing Information - Eye-catching Alert */}
       {data.missingInformation.length > 0 && (

@@ -35,10 +35,11 @@ export async function POST(request: NextRequest) {
     const uploadId = formData.get("uploadId") as string
     const uploadType = formData.get("uploadType") as string
     const priority = formData.get("priority") as string
-    const fileType = formData.get("fileType") as string // "oasis" or "doctor-order"
+    const fileType = formData.get("fileType") as string // "oasis" or "doctor-order" or "pt-note"
     const patientId = formData.get("patientId") as string | null
     const notes = formData.get("notes") as string | null
     const assessmentId = formData.get("assessmentId") as string | null
+    const chartId = formData.get("chartId") as string | null
 
     console.log("[OASIS] Received request:", { uploadId, fileType, fileName: file?.name })
 
@@ -368,6 +369,176 @@ export async function POST(request: NextRequest) {
         message: "Doctor order processed and compared with OASIS assessment",
         assessmentId,
         discrepancies: analysis.flaggedIssues.length,
+      })
+    } else if (fileType === "pt-note") {
+      console.log("[PT VISIT] ========================================")
+      console.log("[PT VISIT] Processing PT Visit Note...")
+      console.log("[PT VISIT] Upload ID:", uploadId)
+      console.log("[PT VISIT] File Name:", file.name)
+      console.log("[PT VISIT] File Size:", file.size, "bytes")
+      console.log("[PT VISIT] ========================================")
+
+      // Track processing start time
+      const processingStartTime = Date.now()
+      console.log("[PT VISIT] ⏱️ Processing started at:", new Date(processingStartTime).toISOString())
+
+      // Import clinical QA analyzer
+      const { analyzeClinicalDocument } = await import("@/lib/clinical-qa-analyzer")
+      
+      console.log("[PT VISIT] Extracted text length:", fileText.length, "characters")
+      console.log("[PT VISIT] Estimated pages:", Math.ceil(fileText.length / 2000))
+      console.log("[PT VISIT] First 1000 chars of extracted text:")
+      console.log(fileText.substring(0, 1000))
+      console.log("[PT VISIT] Last 500 chars of extracted text:")
+      console.log(fileText.substring(Math.max(0, fileText.length - 500)))
+      console.log("[PT VISIT] ========================================")
+
+      // Extract MRN directly from text if not in analysis
+      const mrnMatch = fileText.match(/MRN[:\s]*([A-Z0-9]+)/i) || 
+                       fileText.match(/Medical Record Number[:\s]*([A-Z0-9]+)/i) ||
+                       fileText.match(/Patient ID[:\s]*([A-Z0-9]+)/i)
+      const extractedMRN = mrnMatch ? mrnMatch[1] : null
+      
+      console.log("[PT VISIT] Direct MRN extraction from text:", extractedMRN)
+
+      console.log("[PT VISIT] Starting AI analysis with clinical-qa-analyzer...")
+      console.log("[PT VISIT] Using FULL extracted text for analysis (", fileText.length, "characters)")
+      
+      // Track AI analysis start time
+      const aiAnalysisStartTime = Date.now()
+      const analysis = await analyzeClinicalDocument(fileText, "pt_note")
+      const aiAnalysisEndTime = Date.now()
+      const aiAnalysisDuration = aiAnalysisEndTime - aiAnalysisStartTime
+      
+      console.log("[PT VISIT] ⏱️ AI Analysis completed in:", (aiAnalysisDuration / 1000).toFixed(2), "seconds")
+
+      // Override patientInfo with direct extraction if AI didn't get it
+      if (analysis.patientInfo) {
+        if (!analysis.patientInfo.mrn || analysis.patientInfo.mrn === "N/A") {
+          analysis.patientInfo.mrn = extractedMRN || analysis.patientInfo.mrn || "N/A"
+        }
+        // Extract patient name directly if needed
+        const nameMatch = fileText.match(/Patient Name[:\s]*([A-Z][a-z]+(?:,\s*[A-Z][a-z]+(?:\s+[A-Z])?)+)/i)
+        if (nameMatch && (!analysis.patientInfo.name || analysis.patientInfo.name === "Unknown Patient")) {
+          analysis.patientInfo.name = nameMatch[1].trim()
+        }
+      }
+
+      console.log("[PT VISIT] ========================================")
+      console.log("[PT VISIT] ✅ AI Analysis Completed!")
+      console.log("[PT VISIT] ========================================")
+      console.log("[PT VISIT] 📊 EXTRACTED AND ANALYZED DATA:")
+      console.log("[PT VISIT] ========================================")
+      console.log(JSON.stringify(analysis, null, 2))
+      console.log("[PT VISIT] ========================================")
+      console.log("[PT VISIT] Patient Info:", analysis.patientInfo)
+      console.log("[PT VISIT] Quality Scores:", analysis.qualityScores)
+      console.log("[PT VISIT] Diagnoses Count:", analysis.diagnoses.length)
+      console.log("[PT VISIT] Flagged Issues Count:", analysis.flaggedIssues.length)
+      console.log("[PT VISIT] Recommendations Count:", analysis.recommendations.length)
+      console.log("[PT VISIT] Missing Elements Count:", analysis.missingElements.length)
+      console.log("[PT VISIT] Financial Impact:", analysis.financialImpact)
+      console.log("[PT VISIT] ========================================")
+
+      // Store PT Visit in clinical_documents table
+      const insertData = {
+        upload_id: uploadId,
+        chart_id: chartId || `chart-${Date.now()}`,
+        document_type: "pt_note",
+        patient_id: patientId || extractedMRN || null,
+        patient_name: sanitizeText(analysis.patientInfo?.name || ""),
+        file_name: file.name,
+        file_size: file.size,
+        file_url: fileUrl,
+        extracted_text: sanitizeText(fileText.substring(0, 10000)),
+        document_date: analysis.patientInfo?.visitDate ? new Date(analysis.patientInfo.visitDate).toISOString() : new Date().toISOString(),
+        clinician_name: sanitizeText(analysis.patientInfo?.clinician || ""),
+        discipline: "PT",
+        status: "completed",
+        processed_at: new Date().toISOString(),
+      }
+
+      console.log("[PT VISIT] Storing PT Visit in database...")
+      const { data: ptVisit, error: insertError } = await supabase
+        .from("clinical_documents")
+        .insert(insertData)
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error("[PT VISIT] ❌ Database insert error:", insertError)
+        throw new Error(`Failed to store PT Visit: ${insertError.message}`)
+      }
+
+      console.log("[PT VISIT] ✅ PT Visit stored in database with ID:", ptVisit.id)
+
+      // Calculate total processing time
+      const processingEndTime = Date.now()
+      const totalProcessingDuration = processingEndTime - processingStartTime
+      const processingDurationSeconds = (totalProcessingDuration / 1000).toFixed(2)
+      
+      console.log("[PT VISIT] ⏱️ Total processing time:", processingDurationSeconds, "seconds")
+      console.log("[PT VISIT] ⏱️ Breakdown:")
+      console.log("[PT VISIT]   - OCR & Text Extraction:", ((aiAnalysisStartTime - processingStartTime) / 1000).toFixed(2), "seconds")
+      console.log("[PT VISIT]   - AI Analysis:", (aiAnalysisDuration / 1000).toFixed(2), "seconds")
+      console.log("[PT VISIT]   - Database Operations:", ((processingEndTime - aiAnalysisEndTime) / 1000).toFixed(2), "seconds")
+
+      // Store analysis in qa_analysis table
+      // Store extracted PT data and optimizations in findings JSONB (flexible storage)
+      const findingsWithPTData = {
+        flaggedIssues: analysis.flaggedIssues,
+        extractedPTData: analysis.extractedPTData || null,
+        ptOptimizations: analysis.ptOptimizations || null,
+        processingTime: {
+          totalSeconds: parseFloat(processingDurationSeconds),
+          aiAnalysisSeconds: parseFloat((aiAnalysisDuration / 1000).toFixed(2)),
+          startTime: new Date(processingStartTime).toISOString(),
+          endTime: new Date(processingEndTime).toISOString(),
+        },
+      }
+
+      const analysisData = {
+        document_id: ptVisit.id,
+        document_type: "pt_note",
+        chart_id: chartId || ptVisit.chart_id || `chart-${Date.now()}`,
+        quality_score: analysis.qualityScores.overall,
+        compliance_score: analysis.qualityScores.compliance,
+        completeness_score: analysis.qualityScores.completeness,
+        accuracy_score: analysis.qualityScores.accuracy,
+        confidence_score: analysis.qualityScores.confidence,
+        findings: findingsWithPTData, // Store PT data in findings JSONB
+        recommendations: analysis.recommendations,
+        missing_elements: analysis.missingElements,
+        coding_suggestions: analysis.suggestedCodes,
+        revenue_impact: analysis.financialImpact,
+        regulatory_issues: analysis.regulatoryIssues,
+        documentation_gaps: analysis.documentationGaps,
+        analyzed_at: new Date().toISOString(),
+      }
+
+      const { data: qaAnalysis, error: qaError } = await supabase
+        .from("qa_analysis")
+        .insert(analysisData)
+        .select()
+        .single()
+
+      if (qaError) {
+        console.error("[PT VISIT] ⚠️ Warning: Failed to store QA analysis:", qaError)
+        // Don't fail the whole request if QA analysis insert fails
+      } else {
+        console.log("[PT VISIT] ✅ QA Analysis stored with ID:", qaAnalysis.id)
+      }
+
+      console.log("[PT VISIT] ========================================")
+      console.log("[PT VISIT] 🎉 PT Visit processing complete!")
+      console.log("[PT VISIT] Upload ID:", uploadId)
+      console.log("[PT VISIT] ========================================")
+
+      return NextResponse.json({
+        success: true,
+        message: "PT Visit note processed successfully",
+        uploadId: uploadId,
+        analysis: analysis,
       })
     }
 

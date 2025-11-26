@@ -50,32 +50,77 @@ export interface OasisAnalysisResult {
     suggestedDescription?: string   // Description for suggested value
     clinicalRationale?: string      // Clinical reasoning for suggestion
   }>
-  // Pain Assessment (J0510-J0530, M1242) - Same format as Functional Status
-  painAssessment?: Array<{
-    item: string                    // e.g., "J0510 - Pain Effect on Sleep"
-    currentValue: string            // e.g., "0", "1", "2", "3"
-    currentDescription: string      // e.g., "Does not apply - no pain"
+  // Pain Status Section
+  painStatus?: Array<{
+    item: string                    // e.g., "Pain Location", "Pain Intensity", "Pain Frequency"
+    currentValue: string            // e.g., "Back", "7/10", "Daily"
+    currentDescription: string      // Full description from Pain Status section
     suggestedValue?: string         // AI suggested value if optimization possible
     suggestedDescription?: string   // Description for suggested value
     clinicalRationale?: string      // Clinical reasoning for suggestion
   }>
-  // Mood Assessment (D0200-D0700, PHQ-2) - Same format as Functional Status
-  moodAssessment?: Array<{
-    item: string                    // e.g., "D0200 - Patient Mood (PHQ-2)"
-    currentValue: string            // e.g., "No", "Yes", "0-3" score
-    currentDescription: string      // e.g., "Little interest: No, Feeling down: Yes"
-    suggestedValue?: string         // AI suggested value if optimization possible
-    suggestedDescription?: string   // Description for suggested value
-    clinicalRationale?: string      // Clinical reasoning for suggestion
+  // Integumentary Status Section
+  integumentaryStatus?: Array<{
+    item: string                    // e.g., "Skin Condition", "Wounds", "Pressure Ulcers"
+    currentValue: string            
+    currentDescription: string      
+    suggestedValue?: string         
+    suggestedDescription?: string   
+    clinicalRationale?: string      
   }>
-  // Cognitive Assessment (C0200-C0500, BIMS) - Same format as Functional Status
-  cognitiveAssessment?: Array<{
-    item: string                    // e.g., "C0200 - Delirium Assessment"
-    currentValue: string            // e.g., "0-12" BIMS score, "0-4" delirium
-    currentDescription: string      // e.g., "Acute onset: 0, Inattention: 1"
-    suggestedValue?: string         // AI suggested value if optimization possible
-    suggestedDescription?: string   // Description for suggested value
-    clinicalRationale?: string      // Clinical reasoning for suggestion
+  // Respiratory Status Section
+  respiratoryStatus?: Array<{
+    item: string                    // e.g., "Breath Sounds", "Oxygen Use", "Dyspnea"
+    currentValue: string            
+    currentDescription: string      
+    suggestedValue?: string         
+    suggestedDescription?: string   
+    clinicalRationale?: string      
+  }>
+  // Cardiac Status Section
+  cardiacStatus?: Array<{
+    item: string                    // e.g., "Heart Rate", "Blood Pressure", "Edema"
+    currentValue: string            
+    currentDescription: string      
+    suggestedValue?: string         
+    suggestedDescription?: string   
+    clinicalRationale?: string      
+  }>
+  // Elimination Status Section
+  eliminationStatus?: Array<{
+    item: string                    // e.g., "Bowel", "Bladder", "Continence"
+    currentValue: string            
+    currentDescription: string      
+    suggestedValue?: string         
+    suggestedDescription?: string   
+    clinicalRationale?: string      
+  }>
+  // Neuro/Emotional/Behavioral Status Section
+  neuroEmotionalBehavioralStatus?: Array<{
+    item: string                    // e.g., "Neurological Status", "Emotional State", "Behavioral Issues"
+    currentValue: string            
+    currentDescription: string      
+    suggestedValue?: string         
+    suggestedDescription?: string   
+    clinicalRationale?: string      
+  }>
+  // Emotional Status (if separate section)
+  emotionalStatus?: Array<{
+    item: string                    
+    currentValue: string            
+    currentDescription: string      
+    suggestedValue?: string         
+    suggestedDescription?: string   
+    clinicalRationale?: string      
+  }>
+  // Behavioral Status (if separate section)
+  behavioralStatus?: Array<{
+    item: string                    
+    currentValue: string            
+    currentDescription: string      
+    suggestedValue?: string         
+    suggestedDescription?: string   
+    clinicalRationale?: string      
   }>
   // Extracted Data with additional OASIS fields
   extractedData?: {
@@ -174,6 +219,62 @@ export interface OasisAnalysisResult {
       current: number
       optimized: number
       difference: number
+    }>
+  }
+  // Advanced Optimization Features
+  comorbidityOpportunities?: {
+    currentLevel: "None" | "Low" | "Medium" | "High"
+    suggestedDiagnoses: Array<{
+      code: string
+      description: string
+      revenueImpact: number
+      supportingEvidence: string
+      documentationNeeded: string
+      confidence: number
+    }>
+    potentialIncrease: number
+  }
+  lupaRiskAnalysis?: {
+    estimatedVisitCount: number
+    threshold: number
+    isAtRisk: boolean
+    riskLevel: "Safe" | "Warning" | "High Risk" | "Critical"
+    potentialPenalty: number
+    recommendation: string
+  }
+  therapyThresholdAnalysis?: {
+    currentTherapyVisits: number
+    currentThreshold: string
+    suggestedThreshold: string
+    revenueImpact: number
+    eligibilityCriteria: string[]
+    recommendation: string
+  }
+  priorityActions?: Array<{
+    rank: number
+    action: string
+    category: "Functional Status" | "Diagnosis" | "Visit Count" | "Therapy" | "Documentation"
+    impact: "Critical" | "High" | "Medium" | "Low"
+    revenueImpact: number
+    timeRequired: string
+    difficulty: "Easy" | "Medium" | "Hard"
+    specificSteps: string[]
+  }>
+  documentationQualityScore?: {
+    overallScore: number
+    breakdown: {
+      completeness: number
+      accuracy: number
+      clinicalJustification: number
+      revenueOptimization: number
+    }
+    benchmarkComparison: "Top Quartile" | "Above Average" | "Average" | "Below Average" | "Needs Improvement"
+    improvementAreas: Array<{
+      area: string
+      currentScore: number
+      targetScore: number
+      potentialGain: number
+      recommendations: string[]
     }>
   }
 }
@@ -286,160 +387,108 @@ function validateExtractionAccuracy(analysis: OasisAnalysisResult, sourceText: s
     console.log('[OASIS] ⚠️ No medications found in analysis')
   }
   
-  // Validate pain assessment - preserve all pain items found
-  if (analysis.painAssessment && analysis.painAssessment.length > 0) {
-    console.log('[OASIS] 🩹 Pain assessment found:', analysis.painAssessment.length)
-    // Log each pain item for debugging
-    analysis.painAssessment.forEach((pain, idx) => {
+  // Validate Pain Status - preserve all pain items found
+  if (analysis.painStatus && analysis.painStatus.length > 0) {
+    console.log('[OASIS] 🩹 Pain Status found:', analysis.painStatus.length)
+    analysis.painStatus.forEach((pain, idx) => {
       console.log(`[OASIS] 🩹 Pain ${idx + 1}: item="${pain?.item}", value="${pain?.currentValue}", desc="${pain?.currentDescription?.substring(0, 50)}..."`)
     })
     
-    // Keep pain items that have valid item names
-    const beforeFilterCount = analysis.painAssessment.length
-    analysis.painAssessment = analysis.painAssessment.filter(pain => {
-      if (!pain || !pain.item) {
-        console.log(`[OASIS] ⚠️ Filtering out pain item with no item name`)
-        return false
-      }
+    const beforeFilterCount = analysis.painStatus.length
+    analysis.painStatus = analysis.painStatus.filter(pain => {
+      if (!pain || !pain.item) return false
       const item = pain.item.trim()
-      if (item === "" || item === "Not visible" || item === "Not found") {
-        console.log(`[OASIS] ⚠️ Filtering out pain item with invalid name: "${item}"`)
-        return false
-      }
+      if (item === "" || item === "Not found") return false
       
-      // Always keep OASIS pain fields (J0510, J0520, J0530, M1242)
-      if (item.includes("J0510") || item.includes("J0520") || item.includes("J0530") || 
-          item.includes("M1242") || item.includes("GG0170")) {
-        console.log(`[OASIS] ✅ Keeping OASIS pain field: ${item} = ${pain.currentValue}`)
+      // Keep all Pain Status items - even if "Not visible"
+      if (pain.currentValue && pain.currentValue.trim() !== "") {
+        console.log(`[OASIS] ✅ Keeping Pain Status item: ${item} = ${pain.currentValue}`)
         return true
       }
       
-      // Keep if has valid currentValue
-      if (pain.currentValue && 
-          pain.currentValue !== "Not visible" && 
-          pain.currentValue !== "Not found" &&
-          pain.currentValue.trim() !== "") {
-        console.log(`[OASIS] ✅ Keeping pain item with valid value: ${item} = ${pain.currentValue}`)
+      if (item.length > 3 && item.toLowerCase().includes("pain")) {
+        console.log(`[OASIS] ✅ Keeping Pain Status by name: ${item}`)
         return true
       }
       
-      // Keep if item name looks like a real pain assessment (not placeholder)
-      if (item.length > 3 && !item.includes("Not ") && item.includes("Pain")) {
-        console.log(`[OASIS] ✅ Keeping pain item by name: ${item}`)
-        return true
-      }
-      
-      console.log(`[OASIS] ⚠️ Filtering out pain item: ${item}`)
       return false
     })
-    console.log(`[OASIS] 🩹 Pain assessment filtering: ${beforeFilterCount} → ${analysis.painAssessment.length} items`)
+    console.log(`[OASIS] 🩹 Pain Status filtering: ${beforeFilterCount} → ${analysis.painStatus.length} items`)
   } else {
-    console.log('[OASIS] ⚠️ No pain assessment data found in analysis')
+    console.log('[OASIS] ⚠️ No Pain Status data found')
   }
   
-  // Validate mood assessment - preserve all mood items found
-  if (analysis.moodAssessment && analysis.moodAssessment.length > 0) {
-    console.log('[OASIS] 😊 Mood assessment found:', analysis.moodAssessment.length)
-    // Log each mood item for debugging
-    analysis.moodAssessment.forEach((mood, idx) => {
-      console.log(`[OASIS] 😊 Mood ${idx + 1}: item="${mood?.item}", value="${mood?.currentValue}", desc="${mood?.currentDescription?.substring(0, 50)}..."`)
-    })
-    
-    // Keep mood items that have valid item names
-    const beforeFilterCount = analysis.moodAssessment.length
-    analysis.moodAssessment = analysis.moodAssessment.filter(mood => {
-      if (!mood || !mood.item) {
-        console.log(`[OASIS] ⚠️ Filtering out mood item with no item name`)
-        return false
-      }
-      const item = mood.item.trim()
-      if (item === "" || item === "Not visible" || item === "Not found") {
-        console.log(`[OASIS] ⚠️ Filtering out mood item with invalid name: "${item}"`)
-        return false
-      }
-      
-      // Always keep OASIS mood fields (D0200, D0300, D0500, D0700)
-      if (item.includes("D0200") || item.includes("D0300") || item.includes("D0500") || 
-          item.includes("D0700") || item.includes("PHQ")) {
-        console.log(`[OASIS] ✅ Keeping OASIS mood field: ${item} = ${mood.currentValue}`)
-        return true
-      }
-      
-      // Keep if has valid currentValue
-      if (mood.currentValue && 
-          mood.currentValue !== "Not visible" && 
-          mood.currentValue !== "Not found" &&
-          mood.currentValue.trim() !== "") {
-        console.log(`[OASIS] ✅ Keeping mood item with valid value: ${item} = ${mood.currentValue}`)
-        return true
-      }
-      
-      // Keep if item name looks like a real mood assessment (not placeholder)
-      if (item.length > 3 && !item.includes("Not ") && (item.includes("Mood") || item.includes("Depression") || item.includes("Anxious"))) {
-        console.log(`[OASIS] ✅ Keeping mood item by name: ${item}`)
-        return true
-      }
-      
-      console.log(`[OASIS] ⚠️ Filtering out mood item: ${item}`)
-      return false
-    })
-    console.log(`[OASIS] 😊 Mood assessment filtering: ${beforeFilterCount} → ${analysis.moodAssessment.length} items`)
-  } else {
-    console.log('[OASIS] ⚠️ No mood assessment data found in analysis')
+  // Validate Integumentary Status
+  if (analysis.integumentaryStatus && analysis.integumentaryStatus.length > 0) {
+    console.log('[OASIS] 🩹 Integumentary Status found:', analysis.integumentaryStatus.length)
+    const beforeCount = analysis.integumentaryStatus.length
+    analysis.integumentaryStatus = analysis.integumentaryStatus.filter(item => 
+      item && item.item && item.item.trim() !== "" && item.item !== "Not found"
+    )
+    console.log(`[OASIS] 🩹 Integumentary Status: ${beforeCount} → ${analysis.integumentaryStatus.length} items`)
   }
   
-  // Validate cognitive assessment - preserve all cognitive items found
-  if (analysis.cognitiveAssessment && analysis.cognitiveAssessment.length > 0) {
-    console.log('[OASIS] 🧠 Cognitive assessment found:', analysis.cognitiveAssessment.length)
-    // Log each cognitive item for debugging
-    analysis.cognitiveAssessment.forEach((cog, idx) => {
-      console.log(`[OASIS] 🧠 Cognitive ${idx + 1}: item="${cog?.item}", value="${cog?.currentValue}", desc="${cog?.currentDescription?.substring(0, 50)}..."`)
-    })
-    
-    // Keep cognitive items that have valid item names
-    const beforeFilterCount = analysis.cognitiveAssessment.length
-    analysis.cognitiveAssessment = analysis.cognitiveAssessment.filter(cog => {
-      if (!cog || !cog.item) {
-        console.log(`[OASIS] ⚠️ Filtering out cognitive item with no item name`)
-        return false
-      }
-      const item = cog.item.trim()
-      if (item === "" || item === "Not visible" || item === "Not found") {
-        console.log(`[OASIS] ⚠️ Filtering out cognitive item with invalid name: "${item}"`)
-        return false
-      }
-      
-      // Always keep OASIS cognitive fields (C0200, C0300, C0400, C0500, BIMS)
-      if (item.includes("C0200") || item.includes("C0300") || item.includes("C0400") || 
-          item.includes("C0500") || item.includes("BIMS") || item.includes("Delirium")) {
-        console.log(`[OASIS] ✅ Keeping OASIS cognitive field: ${item} = ${cog.currentValue}`)
-        return true
-      }
-      
-      // Keep if has valid currentValue
-      if (cog.currentValue && 
-          cog.currentValue !== "Not visible" && 
-          cog.currentValue !== "Not found" &&
-          cog.currentValue.trim() !== "") {
-        console.log(`[OASIS] ✅ Keeping cognitive item with valid value: ${item} = ${cog.currentValue}`)
-        return true
-      }
-      
-      // Keep if item name looks like a real cognitive assessment (not placeholder)
-      if (item.length > 3 && !item.includes("Not ") && (item.includes("Cognitive") || item.includes("Memory") || item.includes("Mental"))) {
-        console.log(`[OASIS] ✅ Keeping cognitive item by name: ${item}`)
-        return true
-      }
-      
-      console.log(`[OASIS] ⚠️ Filtering out cognitive item: ${item}`)
-      return false
-    })
-    console.log(`[OASIS] 🧠 Cognitive assessment filtering: ${beforeFilterCount} → ${analysis.cognitiveAssessment.length} items`)
-  } else {
-    console.log('[OASIS] ⚠️ No cognitive assessment data found in analysis')
+  // Validate Respiratory Status
+  if (analysis.respiratoryStatus && analysis.respiratoryStatus.length > 0) {
+    console.log('[OASIS] 🫁 Respiratory Status found:', analysis.respiratoryStatus.length)
+    const beforeCount = analysis.respiratoryStatus.length
+    analysis.respiratoryStatus = analysis.respiratoryStatus.filter(item => 
+      item && item.item && item.item.trim() !== "" && item.item !== "Not found"
+    )
+    console.log(`[OASIS] 🫁 Respiratory Status: ${beforeCount} → ${analysis.respiratoryStatus.length} items`)
   }
   
-  console.log(`[OASIS] ✅ Validation complete - Functional Status: ${analysis.functionalStatus?.length || 0}, Medications: ${analysis.medications?.length || 0}, Pain: ${analysis.painAssessment?.length || 0}, Mood: ${analysis.moodAssessment?.length || 0}, Cognitive: ${analysis.cognitiveAssessment?.length || 0}`)
+  // Validate Cardiac Status
+  if (analysis.cardiacStatus && analysis.cardiacStatus.length > 0) {
+    console.log('[OASIS] ❤️ Cardiac Status found:', analysis.cardiacStatus.length)
+    const beforeCount = analysis.cardiacStatus.length
+    analysis.cardiacStatus = analysis.cardiacStatus.filter(item => 
+      item && item.item && item.item.trim() !== "" && item.item !== "Not found"
+    )
+    console.log(`[OASIS] ❤️ Cardiac Status: ${beforeCount} → ${analysis.cardiacStatus.length} items`)
+  }
+  
+  // Validate Elimination Status
+  if (analysis.eliminationStatus && analysis.eliminationStatus.length > 0) {
+    console.log('[OASIS] 🚽 Elimination Status found:', analysis.eliminationStatus.length)
+    const beforeCount = analysis.eliminationStatus.length
+    analysis.eliminationStatus = analysis.eliminationStatus.filter(item => 
+      item && item.item && item.item.trim() !== "" && item.item !== "Not found"
+    )
+    console.log(`[OASIS] 🚽 Elimination Status: ${beforeCount} → ${analysis.eliminationStatus.length} items`)
+  }
+  
+  // Validate Neuro/Emotional/Behavioral Status
+  if (analysis.neuroEmotionalBehavioralStatus && analysis.neuroEmotionalBehavioralStatus.length > 0) {
+    console.log('[OASIS] 🧠 Neuro/Emotional/Behavioral Status found:', analysis.neuroEmotionalBehavioralStatus.length)
+    const beforeCount = analysis.neuroEmotionalBehavioralStatus.length
+    analysis.neuroEmotionalBehavioralStatus = analysis.neuroEmotionalBehavioralStatus.filter(item => 
+      item && item.item && item.item.trim() !== "" && item.item !== "Not found"
+    )
+    console.log(`[OASIS] 🧠 Neuro/Emotional/Behavioral: ${beforeCount} → ${analysis.neuroEmotionalBehavioralStatus.length} items`)
+  }
+  
+  // Validate Emotional Status (if separate)
+  if (analysis.emotionalStatus && analysis.emotionalStatus.length > 0) {
+    console.log('[OASIS] 😊 Emotional Status found:', analysis.emotionalStatus.length)
+    const beforeCount = analysis.emotionalStatus.length
+    analysis.emotionalStatus = analysis.emotionalStatus.filter(item => 
+      item && item.item && item.item.trim() !== "" && item.item !== "Not found"
+    )
+    console.log(`[OASIS] 😊 Emotional Status: ${beforeCount} → ${analysis.emotionalStatus.length} items`)
+  }
+  
+  // Validate Behavioral Status (if separate)
+  if (analysis.behavioralStatus && analysis.behavioralStatus.length > 0) {
+    console.log('[OASIS] 🎭 Behavioral Status found:', analysis.behavioralStatus.length)
+    const beforeCount = analysis.behavioralStatus.length
+    analysis.behavioralStatus = analysis.behavioralStatus.filter(item => 
+      item && item.item && item.item.trim() !== "" && item.item !== "Not found"
+    )
+    console.log(`[OASIS] 🎭 Behavioral Status: ${beforeCount} → ${analysis.behavioralStatus.length} items`)
+  }
+  
+  console.log(`[OASIS] ✅ Validation complete - Functional: ${analysis.functionalStatus?.length || 0}, Medications: ${analysis.medications?.length || 0}, Pain: ${analysis.painStatus?.length || 0}, Integumentary: ${analysis.integumentaryStatus?.length || 0}, Respiratory: ${analysis.respiratoryStatus?.length || 0}, Cardiac: ${analysis.cardiacStatus?.length || 0}, Elimination: ${analysis.eliminationStatus?.length || 0}, Neuro/Emotional/Behavioral: ${analysis.neuroEmotionalBehavioralStatus?.length || 0}`)
   
   return analysis
 }
@@ -606,6 +655,272 @@ function detectMissingRequiredFields(analysis: OasisAnalysisResult): OasisAnalys
     console.log(`[OASIS] ✅ Clinician found: ${analysis.patientInfo.clinician}`)
   }
   
+  // Check Pain Status
+  const painItems = analysis.painStatus || []
+  const validPainItems = painItems.filter(item => 
+    item?.currentValue && 
+    item.currentValue !== "Not visible" && 
+    item.currentValue !== "Not found" &&
+    item.currentValue.trim() !== ""
+  )
+  
+  if (painItems.length === 0) {
+    console.log("[OASIS] ⚠️ Missing: Pain Status (no items extracted)")
+    missingFields.push({
+      field: "Pain Status",
+      location: "PAIN STATUS section (check document for exact location)",
+      impact: "MEDIUM - Pain status is important for patient care planning and quality measures.",
+      recommendation: "Locate the PAIN STATUS section in the document and extract all pain-related information (location, intensity, frequency, description).",
+      required: false,
+    })
+  } else if (validPainItems.length === 0) {
+    console.log(`[OASIS] ⚠️ Incomplete: Pain Status (${painItems.length} items found but no values)`)
+    missingFields.push({
+      field: "Pain Status - Values Not Documented",
+      location: "PAIN STATUS section",
+      impact: "MEDIUM - Pain Status section exists but values are not documented.",
+      recommendation: "Review the Pain Status section and ensure all fields are completed.",
+      required: false,
+    })
+  } else {
+    console.log(`[OASIS] ✅ Pain Status Complete: ${validPainItems.length} items documented`)
+  }
+  
+  // Check Integumentary Status
+  if (!analysis.integumentaryStatus || analysis.integumentaryStatus.length === 0) {
+    console.log("[OASIS] ⚠️ Missing: Integumentary Status")
+    missingFields.push({
+      field: "Integumentary Status",
+      location: "INTEGUMENTARY STATUS section (skin, wounds, pressure ulcers)",
+      impact: "MEDIUM - Important for wound care and skin integrity assessment.",
+      recommendation: "Locate the INTEGUMENTARY STATUS section and extract all skin/wound-related data.",
+      required: false,
+    })
+  } else {
+    console.log(`[OASIS] ✅ Integumentary Status: ${analysis.integumentaryStatus.length} items`)
+  }
+  
+  // Check Respiratory Status
+  if (!analysis.respiratoryStatus || analysis.respiratoryStatus.length === 0) {
+    console.log("[OASIS] ⚠️ Missing: Respiratory Status")
+    missingFields.push({
+      field: "Respiratory Status",
+      location: "RESPIRATORY STATUS section (breath sounds, oxygen use, dyspnea)",
+      impact: "MEDIUM - Important for respiratory assessment and oxygen therapy management.",
+      recommendation: "Locate the RESPIRATORY STATUS section and extract all respiratory data.",
+      required: false,
+    })
+  } else {
+    console.log(`[OASIS] ✅ Respiratory Status: ${analysis.respiratoryStatus.length} items`)
+  }
+  
+  // Check Cardiac Status
+  if (!analysis.cardiacStatus || analysis.cardiacStatus.length === 0) {
+    console.log("[OASIS] ⚠️ Missing: Cardiac Status")
+    missingFields.push({
+      field: "Cardiac Status",
+      location: "CARDIAC STATUS section (heart rate, blood pressure, edema)",
+      impact: "MEDIUM - Important for cardiac condition monitoring and treatment.",
+      recommendation: "Locate the CARDIAC STATUS section and extract all cardiac-related data.",
+      required: false,
+    })
+  } else {
+    console.log(`[OASIS] ✅ Cardiac Status: ${analysis.cardiacStatus.length} items`)
+  }
+  
+  // Check Elimination Status
+  if (!analysis.eliminationStatus || analysis.eliminationStatus.length === 0) {
+    console.log("[OASIS] ⚠️ Missing: Elimination Status")
+    missingFields.push({
+      field: "Elimination Status",
+      location: "ELIMINATION STATUS section (bowel, bladder, continence)",
+      impact: "MEDIUM - Important for continence management and elimination assessment.",
+      recommendation: "Locate the ELIMINATION STATUS section and extract all elimination data.",
+      required: false,
+    })
+  } else {
+    console.log(`[OASIS] ✅ Elimination Status: ${analysis.eliminationStatus.length} items`)
+  }
+  
+  // Check Neuro/Emotional/Behavioral Status
+  if (!analysis.neuroEmotionalBehavioralStatus || analysis.neuroEmotionalBehavioralStatus.length === 0) {
+    console.log("[OASIS] ⚠️ Missing: Neuro/Emotional/Behavioral Status")
+    missingFields.push({
+      field: "Neuro/Emotional/Behavioral Status",
+      location: "NEURO/EMOTIONAL/BEHAVIORAL STATUS section",
+      impact: "MEDIUM - Important for neurological, emotional, and behavioral assessment.",
+      recommendation: "Locate the NEURO/EMOTIONAL/BEHAVIORAL STATUS section and extract all related data.",
+      required: false,
+    })
+  } else {
+    console.log(`[OASIS] ✅ Neuro/Emotional/Behavioral Status: ${analysis.neuroEmotionalBehavioralStatus.length} items`)
+  }
+  
+  // ==================== CHECK FOR BLANK/INCOMPLETE INDIVIDUAL FIELDS ====================
+  console.log("[OASIS] 🔍 Checking for blank or incomplete individual fields...")
+  
+  // Check each functional status item for blank values
+  if (analysis.functionalStatus && analysis.functionalStatus.length > 0) {
+    analysis.functionalStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: ${item.item}`)
+        missingFields.push({
+          field: `${item.item} - Value Not Documented`,
+          location: `Functional Status Section - ${item.item}`,
+          impact: "HIGH - This functional status item is required for accurate case mix calculation.",
+          recommendation: `Complete the ${item.item} assessment with the appropriate value (0-6 scale depending on item).`,
+          required: true,
+        })
+      }
+    })
+  }
+  
+  // Check each medication item for incomplete information
+  if (analysis.medications && analysis.medications.length > 0) {
+    analysis.medications.forEach((med, index) => {
+      if (!med.currentValue || med.currentValue === "Not visible" || med.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: ${med.item}`)
+        missingFields.push({
+          field: `${med.item} - Value Not Documented`,
+          location: `Medications Section - ${med.item}`,
+          impact: "MEDIUM - Incomplete medication information affects care planning.",
+          recommendation: `Complete the ${med.item} field with the appropriate value.`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  // Check pain status items for blank values
+  if (analysis.painStatus && analysis.painStatus.length > 0) {
+    analysis.painStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: Pain Status - ${item.item}`)
+        missingFields.push({
+          field: `Pain Status - ${item.item} - Not Documented`,
+          location: `PAIN STATUS section - ${item.item}`,
+          impact: "MEDIUM - Incomplete pain assessment affects care planning and quality measures.",
+          recommendation: `Complete the pain assessment for: ${item.item}`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  // Check integumentary status items for blank values
+  if (analysis.integumentaryStatus && analysis.integumentaryStatus.length > 0) {
+    analysis.integumentaryStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: Integumentary - ${item.item}`)
+        missingFields.push({
+          field: `Integumentary Status - ${item.item} - Not Documented`,
+          location: `INTEGUMENTARY STATUS section - ${item.item}`,
+          impact: "MEDIUM - Incomplete skin/wound assessment.",
+          recommendation: `Complete the integumentary assessment for: ${item.item}`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  // Check respiratory status items for blank values
+  if (analysis.respiratoryStatus && analysis.respiratoryStatus.length > 0) {
+    analysis.respiratoryStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: Respiratory - ${item.item}`)
+        missingFields.push({
+          field: `Respiratory Status - ${item.item} - Not Documented`,
+          location: `RESPIRATORY STATUS section - ${item.item}`,
+          impact: "MEDIUM - Incomplete respiratory assessment.",
+          recommendation: `Complete the respiratory assessment for: ${item.item}`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  // Check cardiac status items for blank values
+  if (analysis.cardiacStatus && analysis.cardiacStatus.length > 0) {
+    analysis.cardiacStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: Cardiac - ${item.item}`)
+        missingFields.push({
+          field: `Cardiac Status - ${item.item} - Not Documented`,
+          location: `CARDIAC STATUS section - ${item.item}`,
+          impact: "MEDIUM - Incomplete cardiac assessment.",
+          recommendation: `Complete the cardiac assessment for: ${item.item}`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  // Check elimination status items for blank values
+  if (analysis.eliminationStatus && analysis.eliminationStatus.length > 0) {
+    analysis.eliminationStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: Elimination - ${item.item}`)
+        missingFields.push({
+          field: `Elimination Status - ${item.item} - Not Documented`,
+          location: `ELIMINATION STATUS section - ${item.item}`,
+          impact: "MEDIUM - Incomplete elimination assessment.",
+          recommendation: `Complete the elimination assessment for: ${item.item}`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  // Check neuro/emotional/behavioral status items for blank values
+  if (analysis.neuroEmotionalBehavioralStatus && analysis.neuroEmotionalBehavioralStatus.length > 0) {
+    analysis.neuroEmotionalBehavioralStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: Neuro/Emotional/Behavioral - ${item.item}`)
+        missingFields.push({
+          field: `Neuro/Emotional/Behavioral - ${item.item} - Not Documented`,
+          location: `NEURO/EMOTIONAL/BEHAVIORAL STATUS section - ${item.item}`,
+          impact: "MEDIUM - Incomplete neurological/emotional/behavioral assessment.",
+          recommendation: `Complete the assessment for: ${item.item}`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  // Check emotional status items for blank values (if separate)
+  if (analysis.emotionalStatus && analysis.emotionalStatus.length > 0) {
+    analysis.emotionalStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: Emotional Status - ${item.item}`)
+        missingFields.push({
+          field: `Emotional Status - ${item.item} - Not Documented`,
+          location: `EMOTIONAL STATUS section - ${item.item}`,
+          impact: "MEDIUM - Incomplete emotional/mood assessment (PHQ-2/PHQ-9).",
+          recommendation: `Complete the emotional status assessment for: ${item.item}`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  // Check behavioral status items for blank values (if separate)
+  if (analysis.behavioralStatus && analysis.behavioralStatus.length > 0) {
+    analysis.behavioralStatus.forEach((item, index) => {
+      if (!item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === "") {
+        console.log(`[OASIS] ⚠️ Blank: Behavioral Status - ${item.item}`)
+        missingFields.push({
+          field: `Behavioral Status - ${item.item} - Not Documented`,
+          location: `BEHAVIORAL STATUS section - ${item.item}`,
+          impact: "MEDIUM - Incomplete behavioral assessment.",
+          recommendation: `Complete the behavioral assessment for: ${item.item}`,
+          required: false,
+        })
+      }
+    })
+  }
+  
+  console.log(`[OASIS] 📊 Total blank/incomplete fields detected: ${missingFields.length}`)
+  
   // DO NOT merge with AI's missingInformation - we are the source of truth
   // The AI might have hardcoded or inaccurate missing information
   // We only use our backend validation
@@ -626,6 +941,370 @@ function detectMissingRequiredFields(analysis: OasisAnalysisResult): OasisAnalys
     ...analysis,
     missingInformation: uniqueMissing,
     completenessScore: Math.max(0, 100 - (uniqueMissing.length * 10)) // Reduce score based on missing fields
+  }
+}
+
+// ==================== ADVANCED OPTIMIZATION FUNCTIONS ====================
+
+// Calculate Comorbidity Opportunities
+function calculateComorbidityOpportunities(analysis: OasisAnalysisResult): OasisAnalysisResult['comorbidityOpportunities'] {
+  console.log("[OASIS] 💊 Analyzing comorbidity optimization opportunities...")
+  
+  const suggestedDiagnoses: any[] = []
+  const existingCodes = [
+    analysis.primaryDiagnosis?.code,
+    ...(analysis.secondaryDiagnoses || []).map(d => d.code)
+  ].filter(Boolean)
+  
+  // Check for diabetes with complications
+  const hasDiabetes = existingCodes.some(c => c?.startsWith('E11') || c?.startsWith('E10'))
+  const hasInsulinUse = existingCodes.some(c => c === 'Z79.4')
+  if (hasDiabetes && hasInsulinUse && !existingCodes.some(c => c === 'E11.65')) {
+    suggestedDiagnoses.push({
+      code: "E11.65",
+      description: "Type 2 diabetes mellitus with hyperglycemia",
+      revenueImpact: 450,
+      supportingEvidence: "Patient on long-term insulin use (Z79.4). If hyperglycemia is documented, add E11.65 for comorbidity adjustment.",
+      documentationNeeded: "Document blood glucose levels >125 mg/dL or hyperglycemia diagnosis in clinical notes",
+      confidence: 85
+    })
+  }
+  
+  // Check for CHF with specificity
+  const hasGenericCHF = existingCodes.some(c => c === 'I50.9')
+  if (hasGenericCHF) {
+    suggestedDiagnoses.push({
+      code: "I50.23",
+      description: "Acute on chronic systolic heart failure",
+      revenueImpact: 520,
+      supportingEvidence: "Generic CHF code (I50.9) can be specified. Review clinical notes for acute vs chronic and systolic vs diastolic.",
+      documentationNeeded: "Document ejection fraction <40% for systolic; specify acute exacerbation if present",
+      confidence: 70
+    })
+  }
+  
+  // Check for COPD with exacerbation
+  const hasCOPD = existingCodes.some(c => c?.startsWith('J44'))
+  const hasOxygenUse = existingCodes.some(c => c === 'Z99.81')
+  if (hasCOPD && hasOxygenUse && !existingCodes.some(c => c === 'J44.1')) {
+    suggestedDiagnoses.push({
+      code: "J44.1",
+      description: "COPD with acute exacerbation",
+      revenueImpact: 380,
+      supportingEvidence: "Patient has COPD and is on supplemental oxygen. If recent exacerbation, code as J44.1.",
+      documentationNeeded: "Document acute exacerbation within past 30 days or worsening symptoms",
+      confidence: 75
+    })
+  }
+  
+  const potentialIncrease = suggestedDiagnoses.reduce((sum, d) => sum + d.revenueImpact, 0)
+  const currentLevel = suggestedDiagnoses.length === 0 ? "None" : suggestedDiagnoses.length <= 2 ? "Low" : "Medium"
+  
+  return {
+    currentLevel: currentLevel as any,
+    suggestedDiagnoses,
+    potentialIncrease
+  }
+}
+
+// Calculate LUPA Risk
+function calculateLupaRisk(analysis: OasisAnalysisResult): OasisAnalysisResult['lupaRiskAnalysis'] {
+  console.log("[OASIS] ⚠️ Analyzing LUPA risk...")
+  
+  // Estimate visit count based on functional status complexity
+  const functionalItems = analysis.functionalStatus || []
+  const avgFunctionalValue = functionalItems.length > 0
+    ? functionalItems.reduce((sum, item) => sum + (parseInt(item.currentValue) || 0), 0) / functionalItems.length
+    : 0
+  
+  // Estimate: Higher functional impairment = more visits likely
+  const estimatedVisitCount = Math.max(4, Math.min(12, Math.floor(6 + avgFunctionalValue * 1.5)))
+  const threshold = 6
+  const isAtRisk = estimatedVisitCount < threshold
+  
+  let riskLevel: any = "Safe"
+  if (estimatedVisitCount < 4) riskLevel = "Critical"
+  else if (estimatedVisitCount < 5) riskLevel = "High Risk"
+  else if (estimatedVisitCount < 6) riskLevel = "Warning"
+  
+  const baseRevenue = analysis.financialImpact?.currentRevenue || 3200
+  const potentialPenalty = isAtRisk ? Math.floor(baseRevenue * 0.3) : 0 // 30% reduction for LUPA
+  
+  const recommendation = isAtRisk
+    ? `URGENT: Schedule ${threshold - estimatedVisitCount} additional skilled nursing visits to avoid LUPA penalty. Ensure visits are completed and documented within the 60-day episode.`
+    : "Visit count appears sufficient to avoid LUPA. Continue current visit schedule."
+  
+  return {
+    estimatedVisitCount,
+    threshold,
+    isAtRisk,
+    riskLevel,
+    potentialPenalty,
+    recommendation
+  }
+}
+
+// Calculate Therapy Threshold Analysis
+function calculateTherapyThresholdAnalysis(analysis: OasisAnalysisResult): OasisAnalysisResult['therapyThresholdAnalysis'] {
+  console.log("[OASIS] 🏋️ Analyzing therapy threshold opportunities...")
+  
+  // Check if patient has conditions that benefit from therapy
+  const primaryDx = analysis.primaryDiagnosis?.code || ""
+  const hasStroke = primaryDx.startsWith('I69')
+  const hasFracture = primaryDx.startsWith('S')
+  const hasArthritis = primaryDx.startsWith('M15') || primaryDx.startsWith('M17') || primaryDx.startsWith('M19')
+  
+  const functionalItems = analysis.functionalStatus || []
+  const hasSignificantImpairment = functionalItems.some(item => parseInt(item.currentValue) >= 2)
+  
+  const isTherapyCandidate = hasStroke || hasFracture || hasArthritis || hasSignificantImpairment
+  
+  const currentTherapyVisits = 0 // We don't have this data yet, assume 0
+  const currentThreshold = currentTherapyVisits === 0 ? "0 visits" : 
+                          currentTherapyVisits < 6 ? "1-5 visits" :
+                          currentTherapyVisits < 10 ? "6-9 visits" : "10+ visits"
+  
+  let suggestedThreshold = "0 visits"
+  let revenueImpact = 0
+  let eligibilityCriteria: string[] = []
+  let recommendation = ""
+  
+  if (isTherapyCandidate) {
+    suggestedThreshold = "10-13 visits"
+    revenueImpact = 550
+    
+    if (hasStroke) eligibilityCriteria.push("Stroke diagnosis (I69.x) - PT/OT indicated for mobility and ADL training")
+    if (hasFracture) eligibilityCriteria.push("Fracture diagnosis - PT indicated for strength and mobility restoration")
+    if (hasSignificantImpairment) eligibilityCriteria.push("Significant functional impairment (score ≥2) - therapy for functional restoration")
+    
+    recommendation = `Patient meets criteria for 10-13 therapy visits per episode. This would increase reimbursement by approximately $${revenueImpact}. Recommend PT/OT evaluation and establish therapy plan of care.`
+  } else {
+    recommendation = "Patient does not currently meet criteria for therapy threshold adjustment. Monitor for functional decline that may warrant therapy intervention."
+  }
+  
+  return {
+    currentTherapyVisits,
+    currentThreshold,
+    suggestedThreshold,
+    revenueImpact,
+    eligibilityCriteria,
+    recommendation
+  }
+}
+
+// Calculate Priority Actions
+function calculatePriorityActions(analysis: OasisAnalysisResult): OasisAnalysisResult['priorityActions'] {
+  console.log("[OASIS] 📋 Generating priority action list...")
+  
+  const actions: any[] = []
+  let rank = 1
+  
+  // Check for LUPA risk (highest priority)
+  if (analysis.lupaRiskAnalysis?.isAtRisk) {
+    actions.push({
+      rank: rank++,
+      action: `Schedule ${6 - (analysis.lupaRiskAnalysis.estimatedVisitCount || 0)} additional skilled visits`,
+      category: "Visit Count",
+      impact: "Critical",
+      revenueImpact: analysis.lupaRiskAnalysis.potentialPenalty,
+      timeRequired: "30-60 minutes",
+      difficulty: "Medium",
+      specificSteps: [
+        "Review patient's current visit schedule",
+        "Identify 2-3 additional skilled nursing needs",
+        "Schedule visits before episode end date",
+        "Document medical necessity for each visit"
+      ]
+    })
+  }
+  
+  // Check for blank functional status items
+  const functionalItems = analysis.functionalStatus || []
+  const blankFunctionalItems = functionalItems.filter(item => 
+    !item.currentValue || item.currentValue === "Not visible" || item.currentValue.trim() === ""
+  )
+  
+  if (blankFunctionalItems.length > 0) {
+    const estimatedImpact = blankFunctionalItems.length * 120 // ~$120 per functional item
+    actions.push({
+      rank: rank++,
+      action: `Complete ${blankFunctionalItems.length} missing functional status items`,
+      category: "Functional Status",
+      impact: "High",
+      revenueImpact: estimatedImpact,
+      timeRequired: "10-15 minutes",
+      difficulty: "Easy",
+      specificSteps: [
+        `Complete assessments for: ${blankFunctionalItems.slice(0, 3).map(i => i.item.split(' - ')[0]).join(', ')}`,
+        "Observe patient performing each ADL activity",
+        "Document level of assistance required (0-6 scale)",
+        "Update OASIS form with completed values"
+      ]
+    })
+  }
+  
+  // Check for comorbidity opportunities
+  if (analysis.comorbidityOpportunities && analysis.comorbidityOpportunities.suggestedDiagnoses.length > 0) {
+    const topDiagnosis = analysis.comorbidityOpportunities.suggestedDiagnoses[0]
+    actions.push({
+      rank: rank++,
+      action: `Add ${topDiagnosis.code} to secondary diagnoses`,
+      category: "Diagnosis",
+      impact: "High",
+      revenueImpact: topDiagnosis.revenueImpact,
+      timeRequired: "15-20 minutes",
+      difficulty: "Medium",
+      specificSteps: [
+        `Review ${topDiagnosis.description}`,
+        topDiagnosis.documentationNeeded,
+        "Verify diagnosis with physician if needed",
+        "Add to M1023 secondary diagnosis list"
+      ]
+    })
+  }
+  
+  // Check for therapy opportunities
+  if (analysis.therapyThresholdAnalysis && analysis.therapyThresholdAnalysis.revenueImpact > 0) {
+    actions.push({
+      rank: rank++,
+      action: "Initiate therapy services (PT/OT)",
+      category: "Therapy",
+      impact: "High",
+      revenueImpact: analysis.therapyThresholdAnalysis.revenueImpact,
+      timeRequired: "45-60 minutes",
+      difficulty: "Medium",
+      specificSteps: [
+        "Order PT/OT evaluation",
+        "Establish therapy plan of care",
+        "Schedule 10-13 therapy visits over episode",
+        "Document medical necessity and goals"
+      ]
+    })
+  }
+  
+  // Check for functional status optimization opportunities
+  const functionalOptimizations = functionalItems.filter(item => 
+    item.suggestedValue && item.suggestedValue !== item.currentValue
+  )
+  
+  if (functionalOptimizations.length > 0) {
+    const topOptimization = functionalOptimizations[0]
+    actions.push({
+      rank: rank++,
+      action: `Reassess ${topOptimization.item}`,
+      category: "Functional Status",
+      impact: "Medium",
+      revenueImpact: 150,
+      timeRequired: "5-10 minutes",
+      difficulty: "Easy",
+      specificSteps: [
+        `Review current value: ${topOptimization.currentValue}`,
+        `Clinical rationale: ${topOptimization.clinicalRationale}`,
+        `Consider suggested value: ${topOptimization.suggestedValue}`,
+        "Update if clinically appropriate"
+      ]
+    })
+  }
+  
+  return actions.sort((a, b) => b.revenueImpact - a.revenueImpact).map((action, index) => ({
+    ...action,
+    rank: index + 1
+  }))
+}
+
+// Calculate Documentation Quality Score
+function calculateDocumentationQualityScore(analysis: OasisAnalysisResult): OasisAnalysisResult['documentationQualityScore'] {
+  console.log("[OASIS] 📈 Calculating documentation quality score...")
+  
+  // Completeness Score (0-100)
+  const totalExpectedFields = 15 // Patient info + diagnoses + functional status
+  const missingCount = (analysis.missingInformation || []).length
+  const completeness = Math.max(0, Math.min(100, 100 - (missingCount * 6)))
+  
+  // Accuracy Score (0-100)
+  const inconsistencyCount = (analysis.inconsistencies || []).length
+  const accuracy = Math.max(0, Math.min(100, 100 - (inconsistencyCount * 8)))
+  
+  // Clinical Justification Score (0-100)
+  const functionalItems = analysis.functionalStatus || []
+  const itemsWithRationale = functionalItems.filter(item => item.clinicalRationale).length
+  const clinicalJustification = functionalItems.length > 0 
+    ? Math.floor((itemsWithRationale / functionalItems.length) * 100)
+    : 50
+  
+  // Revenue Optimization Score (0-100)
+  const potentialRevenue = analysis.financialImpact?.optimizedRevenue || 0
+  const currentRevenue = analysis.financialImpact?.currentRevenue || 1
+  const optimizationRatio = currentRevenue > 0 ? (currentRevenue / potentialRevenue) * 100 : 50
+  const revenueOptimization = Math.min(100, Math.floor(optimizationRatio))
+  
+  // Overall Score
+  const overallScore = Math.floor((completeness + accuracy + clinicalJustification + revenueOptimization) / 4)
+  
+  // Benchmark Comparison
+  let benchmarkComparison: any = "Average"
+  if (overallScore >= 90) benchmarkComparison = "Top Quartile"
+  else if (overallScore >= 80) benchmarkComparison = "Above Average"
+  else if (overallScore >= 70) benchmarkComparison = "Average"
+  else if (overallScore >= 60) benchmarkComparison = "Below Average"
+  else benchmarkComparison = "Needs Improvement"
+  
+  // Improvement Areas
+  const improvementAreas: any[] = []
+  
+  if (completeness < 85) {
+    improvementAreas.push({
+      area: "Completeness",
+      currentScore: completeness,
+      targetScore: 95,
+      potentialGain: 95 - completeness,
+      recommendations: [
+        `Complete ${missingCount} missing fields`,
+        "Ensure all required OASIS items are documented",
+        "Review OASIS form for blank sections"
+      ]
+    })
+  }
+  
+  if (accuracy < 85) {
+    improvementAreas.push({
+      area: "Accuracy",
+      currentScore: accuracy,
+      targetScore: 95,
+      potentialGain: 95 - accuracy,
+      recommendations: [
+        `Resolve ${inconsistencyCount} detected inconsistencies`,
+        "Ensure functional status aligns with diagnoses",
+        "Verify all data is clinically appropriate"
+      ]
+    })
+  }
+  
+  if (revenueOptimization < 85) {
+    const potentialIncrease = (analysis.financialImpact?.optimizedRevenue || 0) - (analysis.financialImpact?.currentRevenue || 0)
+    improvementAreas.push({
+      area: "Revenue Optimization",
+      currentScore: revenueOptimization,
+      targetScore: 95,
+      potentialGain: 95 - revenueOptimization,
+      recommendations: [
+        `Capture additional $${potentialIncrease} in revenue`,
+        "Optimize functional status coding",
+        "Add clinically supported comorbidities"
+      ]
+    })
+  }
+  
+  return {
+    overallScore,
+    breakdown: {
+      completeness,
+      accuracy,
+      clinicalJustification,
+      revenueOptimization
+    },
+    benchmarkComparison,
+    improvementAreas
   }
 }
 
@@ -797,6 +1476,27 @@ ${extractedText.substring(0, 100000)}
 
 ${doctorOrderText ? `DOCTOR'S ORDERS:\n${doctorOrderText}\n` : ""}
 
+⚠️⚠️⚠️ CRITICAL INSTRUCTIONS FOR EXTRACTION ⚠️⚠️⚠️
+
+🔍 HOW TO EXTRACT FROM CHECKBOXES:
+This OASIS document uses CHECKBOXES throughout. You MUST:
+1. Look for checkbox symbols: □ (unchecked) vs ☑ ✓ ☒ (checked)
+2. ONLY extract items that have a CHECKMARK (☑, ✓, ☒)
+3. DO NOT extract items with empty boxes (□)
+4. Each checked box = one item in your output array
+
+📋 EXAMPLE:
+If you see in the document:
+  ☑ Cool
+  □ Warm
+  ☑ Dry
+
+Extract ONLY:
+- "Cool" (checked)
+- "Dry" (checked)
+
+DO NOT extract "Warm" (not checked)!
+
 ⚠️ EXTRACTION RULES (Search the ENTIRE document):
 
 1. PATIENT DEMOGRAPHICS:
@@ -961,127 +1661,419 @@ ${doctorOrderText ? `DOCTOR'S ORDERS:\n${doctorOrderText}\n` : ""}
    5. If a field is not in the PDF, leave it empty - do NOT make up data
    6. Extract medications from ANY section where they appear (not just "Medications" section)
 
-5. PAIN ASSESSMENT (from PAIN STATUS section):
-   🚨🚨🚨 CRITICAL: Extract ALL pain-related data from Pain Status section! 🚨🚨🚨
-   
-   ⚠️ DIFFERENT PDFs have DIFFERENT FORMATS - be FLEXIBLE!
-   
-   SEARCH FOR THESE SECTION HEADERS (case-insensitive):
-   - "PAIN STATUS" (most common)
-   - "Pain Assessment" 
-   - "Section J - Health Conditions"
-   - "Pain Management"
-   - "J0510", "J0520", "J0530"
+5. PAIN STATUS SECTION:
+   🚨🚨🚨 CRITICAL: Extract ALL data from the "PAIN STATUS" section! 🚨🚨🚨
    
    ═══════════════════════════════════════════════════════════════════
-   STEP 1: EXTRACT NARRATIVE PAIN INFORMATION (if present)
+   STEP 1: FIND THE SECTION HEADER
    ═══════════════════════════════════════════════════════════════════
-   Look for free-text pain data like:
-   - "Has the patient had any pain? Yes/No"
-   - "Primary Site: Body/Back/Leg/etc"
-   - "Current Pain Intensity: [number] - [description]"
-   - "Past Week - Least Pain Intensity: [number]"
-   - "Past Week - Most Pain Intensity: [number]"
-   - "Interferes with Activity: Yes/No"
-   - "Pain Description: Aching/Burning/Sharp/Dull/etc"
-   - "Pain Frequency: Daily/Constant/Intermittent/etc"
+   Look for the EXACT text: "PAIN STATUS" (usually in bold, centered)
+   This appears on page 4 of the OASIS document.
    
-   If found, extract as:
+   ═══════════════════════════════════════════════════════════════════
+   STEP 2: FIND THE SUBSECTION "Pain Assessment"
+   ═══════════════════════════════════════════════════════════════════
+   Under "PAIN STATUS", look for "Pain Assessment" subsection.
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 3: EXTRACT THE QUESTION AND ANSWER
+   ═══════════════════════════════════════════════════════════════════
+   Find: "Has the patient had any pain?"
+   Look for checkbox marked: "No" or "Yes"
+   
+   Extract as:
    {
-     "item": "Pain Assessment - Overall Status",
-     "currentValue": "Yes" or pain intensity number,
-     "currentDescription": "[ALL pain details: site, intensity, frequency, description, interference]"
+     "item": "Has patient had pain",
+     "currentValue": "[No/Yes - whatever is checked]",
+     "currentDescription": "Patient pain status: [checked value]"
    }
    
    ═══════════════════════════════════════════════════════════════════
-   STEP 2: EXTRACT OASIS PAIN FIELDS (J0510, J0520, J0530)
+   STEP 4: CHECK COMMENTS FIELD
    ═══════════════════════════════════════════════════════════════════
+   Look for "Comments:" field under Pain Assessment.
+   If there's text, extract it as additional pain information.
    
-   J0510 - Pain Effect on Sleep (0-3 scale):
-   - Look for: "(J0510)" or "Pain Effect on Sleep"
-   - Find checkmark (☑, ✓, X, ●) next to: 0, 1, 2, or 3
-   - Extract: {"item": "J0510 - Pain Effect on Sleep", "currentValue": "[0/1/2/3]", "currentDescription": "[description text]"}
-   
-   J0520 - Pain Interference with Therapy (0-3 scale):
-   - Look for: "(J0520)" or "Pain Interference with Therapy"
-   - Find checkmark next to: 0, 1, 2, or 3
-   - Extract: {"item": "J0520 - Pain Interference with Therapy Activities", "currentValue": "[0/1/2/3]", "currentDescription": "[description]"}
-   
-   J0530 - Pain Interference with Activities (0-3 scale):
-   - Look for: "(J0530)" or "Pain Interference with Day-to-Day"
-   - Find checkmark next to: 0, 1, 2, or 3
-   - Extract: {"item": "J0530 - Pain Interference with Day-to-Day Activities", "currentValue": "[0/1/2/3]", "currentDescription": "[description]"}
-   
-   M1242 - Frequency of Pain (0-4 scale):
-   - Look for: "(M1242)" or "Frequency of Pain"
-   - Extract: {"item": "M1242 - Frequency of Pain", "currentValue": "[0/1/2/3/4]", "currentDescription": "[description]"}
-   
-   ⚠️ CRITICAL: Extract WHATEVER pain data you find - narrative OR structured OR both!
-   Different PDFs may have:
-   - Only narrative pain description
-   - Only OASIS fields (J0510, J0520, J0530)
-   - Both narrative AND OASIS fields
-   
-   EXTRACT ALL OF IT!
+   EXAMPLE OUTPUT:
+   [
+     {
+       "item": "Has patient had pain",
+       "currentValue": "No",
+       "currentDescription": "Patient reports no pain at this time"
+     }
+   ]
 
-6. MOOD ASSESSMENT (from Mood/Behavioral Status section):
-   🚨 CRITICAL: Extract ALL mood and behavioral data from the document! 🚨
-   
-   SEARCH FOR THESE SECTION HEADERS (case-insensitive):
-   - "Mood" or "Behavioral Status"
-   - "Section D - Mood"
-   - "PHQ-2" or "Patient Mood"
-   - "D0200", "D0300", "D0500", "D0700"
-   - "Depression", "Anxiety"
+6. INTEGUMENTARY STATUS SECTION:
+   🚨 CRITICAL: Extract ALL data from "INTEGUMENTARY STATUS" section! 🚨
    
    ═══════════════════════════════════════════════════════════════════
-   EXTRACT THESE MOOD FIELDS (SAME FORMAT as Functional Status):
+   STEP 1: FIND THE SECTION HEADER
    ═══════════════════════════════════════════════════════════════════
+   Look for: "INTEGUMENTARY STATUS" (page 4 of OASIS)
    
-   D0200 - Patient Mood (PHQ-2 Depression Screening):
-   - Little interest or pleasure in doing things (Yes/No)
-   - Feeling down, depressed, or hopeless (Yes/No)
-   - Extract: {"item": "D0200 - Patient Mood (PHQ-2)", "currentValue": "Yes/No", "currentDescription": "Little interest: [Yes/No], Feeling down: [Yes/No]"}
+   ═══════════════════════════════════════════════════════════════════
+   STEP 2: FIND "Integumentary Assessment" SUBSECTION
+   ═══════════════════════════════════════════════════════════════════
+   Under the main header, look for "Integumentary Assessment"
    
-   D0300 - When Anxious:
-   - Look for checkmark next to: 0, 1, 2, 3
-   - Extract: {"item": "D0300 - When Anxious", "currentValue": "[0/1/2/3]", "currentDescription": "[description]"}
+   ═══════════════════════════════════════════════════════════════════
+   STEP 3: CHECK "Select all that apply" SECTION
+   ═══════════════════════════════════════════════════════════════════
+   Find checkboxes with "Select all that apply:"
+   Look for CHECKED boxes (☑, ✓, ☒) next to:
    
-   D0500 - Depression Screening (PHQ-9 or similar):
-   - Score 0-27 or individual items
-   - Extract: {"item": "D0500 - Depression Screening", "currentValue": "[score]", "currentDescription": "[details]"}
+   LEFT COLUMN:
+   □ No problems identified
+   □ Flushing
+   ☑ Cool (if checked, extract this!)
+   □ Cyanotic
+   ☑ Dry (if checked, extract this!)
+   □ Clammy
    
-   D0700 - Social Isolation:
-   - Extract: {"item": "D0700 - Social Isolation", "currentValue": "[Yes/No/score]", "currentDescription": "[description]"}
+   MIDDLE COLUMN:
+   □ Diaphoretic
+   □ Flushed
+   □ Incision
+   □ Jaundice
+   □ Pallor
    
-   ⚠️ Extract ANY mood/behavioral data found - structured OR narrative!
+   RIGHT COLUMN:
+   □ Poor turgor
+   □ Pruritus
+   □ Rash
+   □ Skin lesion requiring intervention
+   □ Wound(s):
+   
+   For EACH CHECKED item, extract as:
+   {
+     "item": "Skin condition: [item name]",
+     "currentValue": "Present",
+     "currentDescription": "[Full description from checkbox label]"
+   }
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 4: EXTRACT NORTON PRESSURE SORE RISK ASSESSMENT
+   ═══════════════════════════════════════════════════════════════════
+   Find "Norton Pressure Sore Risk Assessment" subsection
+   Extract checked items from:
+   - Physical Condition: □ Good (4) ☑ Fair (3) □ Poor (2) □ Very Bad (1)
+   - Mental Condition: □ Alert (4) □ Apathetic (3) ☑ Confused (2) □ Stuporous (1)
+   - Activity: □ Ambulant (4) ☑ Walks with help (3) □ Chairbound (2) □ Bedfast (1)
+   - Mobility: □ Full (4) □ Slightly Impaired (3)
+   
+   Extract each as separate items with scores.
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 5: CHECK COMMENTS FIELD
+   ═══════════════════════════════════════════════════════════════════
+   Look for "Comments:" - extract any text found
+   
+   EXAMPLE OUTPUT:
+   [
+     {"item": "Skin - Cool", "currentValue": "Present", "currentDescription": "Skin feels cool to touch"},
+     {"item": "Skin - Dry", "currentValue": "Present", "currentDescription": "Skin is dry"},
+     {"item": "Norton - Physical Condition", "currentValue": "Fair (3)", "currentDescription": "Fair physical condition, score 3"},
+     {"item": "Norton - Mental Condition", "currentValue": "Confused (2)", "currentDescription": "Confused mental state, score 2"}
+   ]
 
-7. COGNITIVE ASSESSMENT (from Cognitive Status section):
-   🚨 CRITICAL: Extract ALL cognitive data from the document! 🚨
-   
-   SEARCH FOR THESE SECTION HEADERS (case-insensitive):
-   - "Cognitive" or "Cognitive Status"
-   - "Section C - Cognitive Patterns"
-   - "BIMS" or "Brief Interview for Mental Status"
-   - "Delirium" or "CAM"
-   - "C0200", "C0300", "C0400", "C0500"
+7. RESPIRATORY STATUS SECTION:
+   🚨 CRITICAL: Extract ALL data from "RESPIRATORY STATUS" section! 🚨
    
    ═══════════════════════════════════════════════════════════════════
-   EXTRACT THESE COGNITIVE FIELDS (SAME FORMAT as Functional Status):
+   STEP 1: FIND THE SECTION (Page 5)
+   ═══════════════════════════════════════════════════════════════════
+   Look for header: "RESPIRATORY STATUS"
+   Then find: "Respiratory Assessment"
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 2: EXTRACT CHECKED ITEMS FROM "Select all that apply"
    ═══════════════════════════════════════════════════════════════════
    
-   C0200 - Delirium Assessment (CAM):
-   - Acute Onset (0-1)
-   - Inattention (0-4)
-   - Disorganized Thinking (0-2)
-   - Altered Consciousness (0-4)
-   - Extract: {"item": "C0200 - Delirium", "currentValue": "[present/absent]", "currentDescription": "Acute onset: [0/1], Inattention: [0-4], Disorganized thinking: [0-2], Altered consciousness: [0-4]"}
+   LEFT COLUMN:
+   ☑ No problems identified (if checked)
+   □ Accessory muscles used
+   □ CPAP/BIPAP
+   □ Orthopnea
+   □ Abnormal breath sounds:
    
-   C0300-C0500 - BIMS (Brief Interview for Mental Status):
-   - Total score 0-15 (0-7=severely impaired, 8-12=moderately, 13-15=intact)
-   - Extract: {"item": "C0500 - BIMS Score", "currentValue": "[0-15]", "currentDescription": "[interpretation]"}
+   MIDDLE COLUMN:
+   □ Dyspnea
+   □ Cough, nonproductive
+   □ Cough, productive:
+   □ Nebulizer
+   □ Oxygen use, intermittent:
    
-   ⚠️ Extract ANY cognitive data found - BIMS, Delirium, memory tests, etc!
+   RIGHT COLUMN:
+   □ Paroxysmal nocturnal dyspnea (PND)
+   □ Tachypnea
+   □ Tracheostomy
+   □ Oxygen use, continuous:
+   
+   For EACH CHECKED box, extract as:
+   {
+     "item": "Respiratory - [checkbox label]",
+     "currentValue": "Present" or "Not Present",
+     "currentDescription": "[Full text from checkbox]"
+   }
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 3: CHECK COMMENTS
+   ═══════════════════════════════════════════════════════════════════
+   Extract any text in "Comments:" field
+   
+   EXAMPLE:
+   [
+     {"item": "Respiratory - No problems identified", "currentValue": "Checked", "currentDescription": "No respiratory problems identified"}
+   ]
+
+8. CARDIAC STATUS SECTION:
+   🚨 CRITICAL: Extract ALL data from "CARDIAC STATUS" section! 🚨
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 1: FIND THE SECTION (Page 5)
+   ═══════════════════════════════════════════════════════════════════
+   Look for header: "CARDIAC STATUS"
+   Then find: "Cardiac Assessment"
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 2: EXTRACT CHECKED ITEMS FROM "Select all that apply"
+   ═══════════════════════════════════════════════════════════════════
+   
+   LEFT COLUMN:
+   □ No problems identified
+   □ Activity intolerance
+   □ Abnormal pulses:
+   □ A-FIB
+   □ Distended neck veins:
+   □ Abnormal heart rhythm:
+   □ Abnormal lower extremity sensation:
+   
+   MIDDLE COLUMN:
+   □ Capillary refill > 3 sec
+   □ Dizziness/Lightheadedness
+   □ Paroxysmal nocturnal dyspnea (PND)
+   □ Pacemaker:
+   □ Edema, non-pitting:
+   □ Abnormal heart sounds:
+   □ Abnormal lower extremity appearance:
+   
+   RIGHT COLUMN:
+   ☑ Fatigue/Weakness (if checked!)
+   □ Orthopnea
+   □ Orthostatic hypotension
+   □ Palpitations:
+   □ Edema, pitting:
+   □ Chest pain:
+   □ Exhibiting S/S of heart failure:
+   
+   For EACH CHECKED box, extract as:
+   {
+     "item": "Cardiac - [checkbox label]",
+     "currentValue": "Present",
+     "currentDescription": "[Full text]"
+   }
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 3: CHECK COMMENTS
+   ═══════════════════════════════════════════════════════════════════
+   Extract "Comments:" field text
+   
+   EXAMPLE:
+   [
+     {"item": "Cardiac - Fatigue/Weakness", "currentValue": "Present", "currentDescription": "Patient experiences fatigue and weakness"}
+   ]
+
+9. ELIMINATION STATUS SECTION:
+   🚨 CRITICAL: Extract ALL data from "ELIMINATION STATUS" section! 🚨
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 1: FIND THE SECTION (Page 5)
+   ═══════════════════════════════════════════════════════════════════
+   Look for header: "ELIMINATION STATUS"
+   This section has TWO subsections:
+   A) Genitourinary Assessment
+   B) Gastrointestinal Assessment
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 2A: EXTRACT GENITOURINARY ASSESSMENT
+   ═══════════════════════════════════════════════════════════════════
+   Find "Genitourinary Assessment" with "Select all that apply"
+   
+   LEFT COLUMN:
+   ☑ No problems identified (if checked!)
+   □ Bladder distention
+   □ Abnormal control:
+   □ Abnormal volume:
+   □ Discharge
+   
+   MIDDLE COLUMN:
+   □ Nocturia
+   □ Abnormal urine appearance:
+   □ Dialytic:
+   □ Suprapubic catheter:
+   
+   RIGHT COLUMN:
+   □ Urostomy
+   □ Indwelling/foley catheter:
+   □ Intermittent catheterization:
+   □ UTI signs/symptoms:
+   
+   Extract EACH CHECKED item.
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 2B: EXTRACT GASTROINTESTINAL ASSESSMENT
+   ═══════════════════════════════════════════════════════════════════
+   Find "Last BM [date]" - extract date if present
+   Find "Gastrointestinal Assessment" with "Select all that apply"
+   
+   LEFT COLUMN:
+   ☑ No problems identified (if checked!)
+   □ Ascites
+   □ Hemorrhoids
+   □ Nausea
+   □ Tenderness
+   □ Abnormal bowel sounds:
+   
+   MIDDLE COLUMN:
+   □ Bowel incontinence
+   □ Hard
+   □ Laxative/Enema use
+   □ Pain
+   □ Vomiting
+   □ Abnormal stool:
+   
+   RIGHT COLUMN:
+   □ Distended
+   □ Heartburn/Reflux
+   □ Laxative/Enema abuse
+   □ Rectal bleeding
+   □ Ostomy:
+   
+   Extract EACH CHECKED item separately.
+   
+   ═══════════════════════════════════════════════════════════════════
+   STEP 3: CHECK COMMENTS
+   ═══════════════════════════════════════════════════════════════════
+   Extract any "Comments:" text
+   
+   EXAMPLE:
+   [
+     {"item": "Genitourinary - No problems identified", "currentValue": "Checked", "currentDescription": "No genitourinary problems identified"},
+     {"item": "Last BM", "currentValue": "11/06/2025", "currentDescription": "Last bowel movement on 11/06/2025"},
+     {"item": "Gastrointestinal - No problems identified", "currentValue": "Checked", "currentDescription": "No gastrointestinal problems identified"}
+   ]
+
+10. NEURO/EMOTIONAL/BEHAVIORAL STATUS SECTION:
+    🚨 CRITICAL: Extract ALL data from "NEURO/EMOTIONAL/BEHAVIORAL STATUS" section! 🚨
+    
+    ═══════════════════════════════════════════════════════════════════
+    STEP 1: FIND THE SECTION (Page 5-6)
+    ═══════════════════════════════════════════════════════════════════
+    Look for header: "NEURO/EMOTIONAL/BEHAVIORAL STATUS"
+    Then find: "Neurological Assessment"
+    
+    ═══════════════════════════════════════════════════════════════════
+    STEP 2: EXTRACT "ORIENTED TO" SECTION
+    ═══════════════════════════════════════════════════════════════════
+    Find "Oriented To" with checkboxes:
+    ☑ Person (if checked!)
+    ☑ Place (if checked!)
+    ☑ Time (if checked!)
+    
+    Extract:
+    - If all 3 are checked: "Oriented x3 (Person, Place, Time)"
+    - If only some checked: list which ones
+    
+    ═══════════════════════════════════════════════════════════════════
+    STEP 3: EXTRACT "Select all that apply" CHECKBOXES
+    ═══════════════════════════════════════════════════════════════════
+    
+    LEFT COLUMN:
+    ☑ No problems identified (if checked!)
+    □ Dizziness
+    □ Spasticity:
+    □ Tremors:
+    
+    MIDDLE COLUMN:
+    □ Forgetful
+    □ Headache
+    □ Rigidity
+    □ Abnormal behavior:
+    
+    RIGHT COLUMN:
+    □ Loss of sensation
+    □ Lethargic
+    □ Seizure precautions
+    □ Neuromuscular weakness/loss:
+    
+    Extract EACH CHECKED item.
+    
+    ═══════════════════════════════════════════════════════════════════
+    STEP 4: EXTRACT "Plan of Care: Mental/Cognitive Status"
+    ═══════════════════════════════════════════════════════════════════
+    Find section "Plan of Care: Mental/Cognitive Status"
+    Look for "Select all that apply. Selections will populate in the plan of care."
+    
+    Checkboxes may include:
+    □ Oriented X3
+    □ Oriented to self only
+    □ Oriented to self and place
+    □ Agitated
+    ☑ Disoriented (if checked!)
+    □ Comatose
+    □ Forgetful
+    □ Depressed
+    ☑ Lethargic (if checked!)
+    □ Other:
+    
+    Extract EACH CHECKED item from plan of care.
+    
+    ═══════════════════════════════════════════════════════════════════
+    STEP 5: CHECK COMMENTS
+    ═══════════════════════════════════════════════════════════════════
+    Extract any "Comments:" text
+    
+    EXAMPLE:
+    [
+      {"item": "Oriented To", "currentValue": "Person, Place, Time", "currentDescription": "Patient is oriented to person, place, and time (x3)"},
+      {"item": "Neuro - No problems identified", "currentValue": "Checked", "currentDescription": "No neurological problems identified"},
+      {"item": "Plan of Care - Disoriented", "currentValue": "Selected", "currentDescription": "Disorientation documented in plan of care"},
+      {"item": "Plan of Care - Lethargic", "currentValue": "Selected", "currentDescription": "Lethargy documented in plan of care"}
+    ]
+
+11. EMOTIONAL STATUS (if separate section):
+    If you find a separate "Emotional Status" section, extract it.
+    
+12. BEHAVIORAL STATUS (if separate section):
+    If you find a separate "Behavioral Status" section, extract it.
+    
+⚠️⚠️⚠️ CRITICAL EXTRACTION RULES FOR ALL STATUS SECTIONS ⚠️⚠️⚠️
+
+1. FIND SECTION HEADERS: Look for exact text like "PAIN STATUS", "CARDIAC STATUS", etc.
+2. FIND CHECKBOXES: Look for checkbox symbols: □ ☑ ✓ ☒ ✗ (checked vs unchecked)
+3. EXTRACT ONLY CHECKED ITEMS: Only extract items that have a checkmark (☑, ✓, ☒)
+4. IGNORE UNCHECKED ITEMS: Do NOT extract items with empty boxes (□)
+5. EXTRACT CHECKBOX LABELS: Get the full text next to the checked box
+6. FORMAT CORRECTLY: Use the item name, mark as "Present" or "Checked", include description
+7. CHECK COMMENTS: Always look for "Comments:" fields and extract any text
+8. BE PRECISE: Only extract what you actually see - do NOT make up data
+9. EMPTY SECTIONS: If no checkboxes are marked, extract "No problems identified" if checked
+10. STRUCTURED DATA: Each checkbox = one item in the array
+
+EXAMPLE OF GOOD EXTRACTION:
+If you see:
+  ☑ Cool
+  □ Warm
+  ☑ Dry
+  □ Moist
+
+Extract:
+[
+  {"item": "Skin - Cool", "currentValue": "Present", "currentDescription": "Skin is cool"},
+  {"item": "Skin - Dry", "currentValue": "Present", "currentDescription": "Skin is dry"}
+]
+
+DO NOT extract "Warm" or "Moist" because they are UNCHECKED!
 
 ⚠️⚠️⚠️ BEFORE YOU RETURN - FINAL MEDICATION CHECK! ⚠️⚠️⚠️
 Have you extracted medications? If this is an OASIS document, it MUST have:
@@ -1114,9 +2106,14 @@ RETURN THIS EXACT JSON STRUCTURE:
   "activeDiagnoses": [],  // M1028 - Active diagnoses being treated
   "functionalStatus": [],
   "medications": [],  // ⚠️ Should have M2001, M2020 at minimum if OASIS!
-  "painAssessment": [],
-  "moodAssessment": [],
-  "cognitiveAssessment": []
+  "painStatus": [],
+  "integumentaryStatus": [],
+  "respiratoryStatus": [],
+  "cardiacStatus": [],
+  "eliminationStatus": [],
+  "neuroEmotionalBehavioralStatus": [],
+  "emotionalStatus": [],
+  "behavioralStatus": []
 }
 
 ⚠️ IF THIS IS AN OASIS DOCUMENT with data, extract it like this:
@@ -1140,41 +2137,80 @@ EXAMPLE 2 - Individual Medications (if medication list present):
   ]
 }
 
-EXAMPLE 3 - Pain Assessment with NARRATIVE data (flexible format):
+EXAMPLE 3 - Pain Status Section:
 {
-  "painAssessment": [
-    {"item": "Pain Assessment - Overall Status", "currentValue": "Yes", "currentDescription": "Primary site: Body. Current intensity: 6-Intense. Past week least: 6-Intense, most: 8-Severe. Interferes with activity: Yes, daily but not constantly. Pain type: Burning."},
-    {"item": "J0510 - Pain Effect on Sleep", "currentValue": "3", "currentDescription": "3 - Frequently"}
+  "painStatus": [
+    {"item": "Pain Location", "currentValue": "Lower back", "currentDescription": "Patient reports lower back pain, radiating to right leg"},
+    {"item": "Pain Intensity", "currentValue": "7/10", "currentDescription": "Current pain level: 7 out of 10, described as severe"},
+    {"item": "Pain Frequency", "currentValue": "Daily", "currentDescription": "Pain occurs daily, constant throughout the day"},
+    {"item": "Pain Type", "currentValue": "Sharp", "currentDescription": "Sharp, shooting pain with movement"}
   ]
 }
 
-EXAMPLE 4 - Pain Assessment with OASIS fields only:
+EXAMPLE 4 - Integumentary Status Section:
 {
-  "painAssessment": [
-    {"item": "J0510 - Pain Effect on Sleep", "currentValue": "2", "currentDescription": "2 - Occasionally"},
-    {"item": "J0520 - Pain Interference with Therapy Activities", "currentValue": "1", "currentDescription": "1 - Rarely or not at all"},
-    {"item": "M1242 - Frequency of Pain", "currentValue": "2", "currentDescription": "2 - Pain daily, but not all the time"}
+  "integumentaryStatus": [
+    {"item": "Skin Integrity", "currentValue": "Intact", "currentDescription": "Skin warm, dry, intact, no lesions noted"},
+    {"item": "Pressure Ulcer", "currentValue": "Stage 2", "currentDescription": "Stage 2 pressure ulcer on sacrum, 2cm x 2cm, shallow"},
+    {"item": "Wound Treatment", "currentValue": "Hydrocolloid", "currentDescription": "Hydrocolloid dressing applied daily to sacral wound"}
   ]
 }
 
-EXAMPLE 5 - Mood Assessment (if mood data present):
+EXAMPLE 5 - Respiratory Status Section:
 {
-  "moodAssessment": [
-    {"item": "D0200 - Patient Mood (PHQ-2)", "currentValue": "Yes", "currentDescription": "Little interest: No, Feeling down: Yes"},
-    {"item": "D0300 - When Anxious", "currentValue": "0", "currentDescription": "0 - Patient not anxious"},
-    {"item": "D0500 - Depression Screening", "currentValue": "0", "currentDescription": "0 - No depression symptoms"}
+  "respiratoryStatus": [
+    {"item": "Breath Sounds", "currentValue": "Clear", "currentDescription": "Bilateral breath sounds clear, no wheezing or crackles"},
+    {"item": "Oxygen Use", "currentValue": "2L NC", "currentDescription": "Oxygen at 2 liters per minute via nasal cannula"},
+    {"item": "Respiratory Rate", "currentValue": "18", "currentDescription": "Respiratory rate 18 breaths per minute"}
   ]
 }
 
-EXAMPLE 6 - Cognitive Assessment (if cognitive data present):
+EXAMPLE 6 - Cardiac Status Section:
 {
-  "cognitiveAssessment": [
-    {"item": "C0200 - Delirium", "currentValue": "Present", "currentDescription": "Acute onset: 0, Inattention: 1, Disorganized thinking: 2, Altered consciousness: 0"},
-    {"item": "C0500 - BIMS Score", "currentValue": "Not visible", "currentDescription": "Score not documented"}
+  "cardiacStatus": [
+    {"item": "Heart Rate", "currentValue": "78", "currentDescription": "Heart rate 78 beats per minute, regular rhythm"},
+    {"item": "Blood Pressure", "currentValue": "138/82", "currentDescription": "Blood pressure 138/82 mmHg"},
+    {"item": "Edema", "currentValue": "1+ bilateral", "currentDescription": "1+ pitting edema bilateral lower extremities"}
   ]
 }
 
-EXAMPLE 7 - Functional Status (if M1800-M1870 present):
+EXAMPLE 7 - Elimination Status Section:
+{
+  "eliminationStatus": [
+    {"item": "Bowel", "currentValue": "Daily", "currentDescription": "Bowel movement daily, soft, brown, no issues"},
+    {"item": "Bladder", "currentValue": "Continent", "currentDescription": "Continent of bladder, voids without difficulty"},
+    {"item": "Catheter", "currentValue": "None", "currentDescription": "No catheter or ostomy present"}
+  ]
+}
+
+EXAMPLE 8 - Neuro/Emotional/Behavioral Status Section:
+{
+  "neuroEmotionalBehavioralStatus": [
+    {"item": "Alert and Oriented", "currentValue": "A&Ox3", "currentDescription": "Alert and oriented to person, place, and time"},
+    {"item": "Emotional State", "currentValue": "Stable", "currentDescription": "Mood stable, no signs of depression or anxiety"},
+    {"item": "Behavior", "currentValue": "Cooperative", "currentDescription": "Patient cooperative with care, follows instructions"}
+  ]
+}
+
+EXAMPLE 9 - Emotional Status (D0150 Patient Mood Interview PHQ-2/PHQ-9):
+🚨 CRITICAL: If you find "Emotional Status" or "D0150" or "Patient Mood Interview (PHQ 2-9)" as a SEPARATE section → Extract as "emotionalStatus"!
+{
+  "emotionalStatus": [
+    {"item": "D0150 - Little interest or pleasure in doing things", "currentValue": "1", "currentDescription": "Symptom Presence: Yes | Symptom Frequency: Never or 1 day"},
+    {"item": "D0150 - Feeling down, depressed or hopeless", "currentValue": "1", "currentDescription": "Symptom Presence: Yes | Symptom Frequency: Never or 1 day"},
+    {"item": "PHQ-2 Screening Result", "currentValue": "Positive", "currentDescription": "Patient screens positive on PHQ-2. Further assessment may be indicated."}
+  ]
+}
+
+EXAMPLE 10 - Behavioral Status (if separate from Emotional/Neuro):
+{
+  "behavioralStatus": [
+    {"item": "E0200 - Behavioral symptoms", "currentValue": "0", "currentDescription": "No behavioral symptoms observed"},
+    {"item": "Agitation/Aggression", "currentValue": "Not present", "currentDescription": "No signs of agitation or aggression"}
+  ]
+}
+
+EXAMPLE 11 - Functional Status (if M1800-M1870 present):
 {
   "functionalStatus": [
     {"item": "M1800 - Grooming", "currentValue": "0", "currentDescription": "Able to groom self unaided"}
@@ -1265,44 +2301,68 @@ Common pain data formats:
 - "Has patient had any pain? Yes"
 - "Pain interferes with activity: Daily"
 
-CHECK 4 - MOOD ASSESSMENT:
-Have you searched for Mood/Behavioral Status section?
-- ✓ Searched for "Mood", "Behavioral Status", "Section D"?
-- ✓ Searched for "D0200", "D0300", "D0500", "PHQ-2"?
-- ✓ Looked for depression/anxiety screening data?
+CHECK 4 - EMOTIONAL STATUS:
+🚨🚨🚨 CRITICAL - EMOTIONAL STATUS MUST BE A SEPARATE FIELD! 🚨🚨🚨
 
-If you found ANY of these → EXTRACT THEM ALL!
-- D0200 (Patient Mood/PHQ-2)
-- D0300 (Anxiety)
-- D0500 (Depression Screening)
-- ANY mood/behavioral checkboxes or narratives
+⚠️ DO NOT combine emotional data with neuro or behavioral data!
+⚠️ If you see "Emotional Status" as a section header → Extract as SEPARATE "emotionalStatus" field!
+⚠️ If you see "D0150" or "Patient Mood Interview (PHQ 2-9)" → Extract as SEPARATE "emotionalStatus" field!
 
-⚠️ ONLY return moodAssessment: [] if you have searched ALL locations and found NOTHING!
+MANDATORY SEARCH LOCATIONS:
+- ✓ Page 11 (typical location for Emotional Status section)
+- ✓ Search for exact text: "Emotional Status" as section header
+- ✓ Search for "D0150", "PHQ-2", "PHQ-9", "Patient Mood Interview"
+- ✓ Search for "Little interest or pleasure in doing things"
+- ✓ Search for "Feeling down, depressed or hopeless"
+- ✓ Look for "Symptom Presence" and "Symptom Frequency" columns
 
-Common mood data formats:
-- "Patient Mood: Little interest: No, Feeling down: Yes"
-- "(D0300) When Anxious: ☑ 0"
-- "Depression Screening Score: 0"
+🚨 IF YOU FIND A SECTION WITH HEADER "Emotional Status" OR "D0150":
+→ MUST extract as "emotionalStatus": [...]
+→ DO NOT put in "neuroEmotionalBehavioralStatus"
+→ Keep them SEPARATE!
 
-CHECK 5 - COGNITIVE ASSESSMENT:
-Have you searched for Cognitive Status section?
-- ✓ Searched for "Cognitive", "Cognitive Status", "Section C"?
-- ✓ Searched for "C0200", "C0500", "BIMS", "Delirium"?
-- ✓ Looked for mental status/cognition data?
+WHAT TO EXTRACT AS "emotionalStatus":
+- D0150 Patient Mood Interview items
+- PHQ-2 questions: "Little interest or pleasure", "Feeling down, depressed or hopeless"
+- PHQ-9 extended questions (if present)
+- Symptom Presence values (0=No, 1=Yes)
+- Symptom Frequency values (0=Never or 1 day, 1=2-6 days, 2=7-11 days, 3=12-14 days)
+- Any depression or anxiety screening data
 
-If you found ANY of these → EXTRACT THEM ALL!
-- C0200 (Delirium/CAM assessment)
-- C0500 (BIMS Score)
-- ANY cognitive assessment data
+⚠️ ONLY return emotionalStatus: [] if "Emotional Status" section does NOT exist in document!
 
-⚠️ ONLY return cognitiveAssessment: [] if you have searched ALL locations and found NOTHING!
+Common emotional status data formats:
+- "[D0150] Patient Mood Interview (PHQ 2-9)"
+- "Little interest or pleasure in doing things: 1. Yes (enter 0-3 in column 2)"
+- "Symptom Presence: 1. Yes  |  Symptom Frequency: 0. Never or 1 day"
+- "Feeling down, depressed or hopeless: A2. Symptom frequency: 0. Never or 1 day"
+- "B. Feeling down, depressed or hopeless: B1. Symptom Presence: 1. Yes"
 
-Common cognitive data formats:
-- "Delirium: Acute onset: 0, Inattention: 1"
-- "BIMS Score: Not visible"
-- "Cognitive status: Intact/Impaired"
+CHECK 5 - BEHAVIORAL STATUS:
+Have you searched for Behavioral Status section (if separate from Emotional)?
+- ✓ Searched for "Behavioral Status", "Behavior", "E0200", "E0800"?
+- ✓ Looked for behavioral symptoms (wandering, verbal disruption, physical aggression)?
+- ✓ Checked for behavioral intervention data?
 
-CHECK 6 - DIAGNOSES:
+If you found ANY of these as SEPARATE from Emotional → EXTRACT AS "behavioralStatus"!
+- E0200 (Behavioral symptoms)
+- E0800 (Behavior intervention)
+- ANY behavioral assessment data
+
+⚠️ If behavioral data is COMBINED with emotional/neuro data → Put it in "neuroEmotionalBehavioralStatus"!
+⚠️ ONLY return behavioralStatus: [] if truly separate section not found!
+
+CHECK 6 - EMOTIONAL STATUS (CRITICAL VERIFICATION):
+🚨 IF YOU SAW "Emotional Status" OR "D0150" AS A SECTION HEADER:
+- Did you extract it as SEPARATE "emotionalStatus" field? → MUST BE YES!
+- Did you accidentally put it in "neuroEmotionalBehavioralStatus"? → MUST BE NO!
+- Emotional Status MUST be its own field if the section exists!
+
+⚠️ DOUBLE CHECK:
+- "emotionalStatus": [] is ONLY correct if "Emotional Status" section does NOT exist
+- "emotionalStatus": [...] MUST have data if you saw "D0150" or "Patient Mood Interview"
+
+CHECK 7 - DIAGNOSES:
 - Did you find ICD-10 codes in the document?
 - If YES → Extract what you found
 - If NO → Return "Not found" for primary, empty array for secondary
@@ -1310,9 +2370,9 @@ CHECK 6 - DIAGNOSES:
 ⚠️ REMEMBER: It's better to return EMPTY data than FAKE data!
 - Empty functionalStatus: [] is CORRECT for non-OASIS documents
 - Empty medications: [] is CORRECT if no medications found
-- Empty painAssessment: [] is CORRECT if no pain data found
-- Empty moodAssessment: [] is CORRECT if no mood data found
-- Empty cognitiveAssessment: [] is CORRECT if no cognitive data found
+- Empty painStatus: [] is CORRECT if no pain data found
+- Empty emotionalStatus: [] is CORRECT ONLY if "Emotional Status" section does NOT exist
+- Empty behavioralStatus: [] is CORRECT if behavioral data is not separate
 - "Not found" is CORRECT if data doesn't exist
 
 DO NOT RETURN fabricated/invented data!`
@@ -1606,66 +2666,64 @@ RETURN THIS JSON STRUCTURE:
       "clinicalRationale": "Patient with hemiplegia may have difficulty with self-injection. If on insulin or anticoagulant, assistance likely needed."
     }
   ],
-  "painAssessment": [
+  "painStatus": [
     {
-      "item": "J0510 - Pain Effect on Sleep",
+      "item": "Has patient had pain",
       "currentValue": "[from PASS 1]",
       "currentDescription": "[from PASS 1]",
-      "suggestedValue": "2",
-      "suggestedDescription": "Pain occasionally affects sleep",
-      "clinicalRationale": "Patient with chronic pain diagnosis or pain medications should have pain assessment documented."
-    },
-    {
-      "item": "J0520 - Pain Interference with Therapy",
-      "currentValue": "[from PASS 1]",
-      "currentDescription": "[from PASS 1]",
-      "suggestedValue": "1",
-      "suggestedDescription": "Pain rarely limits therapy activities",
-      "clinicalRationale": "Consider patient's diagnoses and medications when assessing pain interference."
-    },
-    {
-      "item": "J0530 - Pain Interference with Activities",
-      "currentValue": "[from PASS 1]",
-      "currentDescription": "[from PASS 1]",
-      "suggestedValue": "2",
-      "suggestedDescription": "Pain occasionally interferes with day-to-day activities",
-      "clinicalRationale": "Patient's functional limitations may be related to pain. Accurate coding ensures appropriate care planning."
+      "suggestedValue": "",
+      "suggestedDescription": "",
+      "clinicalRationale": ""
     }
   ],
-  "moodAssessment": [
+  "integumentaryStatus": [
     {
-      "item": "D0200 - Patient Mood (PHQ-2)",
+      "item": "Skin - [checkbox name]",
       "currentValue": "[from PASS 1]",
       "currentDescription": "[from PASS 1]",
-      "suggestedValue": "Yes",
-      "suggestedDescription": "Positive depression screening requires follow-up",
-      "clinicalRationale": "Patient reports feeling down. If either PHQ-2 question is Yes, further depression screening (PHQ-9) is indicated."
-    },
-    {
-      "item": "D0300 - When Anxious",
-      "currentValue": "[from PASS 1]",
-      "currentDescription": "[from PASS 1]",
-      "suggestedValue": "2",
-      "suggestedDescription": "Patient experiences anxiety occasionally",
-      "clinicalRationale": "Consider anxiety in context of patient's diagnoses and care needs. May affect functional status and medication management."
+      "suggestedValue": "",
+      "suggestedDescription": "",
+      "clinicalRationale": ""
     }
   ],
-  "cognitiveAssessment": [
+  "respiratoryStatus": [
     {
-      "item": "C0200 - Delirium",
+      "item": "Respiratory - [checkbox name]",
       "currentValue": "[from PASS 1]",
       "currentDescription": "[from PASS 1]",
-      "suggestedValue": "Not present",
-      "suggestedDescription": "No evidence of delirium based on CAM criteria",
-      "clinicalRationale": "Delirium assessment should be completed for all patients. If components are documented, provide comprehensive assessment."
-    },
+      "suggestedValue": "",
+      "suggestedDescription": "",
+      "clinicalRationale": ""
+    }
+  ],
+  "cardiacStatus": [
     {
-      "item": "C0500 - BIMS Score",
+      "item": "Cardiac - [checkbox name]",
       "currentValue": "[from PASS 1]",
       "currentDescription": "[from PASS 1]",
-      "suggestedValue": "13",
-      "suggestedDescription": "Cognitively intact (score 13-15)",
-      "clinicalRationale": "BIMS score helps determine care plan and patient's ability to manage self-care. Score should be documented if possible."
+      "suggestedValue": "",
+      "suggestedDescription": "",
+      "clinicalRationale": ""
+    }
+  ],
+  "eliminationStatus": [
+    {
+      "item": "Elimination - [checkbox name]",
+      "currentValue": "[from PASS 1]",
+      "currentDescription": "[from PASS 1]",
+      "suggestedValue": "",
+      "suggestedDescription": "",
+      "clinicalRationale": ""
+    }
+  ],
+  "neuroEmotionalBehavioralStatus": [
+    {
+      "item": "Neuro - [checkbox name]",
+      "currentValue": "[from PASS 1]",
+      "currentDescription": "[from PASS 1]",
+      "suggestedValue": "",
+      "suggestedDescription": "",
+      "clinicalRationale": ""
     }
   ],
   "inconsistencies": [
@@ -1696,9 +2754,12 @@ RETURN THIS JSON STRUCTURE:
     "otherDiagnoses": [ ...copy... ],
     "functionalStatus": [ ...with ALL suggestions... ],
     "medications": [ ...with suggestions... ],
-    "painAssessment": [ ...with suggestions... ],
-    "moodAssessment": [ ...with suggestions... ],
-    "cognitiveAssessment": [ ...with suggestions... ]
+    "painStatus": [ ...copy from PASS 1... ],
+    "integumentaryStatus": [ ...copy from PASS 1... ],
+    "respiratoryStatus": [ ...copy from PASS 1... ],
+    "cardiacStatus": [ ...copy from PASS 1... ],
+    "eliminationStatus": [ ...copy from PASS 1... ],
+    "neuroEmotionalBehavioralStatus": [ ...copy from PASS 1... ]
   },
   "debugInfo": {
     "pagesProcessed": "estimated",
@@ -1793,15 +2854,27 @@ function calculateQualityScore(analysis: OasisAnalysisResult): number {
   }
   
   // Add points for complete data
-  if (analysis.painAssessment && analysis.painAssessment.length > 0) {
+  if (analysis.painStatus && analysis.painStatus.length > 0) {
     score += 2
   }
   
-  if (analysis.moodAssessment && analysis.moodAssessment.length > 0) {
-    score += 2
+  if (analysis.integumentaryStatus && analysis.integumentaryStatus.length > 0) {
+    score += 1
   }
   
-  if (analysis.cognitiveAssessment && analysis.cognitiveAssessment.length > 0) {
+  if (analysis.respiratoryStatus && analysis.respiratoryStatus.length > 0) {
+    score += 1
+  }
+  
+  if (analysis.cardiacStatus && analysis.cardiacStatus.length > 0) {
+    score += 1
+  }
+  
+  if (analysis.eliminationStatus && analysis.eliminationStatus.length > 0) {
+    score += 1
+  }
+  
+  if (analysis.neuroEmotionalBehavioralStatus && analysis.neuroEmotionalBehavioralStatus.length > 0) {
     score += 2
   }
   
@@ -2208,6 +3281,14 @@ SECTION 6 - INCONSISTENCY DETECTION:
 After extracting all data, you MUST analyze for conflicts and inconsistencies.
 This is a REQUIRED step - do not skip it!
 
+🚨 CRITICAL RULE: INCONSISTENCIES MUST BE BASED ON **ACTUAL EXTRACTED DATA ONLY** 🚨
+❌ DO NOT use generic examples or hypothetical data
+❌ DO NOT make up conflicts that aren't in the document
+❌ DO NOT use placeholder values like "Section A" or "Section B"
+✅ ONLY report conflicts you actually found in the extracted data
+✅ Use SPECIFIC values from the document (exact codes, exact functional values, exact dates)
+✅ If no real conflicts exist, return empty array []
+
 ANALYZE THE FOLLOWING DATA YOU JUST EXTRACTED:
 ✓ Primary diagnosis vs. functional status items
 ✓ Secondary diagnoses vs. medications list
@@ -2215,6 +3296,9 @@ ANALYZE THE FOLLOWING DATA YOU JUST EXTRACTED:
 ✓ Dates (visit date, order date, medication dates)
 ✓ Clinical notes vs. coded values
 ✓ Payor type vs. documented services
+
+⚠️ COMPARE ACTUAL VALUES: Use the REAL diagnosis codes, REAL functional status values, 
+and REAL medication names you extracted above. Not examples!
 
 TYPES OF INCONSISTENCIES TO DETECT:
 
@@ -2296,17 +3380,32 @@ CHECK #4: Are dates logical?
 - Medication start dates should be logical
 - If dates are out of sequence → FLAG IT
 
+CHECK #5: Does emotional status match diagnoses and other data?
+- If patient has depression diagnosis (F32.x, F33.x) but emotional status shows "No" to PHQ-2 questions → FLAG IT
+- If patient has anxiety diagnosis (F41.x) but emotional status shows no anxiety symptoms → FLAG IT
+- If functional status severely impaired but emotional status shows positive mood → Review for accuracy
+- If patient on antidepressants but emotional status shows no depression symptoms → FLAG IT
+
 ⚠️ YOU MUST FIND AT LEAST 1-3 INCONSISTENCIES IN MOST DOCUMENTS
 Real-world OASIS documents typically have conflicts. Look carefully!
 
+🚨 FINAL REMINDER BEFORE REPORTING INCONSISTENCIES:
+1. ✅ Use ONLY actual diagnosis codes you extracted (e.g., "E11.65", "I69.351")
+2. ✅ Use ONLY actual functional values you extracted (e.g., "M1800 = 1", not generic "M1800 = 0")
+3. ✅ Use ONLY actual medication names you extracted (e.g., "Metformin 500mg", not "insulin")
+4. ✅ Use ONLY actual dates you extracted (e.g., "11/06/2025", not "09/10/2024")
+5. ✅ If you extracted "No" for pain, don't report pain conflicts
+6. ❌ DO NOT copy-paste examples from the instructions
+7. ❌ If no conflicts found in ACTUAL data, return []
+
 INCONSISTENCY OUTPUT FORMAT (REQUIRED FIELDS):
 {
-  "sectionA": "Specific location of first conflict (e.g., 'M1800 Grooming - Value: 0 (Independent)')",
-  "sectionB": "Specific location of second conflict (e.g., 'Primary Diagnosis: I69.351 - Hemiplegia following stroke')",
+  "sectionA": "Specific location with ACTUAL VALUE from document (e.g., 'M1800 Grooming - Value: 1 (Grooming utensils must be placed within reach)')",
+  "sectionB": "Specific location with ACTUAL VALUE from document (e.g., 'Primary Diagnosis: E11.40 - Type 2 diabetes mellitus with diabetic neuropathy')",
   "conflictType": "Diagnosis-Functional Status Conflict",
-  "severity": "high",
-  "recommendation": "Review functional status coding. Patient with stroke diagnosis and hemiplegia should typically show some level of functional impairment in grooming activities.",
-  "clinicalImpact": "Current coding may underrepresent patient's care needs and result in lower case mix weight. Accurate functional status coding is essential for appropriate reimbursement and care planning."
+  "severity": "medium",
+  "recommendation": "Review if grooming value of 1 aligns with diabetic neuropathy affecting fine motor skills. Patient may require more assistance than currently documented.",
+  "clinicalImpact": "Diabetic neuropathy typically affects hand dexterity. Ensure functional status coding accurately reflects patient's actual abilities."
 }
 
 SECTION 7 - FINANCIAL ESTIMATES:
@@ -2401,6 +3500,14 @@ OUTPUT FORMAT - Return ONLY this JSON structure with extracted data (no markdown
     "primaryDiagnosis": "copy from primaryDiagnosis above",
     "otherDiagnoses": "copy from secondaryDiagnoses above",
     "functionalStatus": "copy from functionalStatus array above",
+    "painStatus": "array of pain status items from document",
+    "integumentaryStatus": "array of integumentary status items from document",
+    "respiratoryStatus": "array of respiratory status items from document",
+    "cardiacStatus": "array of cardiac status items from document",
+    "eliminationStatus": "array of elimination status items from document",
+    "neuroEmotionalBehavioralStatus": "array of neuro/emotional/behavioral status items from document",
+    "emotionalStatus": "array of emotional status items (if separate)",
+    "behavioralStatus": "array of behavioral status items (if separate)",
     "oasisCorrections": [
       {
         "item": "OASIS item needing correction (e.g., M1800)",
@@ -2893,26 +4000,94 @@ REVENUE CALCULATION GUIDELINES:
         : (Array.isArray(analysis.extractedData?.medications) && analysis.extractedData.medications.length > 0
           ? analysis.extractedData.medications
           : []),
-      // Pain Assessment - check both top-level and extractedData
-      painAssessment: Array.isArray(analysis.painAssessment) && analysis.painAssessment.length > 0
-        ? analysis.painAssessment 
-        : (Array.isArray(analysis.extractedData?.painAssessment) && analysis.extractedData.painAssessment.length > 0
-          ? analysis.extractedData.painAssessment
+      // Pain Status - check both top-level and extractedData
+      painStatus: Array.isArray(analysis.painStatus) && analysis.painStatus.length > 0
+        ? analysis.painStatus 
+        : (Array.isArray(analysis.extractedData?.painStatus) && analysis.extractedData.painStatus.length > 0
+          ? analysis.extractedData.painStatus
           : []),
-      // Mood Assessment - check both top-level and extractedData
-      moodAssessment: Array.isArray(analysis.moodAssessment) && analysis.moodAssessment.length > 0
-        ? analysis.moodAssessment 
-        : (Array.isArray(analysis.extractedData?.moodAssessment) && analysis.extractedData.moodAssessment.length > 0
-          ? analysis.extractedData.moodAssessment
+      // Integumentary Status
+      integumentaryStatus: Array.isArray(analysis.integumentaryStatus) && analysis.integumentaryStatus.length > 0
+        ? analysis.integumentaryStatus 
+        : (Array.isArray(analysis.extractedData?.integumentaryStatus) && analysis.extractedData.integumentaryStatus.length > 0
+          ? analysis.extractedData.integumentaryStatus
           : []),
-      // Cognitive Assessment - check both top-level and extractedData
-      cognitiveAssessment: Array.isArray(analysis.cognitiveAssessment) && analysis.cognitiveAssessment.length > 0
-        ? analysis.cognitiveAssessment 
-        : (Array.isArray(analysis.extractedData?.cognitiveAssessment) && analysis.extractedData.cognitiveAssessment.length > 0
-          ? analysis.extractedData.cognitiveAssessment
+      // Respiratory Status
+      respiratoryStatus: Array.isArray(analysis.respiratoryStatus) && analysis.respiratoryStatus.length > 0
+        ? analysis.respiratoryStatus 
+        : (Array.isArray(analysis.extractedData?.respiratoryStatus) && analysis.extractedData.respiratoryStatus.length > 0
+          ? analysis.extractedData.respiratoryStatus
           : []),
-      // Full extracted data
-      extractedData: analysis.extractedData || {},
+      // Cardiac Status
+      cardiacStatus: Array.isArray(analysis.cardiacStatus) && analysis.cardiacStatus.length > 0
+        ? analysis.cardiacStatus 
+        : (Array.isArray(analysis.extractedData?.cardiacStatus) && analysis.extractedData.cardiacStatus.length > 0
+          ? analysis.extractedData.cardiacStatus
+          : []),
+      // Elimination Status
+      eliminationStatus: Array.isArray(analysis.eliminationStatus) && analysis.eliminationStatus.length > 0
+        ? analysis.eliminationStatus 
+        : (Array.isArray(analysis.extractedData?.eliminationStatus) && analysis.extractedData.eliminationStatus.length > 0
+          ? analysis.extractedData.eliminationStatus
+          : []),
+      // Neuro/Emotional/Behavioral Status
+      neuroEmotionalBehavioralStatus: Array.isArray(analysis.neuroEmotionalBehavioralStatus) && analysis.neuroEmotionalBehavioralStatus.length > 0
+        ? analysis.neuroEmotionalBehavioralStatus 
+        : (Array.isArray(analysis.extractedData?.neuroEmotionalBehavioralStatus) && analysis.extractedData.neuroEmotionalBehavioralStatus.length > 0
+          ? analysis.extractedData.neuroEmotionalBehavioralStatus
+          : []),
+      // Emotional Status (if separate)
+      emotionalStatus: Array.isArray(analysis.emotionalStatus) && analysis.emotionalStatus.length > 0
+        ? analysis.emotionalStatus 
+        : (Array.isArray(analysis.extractedData?.emotionalStatus) && analysis.extractedData.emotionalStatus.length > 0
+          ? analysis.extractedData.emotionalStatus
+          : []),
+      // Behavioral Status (if separate)
+      behavioralStatus: Array.isArray(analysis.behavioralStatus) && analysis.behavioralStatus.length > 0
+        ? analysis.behavioralStatus 
+        : (Array.isArray(analysis.extractedData?.behavioralStatus) && analysis.extractedData.behavioralStatus.length > 0
+          ? analysis.extractedData.behavioralStatus
+          : []),
+      // Filter inconsistencies first
+      inconsistencies: Array.isArray(analysis.inconsistencies) 
+        ? analysis.inconsistencies.filter((item: any) => {
+            // Filter out generic placeholders
+            const sectionA = item?.sectionA || item?.section_a || ""
+            const sectionB = item?.sectionB || item?.section_b || ""
+            
+            // Must have real section identifiers
+            if (!sectionA || !sectionB) return false
+            
+            // Filter out generic examples from prompt
+            if (sectionA === "Section A" || sectionB === "Section B") return false
+            if (sectionA === "M1800 Grooming - Value: 0 (Independent)") return false
+            if (sectionB === "Primary Diagnosis: I69.351 - Hemiplegia following stroke") return false
+            
+            // Must have real data (not "extract..." or "[from..." placeholders)
+            if (sectionA.includes("extract") || sectionB.includes("extract")) return false
+            if (sectionA.includes("[from") || sectionB.includes("[from")) return false
+            
+            return true
+          })
+        : [],
+      // Full extracted data (includes inconsistencies for frontend prioritization)
+      extractedData: {
+        ...(analysis.extractedData || {}),
+        // ✅ INCLUDE inconsistencies in extractedData so frontend can prioritize it
+        inconsistencies: Array.isArray(analysis.inconsistencies) 
+          ? analysis.inconsistencies.filter((item: any) => {
+              const sectionA = item?.sectionA || item?.section_a || ""
+              const sectionB = item?.sectionB || item?.section_b || ""
+              if (!sectionA || !sectionB) return false
+              if (sectionA === "Section A" || sectionB === "Section B") return false
+              if (sectionA === "M1800 Grooming - Value: 0 (Independent)") return false
+              if (sectionB === "Primary Diagnosis: I69.351 - Hemiplegia following stroke") return false
+              if (sectionA.includes("extract") || sectionB.includes("extract")) return false
+              if (sectionA.includes("[from") || sectionB.includes("[from")) return false
+              return true
+            })
+          : []
+      },
       suggestedCodes: Array.isArray(analysis.suggestedCodes) ? analysis.suggestedCodes : [],
       corrections: Array.isArray(analysis.corrections) ? analysis.corrections : [],
       riskFactors: Array.isArray(analysis.riskFactors) ? analysis.riskFactors : [],
@@ -2920,8 +4095,6 @@ REVENUE CALCULATION GUIDELINES:
       flaggedIssues: Array.isArray(analysis.flaggedIssues) ? analysis.flaggedIssues : [],
       // Missing Information
       missingInformation: Array.isArray(analysis.missingInformation) ? analysis.missingInformation : [],
-      // Inconsistencies
-      inconsistencies: Array.isArray(analysis.inconsistencies) ? analysis.inconsistencies : [],
       // Debug Info
       debugInfo: analysis.debugInfo || {},
       qualityScore: analysis.qualityScore || 75,
@@ -2978,6 +4151,29 @@ REVENUE CALCULATION GUIDELINES:
       console.error('[OASIS] ⚠️ Error calculating HIPPS revenue:', error)
       // Keep existing financial impact if calculation fails
     }
+
+    // Calculate Advanced Optimization Features
+    console.log("[OASIS] 🚀 Calculating advanced optimization features...")
+    
+    // Comorbidity Opportunities
+    validatedAnalysis.comorbidityOpportunities = calculateComorbidityOpportunities(validatedAnalysis)
+    console.log(`[OASIS] 💊 Comorbidity opportunities: ${validatedAnalysis.comorbidityOpportunities?.suggestedDiagnoses.length || 0} suggestions, potential +$${validatedAnalysis.comorbidityOpportunities?.potentialIncrease || 0}`)
+    
+    // LUPA Risk Analysis
+    validatedAnalysis.lupaRiskAnalysis = calculateLupaRisk(validatedAnalysis)
+    console.log(`[OASIS] ⚠️ LUPA Risk: ${validatedAnalysis.lupaRiskAnalysis?.riskLevel || 'Unknown'} (Est. ${validatedAnalysis.lupaRiskAnalysis?.estimatedVisitCount || 0} visits)`)
+    
+    // Therapy Threshold Analysis
+    validatedAnalysis.therapyThresholdAnalysis = calculateTherapyThresholdAnalysis(validatedAnalysis)
+    console.log(`[OASIS] 🏋️ Therapy opportunity: ${validatedAnalysis.therapyThresholdAnalysis?.suggestedThreshold || 'N/A'} (+$${validatedAnalysis.therapyThresholdAnalysis?.revenueImpact || 0})`)
+    
+    // Priority Actions (must be calculated after other optimizations)
+    validatedAnalysis.priorityActions = calculatePriorityActions(validatedAnalysis)
+    console.log(`[OASIS] 📋 Priority actions generated: ${validatedAnalysis.priorityActions?.length || 0} actions`)
+    
+    // Documentation Quality Score (must be last)
+    validatedAnalysis.documentationQualityScore = calculateDocumentationQualityScore(validatedAnalysis)
+    console.log(`[OASIS] 📈 Documentation Quality Score: ${validatedAnalysis.documentationQualityScore?.overallScore || 0}/100 (${validatedAnalysis.documentationQualityScore?.benchmarkComparison || 'Unknown'})`)
 
     // Log functional status optimization
     const functionalStatusWithSuggestions = validatedAnalysis.functionalStatus?.filter(

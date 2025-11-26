@@ -251,7 +251,7 @@ export default function OasisUpload() {
       poc: "Plan of Care",
       "physician-order": "Physician Order",
       "rn-note": "RN Note",
-      "pt-note": "PT Note",
+      "pt-note": "PT Visit",
       "ot-note": "OT Note",
       evaluation: "Evaluation",
     }
@@ -412,8 +412,8 @@ export default function OasisUpload() {
             )}
             {renderUploadZone(
               ptNoteDropzone,
-              "PT Note",
-              "Physical therapy documentation",
+              "PT Visit",
+              "Physical therapy visit documentation",
               <Activity className="h-5 w-5" />,
               "orange",
             )}
@@ -502,17 +502,34 @@ export default function OasisUpload() {
                     <div className="p-4 bg-green-50 rounded-lg">
                       <p className="text-sm font-medium text-green-900">Avg Quality Score</p>
                       <p className="text-2xl font-bold text-green-600">
-                        {Math.round(
-                          completedFiles.reduce((sum, f) => sum + (f.analysis?.qualityScore || 0), 0) /
-                            completedFiles.length,
-                        )}
+                        {completedFiles.length > 0
+                          ? Math.round(
+                              completedFiles.reduce(
+                                (sum, f) =>
+                                  sum +
+                                  (f.analysis?.qualityScore ||
+                                    f.analysis?.qualityScores?.overall ||
+                                    f.analysis?.quality_score ||
+                                    0),
+                                0,
+                              ) / completedFiles.length,
+                            )
+                          : 0}
                         %
                       </p>
                     </div>
                     <div className="p-4 bg-orange-50 rounded-lg">
                       <p className="text-sm font-medium text-orange-900">Total Issues</p>
                       <p className="text-2xl font-bold text-orange-600">
-                        {completedFiles.reduce((sum, f) => sum + (f.analysis?.flaggedIssues?.length || 0), 0)}
+                        {completedFiles.reduce(
+                          (sum, f) =>
+                            sum +
+                            (f.analysis?.flaggedIssues?.length ||
+                              f.analysis?.findings?.length ||
+                              (Array.isArray(f.analysis?.findings) ? f.analysis.findings.length : 0) ||
+                              0),
+                          0,
+                        )}
                       </p>
                     </div>
                     <div className="p-4 bg-purple-50 rounded-lg">
@@ -520,7 +537,14 @@ export default function OasisUpload() {
                       <p className="text-2xl font-bold text-purple-600">
                         $
                         {completedFiles
-                          .reduce((sum, f) => sum + (f.analysis?.financialImpact || 0), 0)
+                          .reduce((sum, f) => {
+                            const revenue =
+                              f.analysis?.financialImpact?.increase ||
+                              f.analysis?.revenueImpact?.increase ||
+                              f.analysis?.financialImpact ||
+                              0
+                            return sum + (typeof revenue === "number" ? revenue : 0)
+                          }, 0)
                           .toLocaleString()}
                       </p>
                     </div>
@@ -541,7 +565,13 @@ export default function OasisUpload() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => (window.location.href = `/oasis-qa/optimization/${file.id}`)}
+                            onClick={() => {
+                              if (file.type === "pt-note") {
+                                window.location.href = `/pt-visit-qa/optimization/${file.id}`
+                              } else {
+                                window.location.href = `/oasis-qa/optimization/${file.id}`
+                              }
+                            }}
                           >
                             <Eye className="h-4 w-4 mr-2" />
                             View Optimization Report
@@ -552,16 +582,31 @@ export default function OasisUpload() {
                           <div className="grid grid-cols-3 gap-4">
                             <div className="p-3 bg-blue-50 rounded">
                               <p className="text-xs font-medium text-blue-900">Quality Score</p>
-                              <p className="text-xl font-bold text-blue-600">{file.analysis.qualityScore}%</p>
+                              <p className="text-xl font-bold text-blue-600">
+                                {file.analysis.qualityScore ||
+                                  file.analysis.qualityScores?.overall ||
+                                  file.analysis.quality_score ||
+                                  0}
+                                %
+                              </p>
                             </div>
                             <div className="p-3 bg-green-50 rounded">
                               <p className="text-xs font-medium text-green-900">Confidence</p>
-                              <p className="text-xl font-bold text-green-600">{file.analysis.confidence}%</p>
+                              <p className="text-xl font-bold text-green-600">
+                                {file.analysis.confidence ||
+                                  file.analysis.qualityScores?.confidence ||
+                                  file.analysis.confidence_score ||
+                                  0}
+                                %
+                              </p>
                             </div>
                             <div className="p-3 bg-orange-50 rounded">
                               <p className="text-xs font-medium text-orange-900">Issues</p>
                               <p className="text-xl font-bold text-orange-600">
-                                {file.analysis.flaggedIssues?.length || 0}
+                                {file.analysis.flaggedIssues?.length ||
+                                  file.analysis.findings?.length ||
+                                  (Array.isArray(file.analysis.findings) ? file.analysis.findings.length : 0) ||
+                                  0}
                               </p>
                             </div>
                           </div>
