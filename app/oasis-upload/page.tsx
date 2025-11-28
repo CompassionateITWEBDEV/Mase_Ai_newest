@@ -25,8 +25,19 @@ import {
   ClipboardList,
   Stethoscope,
   Activity,
+  TrendingUp,
+  Target,
+  Shield,
+  BarChart3,
 } from "lucide-react"
 import { toast } from "@/hooks/use-toast"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 type DocumentType = "oasis" | "poc" | "physician-order" | "rn-note" | "pt-note" | "ot-note" | "evaluation"
 
@@ -117,6 +128,9 @@ export default function OasisUpload() {
   const [patientId, setPatientId] = useState("")
   const [notes, setNotes] = useState("")
   const [chartId, setChartId] = useState<string>(`chart-${Date.now()}`)
+  const [qapiReportOpen, setQapiReportOpen] = useState(false)
+  const [qapiReportData, setQapiReportData] = useState<any>(null)
+  const [qapiReportLoading, setQapiReportLoading] = useState(false)
 
   const onDrop = useCallback(
     (acceptedFiles: File[], fileType: DocumentType) => {
@@ -157,13 +171,17 @@ export default function OasisUpload() {
 
   const processFile = async (uploadFile: UploadedFile) => {
     try {
+      // Use chartId from the file object (set during onDrop) or fallback to state
+      const fileChartId = uploadFile.chartId || chartId
+      console.log(`[Upload] Processing ${uploadFile.type} with chartId:`, fileChartId)
+      
       const formData = new FormData()
       formData.append("file", uploadFile.file)
       formData.append("uploadId", uploadFile.id)
       formData.append("uploadType", uploadType)
       formData.append("priority", priority)
       formData.append("fileType", uploadFile.type)
-      formData.append("chartId", chartId)
+      formData.append("chartId", fileChartId)
       if (patientId) formData.append("patientId", patientId)
       if (notes) formData.append("notes", notes)
 
@@ -228,6 +246,36 @@ export default function OasisUpload() {
 
   const removeFile = (fileId: string) => {
     setFiles((prev) => prev.filter((f) => f.id !== fileId))
+  }
+
+  const fetchQAPIReport = async () => {
+    try {
+      setQapiReportLoading(true)
+      setQapiReportOpen(true)
+      
+      const response = await fetch(`/api/oasis-qa/qapi-report/${chartId}`)
+      
+      if (!response.ok) {
+        throw new Error("Failed to fetch QAPI report")
+      }
+      
+      const result = await response.json()
+      
+      if (!result.success) {
+        throw new Error(result.error || "Failed to generate QAPI report")
+      }
+      
+      setQapiReportData(result)
+    } catch (error) {
+      console.error("Error fetching QAPI report:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to generate QAPI report",
+        variant: "destructive",
+      })
+    } finally {
+      setQapiReportLoading(false)
+    }
   }
 
   const getStatusIcon = (status: string) => {
@@ -578,7 +626,7 @@ export default function OasisUpload() {
                 </div>
                 {canGenerateQAPIReport && (
                   <Button
-                    onClick={() => (window.location.href = `/oasis-qa/qapi-report/${chartId}`)}
+                    onClick={fetchQAPIReport}
                     className="bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-700 hover:to-green-700 shadow-md"
                   >
                     <FileCheck className="h-4 w-4 mr-2" />
@@ -642,12 +690,49 @@ export default function OasisUpload() {
                       </div>
                       <p className="text-3xl font-bold text-orange-600">
                         {completedFiles.reduce(
-                          (sum, f) =>
-                            sum +
-                            (f.analysis?.flaggedIssues?.length ||
-                              f.analysis?.findings?.length ||
-                              (Array.isArray(f.analysis?.findings) ? f.analysis.findings.length : 0) ||
-                              0),
+                          (sum, f) => {
+                            // For OASIS documents: count flagged_issues (includes converted inconsistencies) or inconsistencies (old records)
+                            if (f.type === "oasis") {
+                              const flaggedIssues = f.analysis?.flagged_issues || f.analysis?.flaggedIssues || []
+                              const inconsistencies = f.analysis?.inconsistencies || []
+                              // Always prefer flagged_issues to avoid double counting
+                              const oasisIssues = Array.isArray(flaggedIssues) && flaggedIssues.length > 0 
+                                ? flaggedIssues.length 
+                                : (Array.isArray(inconsistencies) ? inconsistencies.length : 0)
+                              return sum + oasisIssues
+                            }
+                            
+                            // For physician orders: count missingInformation + qaFindings + qapiDeficiencies
+                            if (f.type === "physician-order") {
+                              // Try arrays first (from API response), then fall back to counts
+                              const missingInfo = f.analysis?.missingInformationArray || 
+                                                 f.analysis?.findings?.missingInformation || 
+                                                 []
+                              const qaFindings = f.analysis?.qaFindingsArray || 
+                                               f.analysis?.findings?.qaFindings || 
+                                               []
+                              const qapiDeficiencies = f.analysis?.qapiDeficienciesArray || 
+                                                      f.analysis?.findings?.qapiDeficiencies || 
+                                                      []
+                              
+                              // If we have arrays, use length; otherwise use the count numbers
+                              const missingCount = Array.isArray(missingInfo) ? missingInfo.length : (f.analysis?.missingInformation || 0)
+                              const qaCount = Array.isArray(qaFindings) ? qaFindings.length : (f.analysis?.qaFindings || 0)
+                              const qapiCount = Array.isArray(qapiDeficiencies) ? qapiDeficiencies.length : (f.analysis?.qapiDeficiencies || 0)
+                              
+                              return sum + missingCount + qaCount + qapiCount
+                            }
+                            
+                            // For other clinical documents: count flaggedIssues + inconsistencies + missingElements
+                            const flaggedIssues = f.analysis?.flaggedIssues || f.analysis?.findings?.flaggedIssues || []
+                            const inconsistencies = f.analysis?.inconsistencies || f.analysis?.findings?.inconsistencies || []
+                            const missingElements = f.analysis?.missingElements || f.analysis?.missing_elements || []
+                            
+                            return sum + 
+                              (Array.isArray(flaggedIssues) ? flaggedIssues.length : 0) +
+                              (Array.isArray(inconsistencies) ? inconsistencies.length : 0) +
+                              (Array.isArray(missingElements) ? missingElements.length : 0)
+                          },
                           0,
                         )}
                       </p>
@@ -663,10 +748,26 @@ export default function OasisUpload() {
                         $
                         {completedFiles
                           .reduce((sum, f) => {
-                            const revenue =
-                              f.analysis?.financialImpact?.increase ||
+                            // Revenue impact is ONLY applicable for OASIS documents
+                            // POC, PT Visit, OT, RN notes don't have revenue impact
+                            if (f.type !== "oasis") {
+                              return sum + 0
+                            }
+                            // For OASIS: financialImpact can be a number (increase) or an object with increase property
+                            let revenue = 0
+                            if (f.analysis?.financialImpact) {
+                              if (typeof f.analysis.financialImpact === "number") {
+                                // OASIS returns financialImpact as a number (the increase)
+                                revenue = f.analysis.financialImpact
+                              } else if (f.analysis.financialImpact?.increase) {
+                                // Or it could be an object with increase property
+                                revenue = f.analysis.financialImpact.increase
+                              }
+                            }
+                            // Also check other possible locations
+                            revenue = revenue || 
                               f.analysis?.revenueImpact?.increase ||
-                              f.analysis?.financialImpact ||
+                              f.analysis?.revenue_increase ||
                               0
                             return sum + (typeof revenue === "number" ? revenue : 0)
                           }, 0)
@@ -691,13 +792,17 @@ export default function OasisUpload() {
                             variant="outline"
                             size="sm"
                             onClick={() => {
+                              let url = ''
                               if (file.type === "pt-note") {
-                                window.location.href = `/pt-visit-qa/optimization/${file.id}`
+                                url = `/pt-visit-qa/optimization/${file.id}`
                               } else if (file.type === "poc") {
-                                window.location.href = `/poc-qa/optimization/${file.id}`
+                                url = `/poc-qa/optimization/${file.id}`
+                              } else if (file.type === "physician-order") {
+                                url = `/physician-order/optimization/${file.id}`
                               } else {
-                                window.location.href = `/oasis-qa/optimization/${file.id}`
+                                url = `/oasis-qa/optimization/${file.id}`
                               }
+                              window.open(url, '_blank', 'noopener,noreferrer')
                             }}
                             className="hover:bg-blue-50 hover:border-blue-300 hover:text-blue-700"
                           >
@@ -721,20 +826,69 @@ export default function OasisUpload() {
                             <div className="p-4 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border border-green-200">
                               <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Confidence</p>
                               <p className="text-2xl font-bold text-green-600">
-                                {file.analysis.confidence ||
-                                  file.analysis.qualityScores?.confidence ||
-                                  file.analysis.confidence_score ||
-                                  0}
+                                {(() => {
+                                  // For physician orders: check multiple possible locations
+                                  if (file.type === "physician-order") {
+                                    return file.analysis?.confidenceScore ||
+                                           file.analysis?.confidence_score ||
+                                           file.analysis?.confidence ||
+                                           file.analysis?.qualityScores?.confidence ||
+                                           0
+                                  }
+                                  // For other documents
+                                  return file.analysis?.confidence ||
+                                         file.analysis?.qualityScores?.confidence ||
+                                         file.analysis?.confidence_score ||
+                                         file.analysis?.confidenceScore ||
+                                         0
+                                })()}
                                 %
                               </p>
                             </div>
                             <div className="p-4 bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg border border-orange-200">
                               <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-2">Issues</p>
                               <p className="text-2xl font-bold text-orange-600">
-                                {file.analysis.flaggedIssues?.length ||
-                                  file.analysis.findings?.length ||
-                                  (Array.isArray(file.analysis.findings) ? file.analysis.findings.length : 0) ||
-                                  0}
+                                {(() => {
+                                  // For OASIS documents: count flagged_issues (includes converted inconsistencies) or inconsistencies (old records)
+                                  if (file.type === "oasis") {
+                                    const flaggedIssues = file.analysis?.flagged_issues || file.analysis?.flaggedIssues || []
+                                    const inconsistencies = file.analysis?.inconsistencies || []
+                                    // Always prefer flagged_issues to avoid double counting
+                                    return Array.isArray(flaggedIssues) && flaggedIssues.length > 0 
+                                      ? flaggedIssues.length 
+                                      : (Array.isArray(inconsistencies) ? inconsistencies.length : 0)
+                                  }
+                                  
+                                  // For physician orders: count missingInformation + qaFindings + qapiDeficiencies
+                                  if (file.type === "physician-order") {
+                                    // Try arrays first (from API response), then fall back to counts
+                                    const missingInfo = file.analysis?.missingInformationArray || 
+                                                       file.analysis?.findings?.missingInformation || 
+                                                       (file.analysis?.missingInformation ? Array(file.analysis.missingInformation).fill(null) : [])
+                                    const qaFindings = file.analysis?.qaFindingsArray || 
+                                                      file.analysis?.findings?.qaFindings || 
+                                                      (file.analysis?.qaFindings ? Array(file.analysis.qaFindings).fill(null) : [])
+                                    const qapiDeficiencies = file.analysis?.qapiDeficienciesArray || 
+                                                           file.analysis?.findings?.qapiDeficiencies || 
+                                                           (file.analysis?.qapiDeficiencies ? Array(file.analysis.qapiDeficiencies).fill(null) : [])
+                                    
+                                    // If we have arrays, use length; otherwise use the count numbers
+                                    const missingCount = Array.isArray(missingInfo) ? missingInfo.length : (file.analysis?.missingInformation || 0)
+                                    const qaCount = Array.isArray(qaFindings) ? qaFindings.length : (file.analysis?.qaFindings || 0)
+                                    const qapiCount = Array.isArray(qapiDeficiencies) ? qapiDeficiencies.length : (file.analysis?.qapiDeficiencies || 0)
+                                    
+                                    return missingCount + qaCount + qapiCount
+                                  }
+                                  
+                                  // For other clinical documents: count flaggedIssues + inconsistencies + missingElements
+                                  const flaggedIssues = file.analysis?.flaggedIssues || file.analysis?.findings?.flaggedIssues || []
+                                  const inconsistencies = file.analysis?.inconsistencies || file.analysis?.findings?.inconsistencies || []
+                                  const missingElements = file.analysis?.missingElements || file.analysis?.missing_elements || []
+                                  
+                                  return (Array.isArray(flaggedIssues) ? flaggedIssues.length : 0) +
+                                         (Array.isArray(inconsistencies) ? inconsistencies.length : 0) +
+                                         (Array.isArray(missingElements) ? missingElements.length : 0)
+                                })()}
                               </p>
                             </div>
                           </div>
@@ -748,6 +902,278 @@ export default function OasisUpload() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* QAPI Report Modal */}
+      <Dialog open={qapiReportOpen} onOpenChange={setQapiReportOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-3 text-2xl">
+              <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-emerald-600 to-green-600 flex items-center justify-center text-white shadow-md">
+                <FileCheck className="h-5 w-5" />
+              </div>
+              QAPI Report - Chart {chartId}
+            </DialogTitle>
+            <DialogDescription>
+              Comprehensive Quality Assurance and Performance Improvement report for all documents in this chart
+            </DialogDescription>
+          </DialogHeader>
+
+          {qapiReportLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <RefreshCw className="h-8 w-8 animate-spin text-emerald-600 mr-3" />
+              <p className="text-lg text-gray-600">Generating QAPI Report...</p>
+            </div>
+          ) : qapiReportData ? (
+            <div className="space-y-6 py-4">
+              {/* Summary Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <Card className="border-2 border-blue-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-blue-700 uppercase">Total Documents</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-blue-600">{qapiReportData.summary.totalDocuments}</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-2 border-green-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-green-700 uppercase">Avg Quality Score</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-green-600">{qapiReportData.summary.avgQualityScore}%</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-2 border-orange-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-orange-700 uppercase">Total Issues</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-3xl font-bold text-orange-600">{qapiReportData.summary.totalIssues}</p>
+                  </CardContent>
+                </Card>
+                <Card className="border-2 border-purple-200">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-sm font-medium text-purple-700 uppercase">Revenue Impact</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {/* ✅ Show actual current revenue from OASIS (not just the increase) */}
+                    <p className="text-3xl font-bold text-purple-600">
+                      ${(qapiReportData.summary.totalCurrentRevenue || qapiReportData.summary.totalRevenueImpact || 0).toLocaleString()}
+                    </p>
+                    {qapiReportData.summary.totalCurrentRevenue > 0 && qapiReportData.summary.totalRevenueImpact !== 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {qapiReportData.summary.totalRevenueImpact > 0 ? '+' : ''}
+                        ${qapiReportData.summary.totalRevenueImpact.toLocaleString()} optimization
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Documents by Type */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="h-5 w-5" />
+                    Documents by Type
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {Object.entries(qapiReportData.documentsByType || {}).map(([type, docs]: [string, any]) => (
+                      <div key={type} className="border rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-semibold text-lg capitalize">{type.replace('_', ' ')}</h4>
+                          <Badge variant="outline">{Array.isArray(docs) ? docs.length : 0} documents</Badge>
+                        </div>
+                        <div className="space-y-2">
+                          {Array.isArray(docs) && docs.map((doc: any, idx: number) => (
+                            <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                              <div className="flex-1">
+                                <p className="font-medium text-sm">{doc.fileName}</p>
+                                <p className="text-xs text-gray-500">{doc.patientName || 'Unknown Patient'}</p>
+                              </div>
+                              <div className="flex items-center gap-4">
+                                <Badge variant={doc.qualityScore >= 80 ? "default" : doc.qualityScore >= 60 ? "secondary" : "destructive"}>
+                                  {doc.qualityScore}%
+                                </Badge>
+                                <Badge variant="outline">{doc.issues} issues</Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* QAPI Deficiencies */}
+              {qapiReportData.qapiData?.deficiencies && qapiReportData.qapiData.deficiencies.length > 0 && (
+                <Card className="border-2 border-red-200">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-red-700">
+                      <AlertCircle className="h-5 w-5" />
+                      QAPI Deficiencies ({qapiReportData.qapiData.deficiencies.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {qapiReportData.qapiData.deficiencies.map((def: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-red-50 border-l-4 border-red-600 rounded">
+                          <div className="flex items-start justify-between mb-1">
+                            <div className="flex-1">
+                              <p className="font-semibold text-red-900">{def.deficiency}</p>
+                              {def.sourceDocument && (
+                                <Badge variant="outline" className="mt-1 text-xs">
+                                  <FileText className="h-3 w-3 mr-1" />
+                                  {def.sourceDocument} ({def.documentType})
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-sm text-red-700 mb-1">Category: {def.category}</p>
+                          <p className="text-sm text-red-700 mb-1">Severity: {def.severity}</p>
+                          <p className="text-sm text-red-700">Root Cause: {def.rootCause}</p>
+                          {def.recommendation && (
+                            <p className="text-sm text-red-700 mt-1">Recommendation: {def.recommendation}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Recommendations */}
+              {qapiReportData.recommendations && qapiReportData.recommendations.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Target className="h-5 w-5" />
+                      Recommendations ({qapiReportData.recommendations.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {qapiReportData.recommendations.map((rec: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-blue-50 border-l-4 border-blue-600 rounded">
+                          <div className="flex items-start justify-between mb-1">
+                            <div className="flex-1">
+                              <p className="font-semibold text-blue-900">{rec.recommendation || rec.description}</p>
+                              {rec.sourceDocument && (
+                                <Badge variant="outline" className="mt-1 text-xs">
+                                  <FileText className="h-3 w-3 mr-1" />
+                                  {rec.sourceDocument} ({rec.documentType})
+                                </Badge>
+                              )}
+                            </div>
+                            <Badge variant={rec.priority === 'high' ? 'destructive' : rec.priority === 'medium' ? 'secondary' : 'outline'}>
+                              {rec.priority || 'medium'}
+                            </Badge>
+                          </div>
+                          {rec.category && (
+                            <p className="text-sm text-blue-700">Category: {rec.category}</p>
+                          )}
+                          {rec.expectedImpact && (
+                            <p className="text-sm text-blue-700">Impact: {rec.expectedImpact}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Regulatory Issues */}
+              {qapiReportData.regulatoryIssues && qapiReportData.regulatoryIssues.length > 0 && (
+                <Card className="border-2 border-orange-200">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-orange-700">
+                      <Shield className="h-5 w-5" />
+                      Regulatory Issues ({qapiReportData.regulatoryIssues.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {qapiReportData.regulatoryIssues.map((issue: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-orange-50 border-l-4 border-orange-600 rounded">
+                          <div className="flex items-start justify-between mb-1">
+                            <div className="flex-1">
+                              <p className="font-semibold text-orange-900">{issue.issue}</p>
+                              {issue.sourceDocument && (
+                                <Badge variant="outline" className="mt-1 text-xs">
+                                  <FileText className="h-3 w-3 mr-1" />
+                                  {issue.sourceDocument} ({issue.documentType})
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-sm text-orange-700 mb-1">Regulation: {issue.regulation}</p>
+                          <p className="text-sm text-orange-700 mb-1">Severity: {issue.severity}</p>
+                          {issue.remediation && (
+                            <p className="text-sm text-orange-700">Remediation: {issue.remediation}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Documentation Gaps */}
+              {qapiReportData.documentationGaps && qapiReportData.documentationGaps.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ClipboardList className="h-5 w-5" />
+                      Documentation Gaps ({qapiReportData.documentationGaps.length})
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2">
+                      {qapiReportData.documentationGaps.map((gap: any, idx: number) => (
+                        <div key={idx} className="p-3 bg-yellow-50 border-l-4 border-yellow-600 rounded">
+                          <div className="flex items-start justify-between mb-1">
+                            <div className="flex-1">
+                              <p className="font-semibold text-yellow-900">{gap.gap}</p>
+                              {gap.sourceDocument && (
+                                <Badge variant="outline" className="mt-1 text-xs">
+                                  <FileText className="h-3 w-3 mr-1" />
+                                  {gap.sourceDocument} ({gap.documentType})
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-sm text-yellow-700 mb-1">Impact: {gap.impact}</p>
+                          {gap.recommendation && (
+                            <p className="text-sm text-yellow-700">Recommendation: {gap.recommendation}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Report Metadata */}
+              <Card className="bg-gray-50">
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between text-sm text-gray-600">
+                    <p>Report Generated: {new Date(qapiReportData.generatedAt).toLocaleString()}</p>
+                    <p>Chart ID: {qapiReportData.chartId}</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          ) : (
+            <div className="py-12 text-center">
+              <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+              <p className="text-gray-600">No QAPI report data available</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
       </div>
     </div>
   )

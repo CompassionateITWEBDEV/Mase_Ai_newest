@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { getQapiAuditFromAssessment } from "@/lib/oasis-qapi-utils"
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
@@ -100,6 +101,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     console.log("[OASIS] 🔍 EXTRACTED DATA:", JSON.stringify(extractedData, null, 2))
     console.log("[OASIS] 🔍 PATIENT INFO FROM EXTRACTED DATA:", JSON.stringify(extractedData?.patientInfo, null, 2))
 
+    // ✅ Build qapiAudit from assessment data (handles both new and old documents)
+    const qapiAudit = getQapiAuditFromAssessment(assessment)
+    console.log("[OASIS] 🔍 QAPI Audit:", qapiAudit ? "Found" : "Not found, will be built from available data")
+
     // ⚠️ PRIORITIZE extracted_data over individual database columns
     // The extracted_data contains the freshly analyzed JSON data
     // Only use database columns as fallback if extracted_data doesn't have the data
@@ -189,7 +194,32 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           riskFactors: extractedData?.riskFactors || safeJsonParse(assessment.risk_factors),
           recommendations: extractedData?.recommendations || safeJsonParse(assessment.recommendations),
           flaggedIssues: extractedData?.flaggedIssues || safeJsonParse(assessment.flagged_issues),
-          financialImpact: extractedData?.financialImpact || safeJsonParse(assessment.financial_impact),
+          // ✅ Prioritize extracted_data.financialImpact, but fallback to database columns if missing
+          financialImpact: extractedData?.financialImpact || safeJsonParse(assessment.financial_impact) || {
+            currentRevenue: assessment.current_revenue || 0,
+            optimizedRevenue: assessment.optimized_revenue || 0,
+            increase: assessment.revenue_increase || 0,
+            percentIncrease: assessment.current_revenue && assessment.optimized_revenue
+              ? Math.round(((assessment.optimized_revenue - assessment.current_revenue) / assessment.current_revenue) * 10000) / 100
+              : 0,
+            // Try to get HIPPS codes from extracted_data if available
+            currentHipps: extractedData?.financialImpact?.currentHipps || 'N/A',
+            optimizedHipps: extractedData?.financialImpact?.optimizedHipps || 'N/A',
+            currentCaseMix: extractedData?.financialImpact?.currentCaseMix || 0,
+            optimizedCaseMix: extractedData?.financialImpact?.optimizedCaseMix || 0,
+            currentFunctionalScore: extractedData?.financialImpact?.currentFunctionalScore || 0,
+            optimizedFunctionalScore: extractedData?.financialImpact?.optimizedFunctionalScore || 0,
+            admissionSource: extractedData?.financialImpact?.admissionSource || 'Community',
+            timing: extractedData?.financialImpact?.timing || 'Early (1-30 days)',
+            clinicalGroup: extractedData?.financialImpact?.clinicalGroup || 'A',
+            comorbidityLevel: extractedData?.financialImpact?.comorbidityLevel || 'Medium Comorbidity',
+          },
+          // ✅ Explicitly include qapiAudit (built from data if not stored)
+          qapiAudit: qapiAudit,
+          // ✅ Also include other comprehensive sections
+          qaReview: extractedData?.qaReview || null,
+          codingReview: extractedData?.codingReview || null,
+          financialOptimization: extractedData?.financialOptimization || null,
         },
         patientData: {
           // ⚠️ PRIORITIZE: Use extracted_data patient info over DB columns

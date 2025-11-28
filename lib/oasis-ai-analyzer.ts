@@ -188,6 +188,178 @@ export interface OasisAnalysisResult {
     recommendation: string
     clinicalImpact: string
   }>
+  // Comprehensive QA Review (Section C)
+  qaReview?: {
+    qualityScore: number
+    issues: Array<{
+      issue: string
+      severity: string
+      location: string
+      recommendation: string
+    }>
+  }
+  // Coding Review (Section D)
+  codingReview?: {
+    errors: Array<{
+      error: string
+      severity: string
+      recommendation: string
+    }>
+    suggestions: Array<{
+      code: string
+      description: string
+      reason: string
+      revenueImpact: number
+      clinicalRationale?: string
+      documentationSupport?: string
+    }>
+    validatedCodes?: Array<{
+      code: string
+      description: string
+      validationStatus: 'valid' | 'needs-review' | 'invalid'
+      issues?: string[]
+      recommendation?: string
+    }>
+    missingDiagnoses?: Array<{
+      condition: string
+      suggestedCode: string
+      codeDescription: string
+      medicalNecessity: string
+      documentationSupport: string
+      revenueImpact?: number
+      comorbidityLevel?: 'low' | 'medium' | 'high'
+      clinicalGroup?: string
+    }>
+    primaryDiagnosisOptimization?: Array<{
+      currentCode: string
+      suggestedCode: string
+      currentDescription: string
+      suggestedDescription: string
+      reason: string
+      documentationSupport: string
+      currentClinicalGroup?: string
+      suggestedClinicalGroup?: string
+      revenueImpact?: number
+      clinicalRationale?: string
+    }>
+    comorbidityOptimization?: {
+      currentLevel: 'low' | 'medium' | 'high'
+      suggestedLevel: 'low' | 'medium' | 'high'
+      currentDiagnosisCount: number
+      suggestedDiagnosisCount: number
+      missingComorbidities: Array<{
+        condition: string
+        suggestedCode: string
+        documentationSupport: string
+        revenueImpact?: number
+        comorbidityContribution?: string
+      }>
+      revenueImpact?: number
+    }
+  }
+  // Financial Optimization (Section E)
+  financialOptimization?: {
+    currentRevenue: number
+    optimizedRevenue: number
+    breakdown: Array<{
+      category: string
+      current: number
+      optimized: number
+      difference: number
+    }>
+    documentationImpact?: Array<{
+      documentationType: string
+      impact: 'case-mix' | 'lupa' | 'reimbursement' | 'all'
+      description: string
+      revenueImpact: number
+      recommendation: string
+    }>
+    missingFunctionalDeficits?: Array<{
+      deficit: string
+      location: string
+      currentStatus: string
+      suggestedDocumentation: string
+      revenueImpact: number
+      clinicalJustification: string
+    }>
+    improvements?: Array<{
+      improvement: string
+      category: 'documentation' | 'functional-status' | 'lupa-reduction' | 'therapy' | 'reimbursement'
+      currentState: string
+      suggestedState: string
+      revenueImpact: number
+      actionableSteps: string[]
+      priority: 'high' | 'medium' | 'low'
+    }>
+  }
+  // QAPI Audit (Section F)
+  qapiAudit?: {
+    deficiencies: Array<{
+      deficiency: string
+      category: string
+      severity: string
+      rootCause: string
+      recommendation: string
+    }>
+    recommendations: Array<{
+      category: string
+      recommendation: string
+      priority: string
+    }>
+    regulatoryDeficiencies?: Array<{
+      deficiency: string
+      regulation: string
+      severity: 'critical' | 'high' | 'medium' | 'low'
+      description: string
+      impact: string
+      recommendation: string
+      correctiveAction: string
+    }>
+    planOfCareReview?: {
+      completeness: 'complete' | 'incomplete' | 'missing'
+      issues: Array<{
+        issue: string
+        location: string
+        severity: string
+        recommendation: string
+      }>
+      goals?: Array<{
+        goal: string
+        status: 'met' | 'in-progress' | 'not-met' | 'missing'
+        issues?: string[]
+        recommendation?: string
+      }>
+      riskMitigation?: Array<{
+        risk: string
+        mitigationStrategy: string
+        status: 'documented' | 'missing' | 'inadequate'
+        recommendation?: string
+      }>
+      safetyInstructions?: Array<{
+        instruction: string
+        status: 'present' | 'missing' | 'unclear'
+        location: string
+        recommendation?: string
+      }>
+    }
+    incompleteElements?: Array<{
+      element: string
+      location: string
+      missingInformation: string
+      impact: string
+      recommendation: string
+      priority: 'high' | 'medium' | 'low'
+    }>
+    contradictoryElements?: Array<{
+      elementA: string
+      elementB: string
+      contradiction: string
+      location: string
+      impact: string
+      recommendation: string
+      severity: 'critical' | 'high' | 'medium' | 'low'
+    }>
+  }
   // Debug Info
   debugInfo?: any
   qualityScore: number
@@ -539,30 +711,21 @@ function detectMissingRequiredFields(analysis: OasisAnalysisResult): OasisAnalys
   )
   
   // Only flag as missing if we actually have 0 valid items
-  // If we have 9 items, they are complete and should NOT be flagged as missing
+  // Different OASIS documents may have different numbers of functional status items
+  // Do NOT assume there are always 9 items - extract only what exists in the document
   if (validFunctionalItems.length === 0) {
     console.log("[OASIS] ❌ Missing: All Functional Status Items")
     missingFields.push({
       field: "All Functional Status Items (M1800-M1870)",
       location: "Functional Status Section (typically pages 12-15 of OASIS form)",
       impact: "CRITICAL - Functional status items are required to calculate case mix weight and determine reimbursement rate. Missing all items will result in minimum payment.",
-      recommendation: "Complete all 9 functional status items: M1800 (Grooming), M1810 (Dress Upper), M1820 (Dress Lower), M1830 (Bathing), M1840 (Toilet Transfer), M1845 (Toileting Hygiene), M1850 (Transferring), M1860 (Ambulation), M1870 (Feeding).",
-      required: true,
-    })
-  } else if (validFunctionalItems.length < 9) {
-    // Only flag as partial if we have less than 9 items
-    // If we have exactly 9 items, they are complete - do NOT flag as missing
-    console.log(`[OASIS] ⚠️ Partial: ${validFunctionalItems.length}/9 Functional Status Items`)
-    missingFields.push({
-      field: `${9 - validFunctionalItems.length} Functional Status Items Missing`,
-      location: "Functional Status Section (M1800-M1870, typically pages 12-15)",
-      impact: "HIGH - Incomplete functional status assessment may result in inaccurate case mix calculation and lower reimbursement.",
-      recommendation: `Complete the remaining ${9 - validFunctionalItems.length} functional status items. All 9 items (M1800-M1870) are required for accurate assessment.`,
+      recommendation: "Complete functional status items (M1800-M1870) as applicable. Different OASIS forms may require different items based on visit type and patient condition.",
       required: true,
     })
   } else {
-    // We have 9 or more items - functional status is complete, do NOT flag as missing
-    console.log(`[OASIS] ✅ Functional Status Complete: ${validFunctionalItems.length}/9 items`)
+    // We have some functional status items - this is acceptable
+    // Different documents may have different numbers of items (not always 9)
+    console.log(`[OASIS] ✅ Functional Status Found: ${validFunctionalItems.length} items extracted from document`)
   }
   
   // Check Patient Name
@@ -1320,41 +1483,46 @@ function getQAFocusInstructions(qaType: string): string {
       return `
 🎯 QA FOCUS: CODING REVIEW
 Primary focus areas:
-- ICD-10 diagnosis codes (accuracy, specificity, documentation support)
+- Validate ALL ICD-10 codes for accuracy and compliance
+- Recommend optimized codes for clinical accuracy and reimbursement
+- Identify missing medically-necessary diagnoses
 - Primary diagnosis selection and sequencing
 - Secondary diagnosis codes (comorbidities, complications)
 - Code relationships and principal diagnosis validation
 - Documentation sufficiency for code assignment
 - CMS coding guidelines compliance
 
-Extract ALL diagnosis codes with maximum detail.
+Extract ALL diagnosis codes with maximum detail and provide coding optimization recommendations.
 `
     case 'financial-optimization':
       return `
 🎯 QA FOCUS: FINANCIAL OPTIMIZATION
 Primary focus areas:
+- Identify documentation that affects case-mix, LUPA, and reimbursement
+- Highlight missing functional deficits
+- Suggest improvements for revenue optimization
 - Functional status items (M1800-M1870) - CRITICAL for HIPPS scoring
 - PDGM payment optimization opportunities
 - Case mix weight impact analysis
-- Documentation supporting higher reimbursement
-- Functional impairment levels
 - Therapy thresholds and visit requirements
 
-Extract functional status with EXTREME DETAIL and precision.
+Extract functional status with EXTREME DETAIL and identify all revenue-impacting documentation.
 `
     case 'qapi-audit':
       return `
 🎯 QA FOCUS: QAPI AUDIT (Quality Assurance Performance Improvement)
 Primary focus areas:
+- Identify regulatory deficiencies
+- Check plan of care, goals, risk mitigation, safety instructions
+- Flag incomplete or contradictory elements
 - Documentation completeness and quality
 - Regulatory compliance (CMS CoPs)
 - Clinical accuracy and consistency
 - Risk factors and safety concerns
-- Care plan appropriateness
 - OASIS accuracy and timeliness
 - Outcome measure documentation
 
-Extract ALL fields with focus on completeness, accuracy, and compliance.
+Extract ALL fields with focus on completeness, accuracy, compliance, and regulatory requirements.
 `
     case 'comprehensive-qa':
     default:
@@ -1379,42 +1547,137 @@ function getQAAnalysisInstructions(qaType: string): string {
     case 'coding-review':
       return `
 🎯 ANALYSIS MODE: CODING REVIEW
-Focus your analysis on:
-- Diagnosis code accuracy and specificity
-- Code sequencing and principal diagnosis
-- Documentation support for each code
-- Missing diagnosis codes that should be documented
-- Code relationships and comorbidity adjustments
-- CMS coding guidelines compliance
+Perform comprehensive coding review with aggressive optimization targeting:
 
-Provide detailed coding optimization suggestions.
+1. VALIDATE ALL ICD-10 CODES:
+   - Verify accuracy of all diagnosis codes
+   - Check code specificity (use most specific code available)
+   - Validate documentation support for each code
+   - Ensure codes follow CMS coding guidelines
+   - Check for coding errors or inconsistencies
+
+2. RECOMMEND OPTIMIZED CODES:
+   - Suggest codes that improve clinical accuracy
+   - Recommend codes that optimize reimbursement (when clinically justified)
+   - Identify more specific codes when available
+   - Suggest codes that better reflect patient condition
+   - Provide rationale for each recommendation
+
+3. IDENTIFY MISSING MEDICALLY-NECESSARY DIAGNOSES:
+   - Review all documented conditions and treatments
+   - Identify conditions that should be coded but are missing
+   - Flag medically-necessary diagnoses not currently coded
+   - Recommend additional codes that support medical necessity
+   - Ensure all active conditions are properly coded
+   
+   ⚠️ CRITICAL SAFETY RULES:
+   - ONLY suggest codes that are EXPLICITLY documented in the clinical notes
+   - NEVER suggest adding diagnoses that are not documented
+   - ALWAYS require documentation evidence for any suggested code
+   - If documentation is unclear, suggest documenting the condition FIRST before coding
+   - Provide specific location in document where evidence is found
+
+4. OPTIMIZE PRIMARY DIAGNOSIS FOR CLINICAL GROUP:
+   - Review if a more specific primary diagnosis code exists
+   - Check if current primary diagnosis accurately reflects the reason for home health
+   - Suggest more specific codes ONLY if documented in clinical notes
+   - Consider impact on PDGM clinical group assignment (A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z)
+   - Target clinical group changes that increase case mix weight when clinically justified
+   - Provide specific documentation evidence for any primary diagnosis change
+
+5. OPTIMIZE COMORBIDITY ADJUSTMENT:
+   - Identify documented conditions that qualify for comorbidity adjustment
+   - Suggest adding secondary diagnoses ONLY if:
+     * The condition is documented in clinical notes
+     * The condition is active and affecting care
+     * The condition qualifies for comorbidity adjustment per CMS guidelines
+   - Target comorbidity level increases (Low → Medium → High) when clinically justified
+   - Provide specific documentation evidence for each suggested comorbidity code
+   - Calculate potential revenue impact of comorbidity level changes
+   - Prioritize suggestions that cross comorbidity thresholds (e.g., 2→3 diagnoses, Low→Medium, Medium→High)
+
+Also analyze:
+- Code sequencing and principal diagnosis selection
+- Code relationships and comorbidity adjustments
+- Documentation sufficiency for code assignment
+- PDGM grouping optimization opportunities
+
+Provide detailed coding optimization suggestions with clinical and reimbursement rationale. Be aggressive in identifying opportunities, but ALWAYS require documentation evidence.
 `
     case 'financial-optimization':
       return `
 🎯 ANALYSIS MODE: FINANCIAL OPTIMIZATION
-Focus your analysis on:
+Perform comprehensive financial optimization:
+
+1. IDENTIFY DOCUMENTATION AFFECTING CASE-MIX, LUPA, AND REIMBURSEMENT:
+   - Analyze all documentation that impacts case-mix weight calculation
+   - Identify LUPA risk factors and visit count documentation
+   - Review documentation affecting reimbursement levels
+   - Assess functional status documentation completeness
+   - Check therapy visit documentation for threshold requirements
+   - Evaluate diagnosis documentation for PDGM grouping
+
+2. HIGHLIGHT MISSING FUNCTIONAL DEFICITS:
+   - Identify functional deficits documented in clinical notes but not coded in M1800-M1870
+   - Flag missing functional status items that should be documented
+   - Highlight inconsistencies between clinical documentation and functional scores
+   - Identify opportunities to document functional deficits more accurately
+   - Review all ADL/IADL areas for missing deficit documentation
+
+3. SUGGEST IMPROVEMENTS:
+   - Recommend specific documentation improvements for case-mix optimization
+   - Suggest functional status coding improvements (when clinically justified)
+   - Provide recommendations to reduce LUPA risk
+   - Suggest therapy visit documentation improvements
+   - Recommend documentation enhancements for higher reimbursement
+   - Provide specific, actionable steps for each improvement
+
+Also analyze:
 - Functional status optimization for HIPPS scoring (CRITICAL!)
-- Suggest clinically appropriate higher functional scores when supported
 - PDGM payment impact analysis
 - Case mix weight optimization opportunities
-- Documentation improvements for higher reimbursement
-- Therapy threshold documentation
+- Revenue impact of suggested improvements
 
 Prioritize suggestions that maximize legitimate revenue through better documentation.
 `
     case 'qapi-audit':
       return `
 🎯 ANALYSIS MODE: QAPI AUDIT
-Focus your analysis on:
+Perform comprehensive QAPI audit:
+
+1. IDENTIFY REGULATORY DEFICIENCIES:
+   - Review compliance with CMS Conditions of Participation (CoPs)
+   - Identify deficiencies in documentation requirements
+   - Flag regulatory violations or non-compliance issues
+   - Assess adherence to state and federal regulations
+   - Check for missing required regulatory elements
+   - Identify areas of regulatory risk
+
+2. CHECK PLAN OF CARE, GOALS, RISK MITIGATION, SAFETY INSTRUCTIONS:
+   - Review plan of care completeness and appropriateness
+   - Verify goals are specific, measurable, and time-bound
+   - Check risk mitigation strategies are documented
+   - Assess safety instructions are provided and clear
+   - Verify care plan aligns with patient needs and diagnoses
+   - Check for evidence of care plan implementation
+   - Review goal progress documentation
+
+3. FLAG INCOMPLETE OR CONTRADICTORY ELEMENTS:
+   - Identify incomplete documentation sections
+   - Flag contradictory information across sections
+   - Highlight inconsistencies in care plan vs. actual care
+   - Identify gaps between documented goals and interventions
+   - Flag safety instructions that contradict clinical findings
+   - Check for conflicting information in different parts of document
+
+Also analyze:
 - Documentation completeness (flag ALL missing required fields)
 - Clinical accuracy and internal consistency
-- CMS Conditions of Participation compliance
 - Risk identification and mitigation
-- Care plan appropriateness
 - OASIS accuracy requirements
 - Quality outcome measures
 
-Provide comprehensive audit findings with compliance focus.
+Provide comprehensive audit findings with compliance focus and specific recommendations.
 `
     case 'comprehensive-qa':
     default:
@@ -1512,8 +1775,12 @@ DO NOT extract "Warm" (not checked)!
    - Search for patterns like: "I69.351", "E11.65", "N18.1"
    - Extract EVERY diagnosis you find (typically 5-15 codes)
 
-3. FUNCTIONAL STATUS (M1800-M1870) - EXTRACT ALL 9 ITEMS:
-   ⚠️ CRITICAL: You MUST extract ALL 9 items if they exist in the document:
+3. FUNCTIONAL STATUS (M1800-M1870) - EXTRACT ONLY ITEMS THAT EXIST:
+   ⚠️ CRITICAL: Extract ONLY the functional status items that ACTUALLY EXIST in the document.
+   Different OASIS PDFs may have different numbers of items (could be 0, 3, 5, 7, 9, or any number).
+   DO NOT assume there are always 9 items!
+   
+   Search for these items (extract ONLY if found):
    1. M1800 - Grooming
    2. M1810 - Dress Upper Body
    3. M1820 - Dress Lower Body
@@ -1523,6 +1790,12 @@ DO NOT extract "Warm" (not checked)!
    7. M1850 - Transferring
    8. M1860 - Ambulation/Locomotion
    9. M1870 - Feeding or Eating
+   
+   ⚠️ IMPORTANT RULES:
+   - If an item is NOT in the document → DO NOT include it in the array
+   - If NO functional status items are found → Return EMPTY array: []
+   - Extract ONLY what actually exists - accuracy is more important than completeness
+   - Different OASIS forms may have different items based on visit type, patient condition, etc.
    
    For each item found:
    - Extract: item name, current value (0-6), current description
@@ -2230,7 +2503,9 @@ EXAMPLE 11 - Functional Status (if M1800-M1870 present):
 3. 🚨 FUNCTIONAL STATUS: 
    - ONLY extract if M1800-M1870 items ACTUALLY EXIST in the document
    - If document does NOT have these items → Return EMPTY array: []
-   - If document HAS these items → Extract ALL that exist (may be less than 9)
+   - If document HAS these items → Extract ALL that exist (may be 0, 3, 5, 7, 9, or any number)
+   - Different OASIS PDFs have DIFFERENT numbers of functional status items - this is NORMAL
+   - DO NOT assume there are always 9 items - extract only what exists
    - DO NOT make up functional status data!
 4. 🚨 MEDICATIONS:
    - ONLY extract medications that ACTUALLY EXIST in the document
@@ -2404,12 +2679,153 @@ async function analyzeAndOptimize(
   
   const analysisPrompt = `⚠️⚠️⚠️ CRITICAL ANALYSIS TASK - PASS 2 OF 2 ⚠️⚠️⚠️
 
-You received extracted data in PASS 1. Now you MUST ANALYZE it.
+You received extracted data in PASS 1. Now you MUST perform comprehensive multi-domain analysis.
 
 ${qaAnalysisInstructions}${notesSection}
 
 EXTRACTED DATA FROM PASS 1:
 ${rawDataJson}
+
+ORIGINAL DOCUMENT TEXT (for reference):
+${extractedText.substring(0, 50000)}
+
+===========================================================
+COMPREHENSIVE ANALYSIS REQUIREMENTS
+===========================================================
+
+Based on the extracted data above, perform analysis across these domains:
+
+SECTION C — COMPREHENSIVE QA REVIEW:
+• Evaluate missing required OASIS fields
+• Identify contradictions
+• Check functional inconsistencies
+• Verify diagnosis mismatch
+• Check medication mismatch
+• Review clinical status inconsistencies
+• Identify missing wound or pain documentation
+• Check date conflicts
+• Return QA score and list of issues
+
+SECTION D — CODING REVIEW (ICD-10 + PDGM):
+Perform comprehensive coding review:
+
+1. VALIDATE ALL ICD-10 CODES:
+   • Verify accuracy of all diagnosis codes (primary and secondary)
+   • Check code specificity (use most specific code available)
+   • Validate documentation support for each code
+   • Ensure codes follow CMS coding guidelines
+   • Check for coding errors or inconsistencies
+
+2. RECOMMEND OPTIMIZED CODES:
+   • Suggest codes that improve clinical accuracy
+   • Recommend codes that optimize reimbursement (when clinically justified)
+   • Identify more specific codes when available
+   • Suggest codes that better reflect patient condition
+   • Provide rationale for each recommendation with clinical and reimbursement impact
+
+3. IDENTIFY MISSING MEDICALLY-NECESSARY DIAGNOSES:
+   • Review all documented conditions and treatments
+   • Identify conditions that should be coded but are missing
+   • Flag medically-necessary diagnoses not currently coded
+   • Recommend additional codes that support medical necessity
+   • Ensure all active conditions are properly coded
+
+Also analyze:
+• Appropriateness of primary diagnosis
+• Secondary diagnosis alignment
+• Comorbidity group validation
+• PDGM grouping risk
+• Downcoding risk
+• Missing severity-supporting details
+• Code sequencing and principal diagnosis selection
+
+Return coding errors, optimized code recommendations, and missing diagnoses with detailed rationale.
+
+SECTION E — FINANCIAL OPTIMIZATION REVIEW:
+Perform comprehensive financial optimization:
+
+1. IDENTIFY DOCUMENTATION AFFECTING CASE-MIX, LUPA, AND REIMBURSEMENT:
+   • Analyze all documentation that impacts case-mix weight calculation
+   • Identify LUPA risk factors and visit count documentation
+   • Review documentation affecting reimbursement levels
+   • Assess functional status documentation completeness
+   • Check therapy visit documentation for threshold requirements
+   • Evaluate diagnosis documentation for PDGM grouping
+
+2. HIGHLIGHT MISSING FUNCTIONAL DEFICITS:
+   • Identify functional deficits documented in clinical notes but not coded in M1800-M1870
+   • Flag missing functional status items that should be documented
+   • Highlight inconsistencies between clinical documentation and functional scores
+   • Identify opportunities to document functional deficits more accurately
+   • Review all ADL/IADL areas for missing deficit documentation
+
+3. SUGGEST IMPROVEMENTS:
+   • Recommend specific documentation improvements for case-mix optimization
+   • Suggest functional status coding improvements (when clinically justified)
+   • Provide recommendations to reduce LUPA risk
+   • Suggest therapy visit documentation improvements
+   • Recommend documentation enhancements for higher reimbursement
+   • Provide specific, actionable steps for each improvement
+
+Also evaluate:
+• Functional scores affecting payment
+• Calculate potential optimized revenue
+• Return financial score, current vs optimized revenue, detailed breakdown
+
+SECTION F — QAPI AUDIT REVIEW:
+Perform comprehensive QAPI audit:
+
+1. IDENTIFY REGULATORY DEFICIENCIES:
+   • Review compliance with CMS Conditions of Participation (CoPs)
+   • Identify deficiencies in documentation requirements
+   • Flag regulatory violations or non-compliance issues
+   • Assess adherence to state and federal regulations
+   • Check for missing required regulatory elements
+   • Identify areas of regulatory risk
+
+2. CHECK PLAN OF CARE, GOALS, RISK MITIGATION, SAFETY INSTRUCTIONS:
+   • Review plan of care completeness and appropriateness
+   • Verify goals are specific, measurable, and time-bound
+   • Check risk mitigation strategies are documented
+   • Assess safety instructions are provided and clear
+   • Verify care plan aligns with patient needs and diagnoses
+   • Check for evidence of care plan implementation
+   • Review goal progress documentation
+
+3. FLAG INCOMPLETE OR CONTRADICTORY ELEMENTS:
+   • Identify incomplete documentation sections
+   • Flag contradictory information across sections
+   • Highlight inconsistencies in care plan vs. actual care
+   • Identify gaps between documented goals and interventions
+   • Flag safety instructions that contradict clinical findings
+   • Check for conflicting information in different parts of document
+
+Also:
+• Detect systemic patterns
+• Identify staff training gaps
+• Provide root cause analysis
+• Return QAPI improvement recommendations with specific actions
+
+SECTION G — FUNCTIONAL STATUS OPTIMIZATION (REQUIRED):
+For EACH functional item (M1800–M1870) found in PASS 1:
+1. Give current value (from PASS 1)
+2. Determine if value is appropriate based on extracted diagnoses
+3. Suggest optimized value ONLY if clinically justified
+Justify using actual diagnoses:
+• Stroke → assistance required
+• Diabetes + neuropathy → higher ADL support
+• CHF/COPD → elevated dyspnea support
+• Arthritis → mobility impairment
+DO NOT suggest values without real justification.
+
+SECTION H — INCONSISTENCY DETECTION (REQUIRED):
+Flag real conflicts ONLY using extracted data:
+• Stroke diagnosis + all ADLs = 0
+• Diabetes diagnosis + no diabetic meds
+• Transferring = 4 but Ambulation = 0
+• Medication dates conflicting with visit dates
+• Pain level high but analgesics missing
+Include: sectionA, sectionB, conflictType, severity, recommendation, clinicalImpact
 
 🚨🚨🚨 FIRST: CHECK IF THIS IS AN OASIS DOCUMENT 🚨🚨🚨
 
@@ -2736,10 +3152,249 @@ RETURN THIS JSON STRUCTURE:
       "clinicalImpact": "Current coding may underrepresent patient care needs."
     }
   ],
-  "missingInformation": [],
-  "suggestedCodes": [],
-  "corrections": [],
-  "riskFactors": [],
+  "missingInformation": [
+    {
+      "field": "missing field name",
+      "location": "where it should be in OASIS form",
+      "impact": "impact on compliance/billing/care",
+      "recommendation": "how to complete this field",
+      "required": true
+    }
+  ],
+  "qaReview": {
+    "qualityScore": 85,
+    "issues": [
+      {
+        "issue": "Missing required OASIS field",
+        "severity": "high",
+        "location": "Section M0",
+        "recommendation": "Complete missing field"
+      }
+    ]
+  },
+    "codingReview": {
+      "errors": [
+        {
+          "error": "Primary diagnosis may not be appropriate",
+          "severity": "medium",
+          "recommendation": "Review diagnosis selection"
+        }
+      ],
+      "suggestions": [
+        {
+          "code": "optimized ICD-10 code",
+          "description": "code description",
+          "reason": "rationale for recommendation",
+          "revenueImpact": 150,
+          "clinicalRationale": "clinical justification for the code",
+          "documentationSupport": "where in document this is supported"
+        }
+      ],
+    "validatedCodes": [
+      {
+        "code": "ICD-10 code",
+        "description": "code description",
+        "validationStatus": "valid/needs-review/invalid",
+        "issues": ["list of issues if any"],
+        "recommendation": "recommendation if needs review"
+      }
+    ],
+    "missingDiagnoses": [
+      {
+        "condition": "condition name documented but not coded",
+        "suggestedCode": "ICD-10 code to add",
+        "codeDescription": "description of the code",
+        "medicalNecessity": "explanation of medical necessity",
+        "documentationSupport": "where in document this is supported",
+        "revenueImpact": 200,
+        "comorbidityLevel": "low/medium/high",
+        "clinicalGroup": "PDGM clinical group if applicable"
+      }
+    ],
+    "primaryDiagnosisOptimization": [
+      {
+        "currentCode": "current primary diagnosis code",
+        "suggestedCode": "more specific or optimized code",
+        "currentDescription": "current diagnosis description",
+        "suggestedDescription": "suggested diagnosis description",
+        "reason": "rationale for optimization",
+        "documentationSupport": "where in document this is supported",
+        "currentClinicalGroup": "current PDGM clinical group",
+        "suggestedClinicalGroup": "suggested PDGM clinical group",
+        "revenueImpact": 300,
+        "clinicalRationale": "clinical justification"
+      }
+    ],
+    "comorbidityOptimization": {
+      "currentLevel": "low/medium/high",
+      "suggestedLevel": "low/medium/high",
+      "currentDiagnosisCount": 0,
+      "suggestedDiagnosisCount": 0,
+      "missingComorbidities": [
+        {
+          "condition": "documented condition not coded",
+          "suggestedCode": "ICD-10 code",
+          "documentationSupport": "where documented",
+          "revenueImpact": 250,
+          "comorbidityContribution": "explanation of how this affects comorbidity level"
+        }
+      ],
+      "revenueImpact": 400
+    }
+  },
+  "financialOptimization": {
+    "currentRevenue": 3000,
+    "optimizedRevenue": 3800,
+    "breakdown": [
+      {
+        "category": "Functional Status Optimization",
+        "current": 3000,
+        "optimized": 3800,
+        "difference": 800
+      }
+    ],
+    "documentationImpact": [
+      {
+        "documentationType": "type of documentation",
+        "impact": "case-mix/lupa/reimbursement/all",
+        "description": "how it affects revenue",
+        "revenueImpact": 150,
+        "recommendation": "how to improve"
+      }
+    ],
+    "missingFunctionalDeficits": [
+      {
+        "deficit": "functional deficit name",
+        "location": "where documented in clinical notes",
+        "currentStatus": "current functional status value",
+        "suggestedDocumentation": "suggested functional status value",
+        "revenueImpact": 200,
+        "clinicalJustification": "clinical reason for suggestion"
+      }
+    ],
+    "improvements": [
+      {
+        "improvement": "improvement description",
+        "category": "documentation/functional-status/lupa-reduction/therapy/reimbursement",
+        "currentState": "current state",
+        "suggestedState": "suggested improvement",
+        "revenueImpact": 300,
+        "actionableSteps": ["step 1", "step 2"],
+        "priority": "high/medium/low"
+      }
+    ]
+  },
+  "qapiAudit": {
+    "deficiencies": [
+      {
+        "deficiency": "Missing documentation",
+        "category": "Documentation Error",
+        "severity": "high",
+        "rootCause": "Staff training needed",
+        "recommendation": "Provide training on OASIS completion"
+      }
+    ],
+    "recommendations": [
+      {
+        "category": "Training",
+        "recommendation": "Staff training on OASIS documentation",
+        "priority": "high"
+      }
+    ],
+    "regulatoryDeficiencies": [
+      {
+        "deficiency": "regulatory deficiency description",
+        "regulation": "CMS CoP or regulation reference",
+        "severity": "critical/high/medium/low",
+        "description": "detailed description",
+        "impact": "impact on compliance",
+        "recommendation": "how to fix",
+        "correctiveAction": "specific corrective action needed"
+      }
+    ],
+    "planOfCareReview": {
+      "completeness": "complete/incomplete/missing",
+      "issues": [
+        {
+          "issue": "issue description",
+          "location": "where in document",
+          "severity": "high/medium/low",
+          "recommendation": "how to fix"
+        }
+      ],
+      "goals": [
+        {
+          "goal": "goal description",
+          "status": "met/in-progress/not-met/missing",
+          "issues": ["list of issues"],
+          "recommendation": "recommendation for goal"
+        }
+      ],
+      "riskMitigation": [
+        {
+          "risk": "risk identified",
+          "mitigationStrategy": "strategy documented",
+          "status": "documented/missing/inadequate",
+          "recommendation": "recommendation if missing"
+        }
+      ],
+      "safetyInstructions": [
+        {
+          "instruction": "safety instruction type",
+          "status": "present/missing/unclear",
+          "location": "where should be documented",
+          "recommendation": "recommendation if missing"
+        }
+      ]
+    },
+    "incompleteElements": [
+      {
+        "element": "incomplete element name",
+        "location": "where in document",
+        "missingInformation": "what is missing",
+        "impact": "impact on care/compliance",
+        "recommendation": "how to complete",
+        "priority": "high/medium/low"
+      }
+    ],
+    "contradictoryElements": [
+      {
+        "elementA": "first contradictory element",
+        "elementB": "second contradictory element",
+        "contradiction": "description of contradiction",
+        "location": "where found",
+        "impact": "impact on care/compliance",
+        "recommendation": "how to resolve",
+        "severity": "critical/high/medium/low"
+      }
+    ]
+  },
+  "suggestedCodes": [
+    {
+      "code": "additional code",
+      "description": "code description",
+      "reason": "reason for including",
+      "revenueImpact": 150,
+      "confidence": 85
+    }
+  ],
+  "corrections": [
+    {
+      "field": "form field",
+      "current": "current value",
+      "suggested": "suggested value",
+      "reason": "reason for correction",
+      "impact": "impact description",
+      "revenueChange": 100
+    }
+  ],
+  "riskFactors": [
+    {
+      "factor": "risk factor",
+      "severity": "high",
+      "recommendation": "mitigation recommendation"
+    }
+  ],
   "recommendations": [
     {
       "category": "Documentation",
@@ -2748,7 +3403,14 @@ RETURN THIS JSON STRUCTURE:
       "expectedImpact": "Accurate case mix calculation"
     }
   ],
-  "flaggedIssues": [],
+  "flaggedIssues": [
+    {
+      "issue": "identified problem",
+      "severity": "high",
+      "location": "where found",
+      "suggestion": "how to resolve"
+    }
+  ],
   "extractedData": {
     "primaryDiagnosis": { ...copy... },
     "otherDiagnoses": [ ...copy... ],
@@ -2759,7 +3421,9 @@ RETURN THIS JSON STRUCTURE:
     "respiratoryStatus": [ ...copy from PASS 1... ],
     "cardiacStatus": [ ...copy from PASS 1... ],
     "eliminationStatus": [ ...copy from PASS 1... ],
-    "neuroEmotionalBehavioralStatus": [ ...copy from PASS 1... ]
+    "neuroEmotionalBehavioralStatus": [ ...copy from PASS 1... ],
+    "emotionalStatus": [ ...copy from PASS 1 if separate... ],
+    "behavioralStatus": [ ...copy from PASS 1 if separate... ]
   },
   "debugInfo": {
     "pagesProcessed": "estimated",
@@ -2819,67 +3483,109 @@ RETURN THIS JSON STRUCTURE:
 
 // Calculate quality score based on data completeness and accuracy
 function calculateQualityScore(analysis: OasisAnalysisResult): number {
-  let score = 100
+  // Start with a high base score (85-90) - assume good quality unless proven otherwise
+  // This gives more accurate scores in the 80-95% range as requested
+  let score = 88
   
-  // Deduct points for missing critical data
-  if (!analysis.primaryDiagnosis || analysis.primaryDiagnosis.code === 'Not found' || analysis.primaryDiagnosis.code === 'Z99.89') {
-    score -= 15
+  // Check if we have extracted data
+  const hasPatientInfo = analysis.patientInfo?.name && analysis.patientInfo?.mrn
+  const hasPrimaryDiagnosis = analysis.primaryDiagnosis && 
+    analysis.primaryDiagnosis.code && 
+    analysis.primaryDiagnosis.code !== 'Not found' && 
+    analysis.primaryDiagnosis.code !== 'Z99.89'
+  const hasFunctionalStatus = analysis.functionalStatus && analysis.functionalStatus.length > 0
+  const hasMedications = analysis.medications && analysis.medications.length > 0
+  const hasSecondaryDiagnoses = analysis.secondaryDiagnoses && analysis.secondaryDiagnoses.length > 0
+  
+  // Deduct points more gently for missing critical data
+  if (!hasPatientInfo) {
+    score -= 8
   }
   
-  if (!analysis.functionalStatus || analysis.functionalStatus.length < 9) {
+  if (!hasPrimaryDiagnosis) {
     score -= 10
   }
   
-  if (!analysis.medications || analysis.medications.length === 0) {
+  // Functional status: Don't penalize if it's not always 9 items (different OASIS forms have different counts)
+  if (!hasFunctionalStatus) {
     score -= 5
+  } else if (analysis.functionalStatus && analysis.functionalStatus.length < 3) {
+    // Only penalize if very few items (less than 3)
+    score -= 3
   }
   
-  if (!analysis.secondaryDiagnoses || analysis.secondaryDiagnoses.length === 0) {
-    score -= 5
+  if (!hasMedications) {
+    score -= 3
   }
   
-  // Deduct points for each missing required field
+  if (!hasSecondaryDiagnoses) {
+    score -= 2
+  }
+  
+  // Deduct points more gently for missing required fields
   if (analysis.missingInformation) {
     const criticalMissing = analysis.missingInformation.filter(item => item.required).length
     const nonCriticalMissing = analysis.missingInformation.length - criticalMissing
-    score -= (criticalMissing * 5) + (nonCriticalMissing * 2)
+    // More lenient: deduct less points
+    score -= (criticalMissing * 2) + (nonCriticalMissing * 0.5)
   }
   
-  // Deduct points for inconsistencies
+  // Deduct points more gently for inconsistencies
   if (analysis.inconsistencies) {
     const critical = analysis.inconsistencies.filter(i => i.severity?.toLowerCase() === 'critical').length
     const high = analysis.inconsistencies.filter(i => i.severity?.toLowerCase() === 'high').length
     const medium = analysis.inconsistencies.filter(i => i.severity?.toLowerCase() === 'medium').length
-    score -= (critical * 8) + (high * 5) + (medium * 3)
+    // More lenient: deduct less points
+    score -= (critical * 4) + (high * 2) + (medium * 1)
   }
   
-  // Add points for complete data
-  if (analysis.painStatus && analysis.painStatus.length > 0) {
+  // Add bonus points for complete data (reward good documentation)
+  if (hasPatientInfo) {
+    score += 1
+  }
+  
+  if (hasPrimaryDiagnosis) {
+    score += 1
+  }
+  
+  if (hasFunctionalStatus && analysis.functionalStatus && analysis.functionalStatus.length >= 5) {
     score += 2
+  }
+  
+  if (hasMedications) {
+    score += 1
+  }
+  
+  if (hasSecondaryDiagnoses && analysis.secondaryDiagnoses.length >= 3) {
+    score += 1
+  }
+  
+  if (analysis.painStatus && analysis.painStatus.length > 0) {
+    score += 1
   }
   
   if (analysis.integumentaryStatus && analysis.integumentaryStatus.length > 0) {
-    score += 1
+    score += 0.5
   }
   
   if (analysis.respiratoryStatus && analysis.respiratoryStatus.length > 0) {
-    score += 1
+    score += 0.5
   }
   
   if (analysis.cardiacStatus && analysis.cardiacStatus.length > 0) {
-    score += 1
+    score += 0.5
   }
   
   if (analysis.eliminationStatus && analysis.eliminationStatus.length > 0) {
-    score += 1
+    score += 0.5
   }
   
   if (analysis.neuroEmotionalBehavioralStatus && analysis.neuroEmotionalBehavioralStatus.length > 0) {
-    score += 2
+    score += 1
   }
   
-  // Ensure score is between 0 and 100
-  return Math.max(0, Math.min(100, Math.round(score)))
+  // Ensure score is between 80 and 100 - minimum 80% for all documents
+  return Math.max(80, Math.min(100, Math.round(score)))
 }
 
 // Calculate confidence score based on data presence and AI extraction confidence
@@ -2977,35 +3683,680 @@ export async function analyzeOasisDocument(
   if (notes) console.log('[OASIS] 📝 Special Notes:', notes.substring(0, 100) + (notes.length > 100 ? '...' : ''))
   console.log('[OASIS] Text length:', extractedText.length, 'characters')
   
-  const prompt = `You are an OASIS document analysis and optimization system. Your task is to:
-1. Extract structured form data from the text document
-2. Analyze functional status items for clinically appropriate optimization opportunities
-3. Return results in JSON format
+  // Helper function to get QA type-specific focus instructions
+  const getQATypeFocus = (qaType: string): string => {
+    switch (qaType) {
+      case 'coding-review':
+        return `
+🎯 PRIMARY FOCUS: CODING REVIEW
+Emphasize Section D (Coding Review) with maximum detail:
 
-IMPORTANT: Extract the ACTUAL patient name, MRN, and other information as written in the document. Do NOT use placeholders.
+1. VALIDATE ALL ICD-10 CODES:
+   - Verify accuracy of all diagnosis codes (primary and secondary)
+   - Check code specificity and documentation support
+   - Validate compliance with CMS coding guidelines
 
-TASK: Read the form text below, extract all data fields, and provide clinically justified optimization suggestions for functional status items when appropriate.
+2. RECOMMEND OPTIMIZED CODES:
+   - Suggest codes for improved clinical accuracy
+   - Recommend codes that optimize reimbursement (when clinically justified)
+   - Provide rationale for each recommendation
 
-INSTRUCTIONS:
-1. The text below contains ${Math.ceil(extractedText.length / 2000)} pages of OASIS documentation (${extractedText.length} characters)
-2. Functional status items (M1800-M1870) are typically on LATER pages (around character position 40,000-80,000)
-3. Scan through ALL ${extractedText.length} characters below to find OASIS items that are present
-4. Look for checkboxes marked with ✓, ☑, X, ●, or ■ next to option numbers
-5. Extract information from pages where it actually exists
-6. IMPORTANT: Only extract data that is ACTUALLY in the document - do not invent or guess
-7. If functional status items are not in the document, return empty array - do not fabricate data
-8. For functional status items that ARE found, analyze them and provide optimization suggestions when clinically appropriate
+3. IDENTIFY MISSING MEDICALLY-NECESSARY DIAGNOSES:
+   - Review all documented conditions and treatments
+   - Identify conditions that should be coded but are missing
+   - Flag medically-necessary diagnoses not currently coded
 
-OASIS TEXT (ALL PAGES - ${extractedText.length} characters):
+Also:
+- Assess PDGM grouping support
+- Analyze code sequencing and principal diagnosis
+- Provide detailed coding recommendations with clinical and reimbursement impact
+- Still analyze other sections but prioritize coding elements
+`
+      case 'financial-optimization':
+        return `
+🎯 PRIMARY FOCUS: FINANCIAL OPTIMIZATION
+Emphasize Section E (Financial Optimization) with maximum detail:
 
-NOTE: The functional status section (items M1800-M1870) may appear later in the document around position 40,000-80,000.
+1. IDENTIFY DOCUMENTATION AFFECTING CASE-MIX, LUPA, AND REIMBURSEMENT:
+   - Analyze all documentation impacting case-mix weight
+   - Identify LUPA risk factors and visit count documentation
+   - Review documentation affecting reimbursement levels
 
-FORM TEXT TO EXTRACT:
+2. HIGHLIGHT MISSING FUNCTIONAL DEFICITS:
+   - Identify functional deficits in clinical notes but not coded
+   - Flag missing functional status items
+   - Highlight documentation inconsistencies
+
+3. SUGGEST IMPROVEMENTS:
+   - Recommend specific documentation improvements
+   - Suggest functional status coding improvements (when clinically justified)
+   - Provide actionable steps for revenue optimization
+
+Also:
+- Analyze PDGM category alignment
+- Calculate financial impact of suggested changes
+- Still analyze other sections but prioritize financial elements
+`
+      case 'qapi-audit':
+        return `
+🎯 PRIMARY FOCUS: QAPI AUDIT
+Emphasize Section F (QAPI Audit) with maximum detail:
+
+1. IDENTIFY REGULATORY DEFICIENCIES:
+   - Review CMS CoPs compliance
+   - Identify regulatory violations
+   - Flag missing regulatory elements
+
+2. CHECK PLAN OF CARE, GOALS, RISK MITIGATION, SAFETY INSTRUCTIONS:
+   - Review plan of care completeness
+   - Verify goals are appropriate
+   - Check risk mitigation strategies
+   - Assess safety instructions
+
+3. FLAG INCOMPLETE OR CONTRADICTORY ELEMENTS:
+   - Identify incomplete sections
+   - Flag contradictions
+   - Highlight inconsistencies
+
+Also:
+- Provide detailed root cause analysis
+- Categorize findings by type
+- Offer specific training recommendations
+- Still analyze other sections but prioritize QAPI elements
+`
+      case 'comprehensive-qa':
+      default:
+        return `
+🎯 PRIMARY FOCUS: COMPREHENSIVE QA
+Analyze ALL sections with equal emphasis:
+- Provide thorough analysis across all domains
+- Balance clinical, coding, financial, and compliance perspectives
+- Ensure comprehensive coverage of all aspects
+`
+    }
+  }
+
+  const qaTypeFocus = getQATypeFocus(qaType)
+  const notesSection = notes ? `\n\n📝 SPECIAL INSTRUCTIONS FROM REVIEWER:\n${notes}\n` : ''
+  const prioritySection = priority !== 'medium' ? `\n\n⚡ PRIORITY: ${priority.toUpperCase()}\n` : ''
+
+  const prompt = `You are an OASIS Expert System specialized in:
+
+• Comprehensive QA Review
+• Coding Review (ICD-10, PDGM)
+• Financial Optimization
+• QAPI Audit
+• Medication Review
+• Functional Status Analysis (M1800–M1870)
+• Clinical Status Extraction (pain, integumentary, respiratory, cardiac, elimination, emotional)
+• Diagnosis Consistency Validation
+
+Your task is to extract ALL real information from the OASIS text below and then perform a complete multi-domain QA, coding, financial, and QAPI audit.
+
+${qaTypeFocus}${notesSection}${prioritySection}
+
+RULE #1 — NEVER invent or guess data.  
+RULE #2 — Extract ONLY real information from the document.  
+RULE #3 — If something does not exist → return "Not visible" or empty array.  
+RULE #4 — JSON output ONLY, following the structure provided at the end.
+
+===========================================================
+SECTION A — DATA EXTRACTION
+===========================================================
+
+Extract EXACT patient information:
+
+• Name  
+• MRN / Patient ID  
+• DOB  
+• Visit Date  
+• Visit Type (SOC, ROC, Recert, etc.)  
+• Payment Source (with checkmark symbol)  
+• Clinician Signature + Credentials  
+
+Extract ICD-10 diagnosis codes:
+
+• Primary Diagnosis (M1021) — code + description  
+• ALL Secondary Diagnoses (M1023)  
+• Active Diagnoses (M1028) based on checkmarks  
+
+Extract ALL functional status items (M1800–M1870) only if present:
+
+• Extract EXACT checked values  
+• Extract EXACT descriptions  
+
+If M1800–M1870 section does not exist → functionalStatus = []
+
+Extract ALL medications anywhere in the document:
+
+• Name  
+• Dosage  
+• Frequency  
+• Route  
+• Indication (if found)
+
+Expand abbreviations (PO, BID, PRN, TID, QD, etc.)
+
+===========================================================
+SECTION B — CLINICAL STATUS EXTRACTION (MANDATORY)
+===========================================================
+
+Search the entire document text and extract ACTUAL values found for:
+
+1. **painStatus**
+   • Pain severity  
+   • Pain location  
+   • Pain frequency  
+   • Pain effect on function  
+   • Any pain questionnaire items  
+
+2. **integumentaryStatus**
+   • Wounds  
+   • Pressure ulcers  
+   • Surgical incisions  
+   • Skin tears  
+   • Drainage findings  
+
+3. **respiratoryStatus**
+   • Dyspnea levels  
+   • Oxygen use  
+   • Breath sounds  
+   • Pulmonary conditions  
+
+4. **cardiacStatus**
+   • Edema  
+   • Pulse descriptions  
+   • Cardiac symptoms  
+   • Heart failure indicators  
+
+5. **eliminationStatus**
+   • Bowel patterns  
+   • Bladder incontinence  
+   • Ostomy info  
+
+6. **neuroEmotionalBehavioralStatus**
+   • Mental status  
+   • Orientation  
+   • Behavioral symptoms  
+   • Cognitive findings  
+
+7. **emotionalStatus** (if separate)
+   • Mood  
+   • Depression indicators  
+   • Anxiety indicators  
+
+8. **behavioralStatus** (if separate)
+   • Aggression  
+   • Wandering  
+   • Impulsivity  
+   • Safety behaviors  
+
+If any category is not present → return empty array [].
+
+===========================================================
+SECTION C — COMPREHENSIVE QA REVIEW
+===========================================================
+
+Evaluate:
+
+• Missing required OASIS fields  
+• Contradictions  
+• Functional inconsistencies  
+• Diagnosis mismatch  
+• Medication mismatch  
+• Clinical status inconsistencies  
+• Missing wound or pain documentation  
+• Date conflicts  
+
+Return QA score and list of issues.
+
+===========================================================
+SECTION D — CODING REVIEW (ICD-10 + PDGM)
+===========================================================
+
+Perform aggressive coding optimization with strict safety guidelines:
+
+1. PRIMARY DIAGNOSIS OPTIMIZATION:
+   • Review appropriateness of primary diagnosis
+   • Check if more specific code exists (documented in clinical notes)
+   • Evaluate impact on PDGM clinical group assignment
+   • Target clinical group changes that increase case mix weight
+   • Provide documentation evidence for any suggested changes
+
+2. SECONDARY DIAGNOSIS & COMORBIDITY OPTIMIZATION:
+   • Review secondary diagnosis alignment
+   • Identify documented conditions not currently coded
+   • Validate comorbidity group assignment
+   • Target comorbidity level increases (Low → Medium → High)
+   • Prioritize suggestions that cross comorbidity thresholds
+   • Calculate revenue impact of comorbidity changes
+
+3. CODE SPECIFICITY & ACCURACY:
+   • Check for generic codes that can be made more specific
+   • Validate code relationships and sequencing
+   • Identify missing severity-supporting details
+   • Ensure all active conditions affecting care are coded
+
+4. PDGM GROUPING OPTIMIZATION:
+   • Analyze PDGM grouping risk
+   • Identify downcoding risk
+   • Suggest optimizations that improve case mix weight
+   • Consider impact on HIPPS code calculation
+
+⚠️ SAFETY REQUIREMENTS:
+• ONLY suggest codes EXPLICITLY documented in clinical notes
+• NEVER suggest adding undocumented diagnoses
+• ALWAYS provide documentation evidence location
+• If unclear, recommend documenting condition FIRST
+
+Return coding errors, suggestions, and optimization opportunities with documentation evidence.
+
+===========================================================
+SECTION E — FINANCIAL OPTIMIZATION REVIEW
+===========================================================
+
+Perform comprehensive financial optimization:
+
+1. IDENTIFY DOCUMENTATION AFFECTING CASE-MIX, LUPA, AND REIMBURSEMENT:
+   • Analyze all documentation that impacts case-mix weight calculation
+   • Identify LUPA risk factors and visit count documentation
+   • Review documentation affecting reimbursement levels
+   • Assess functional status documentation completeness
+   • Check therapy visit documentation for threshold requirements
+   • Evaluate diagnosis documentation for PDGM grouping
+
+2. HIGHLIGHT MISSING FUNCTIONAL DEFICITS:
+   • Identify functional deficits documented in clinical notes but not coded in M1800-M1870
+   • Flag missing functional status items that should be documented
+   • Highlight inconsistencies between clinical documentation and functional scores
+   • Identify opportunities to document functional deficits more accurately
+   • Review all ADL/IADL areas for missing deficit documentation
+
+3. SUGGEST IMPROVEMENTS:
+   • Recommend specific documentation improvements for case-mix optimization
+   • Suggest functional status coding improvements (when clinically justified)
+   • Provide recommendations to reduce LUPA risk
+   • Suggest therapy visit documentation improvements
+   • Recommend documentation enhancements for higher reimbursement
+   • Provide specific, actionable steps for each improvement
+
+Also evaluate:
+• Functional scores affecting payment  
+• LUPA risk  
+• Potential optimized revenue  
+
+Return:
+• Financial score  
+• Current vs optimized revenue  
+• Detailed breakdown
+• Documentation impact analysis
+• Missing functional deficits list
+• Improvement recommendations with revenue impact  
+
+===========================================================
+SECTION F — QAPI AUDIT REVIEW
+===========================================================
+
+Perform comprehensive QAPI audit:
+
+1. IDENTIFY REGULATORY DEFICIENCIES:
+   • Review compliance with CMS Conditions of Participation (CoPs)
+   • Identify deficiencies in documentation requirements
+   • Flag regulatory violations or non-compliance issues
+   • Assess adherence to state and federal regulations
+   • Check for missing required regulatory elements
+   • Identify areas of regulatory risk
+
+2. CHECK PLAN OF CARE, GOALS, RISK MITIGATION, SAFETY INSTRUCTIONS:
+   • Review plan of care completeness and appropriateness
+   • Verify goals are specific, measurable, and time-bound
+   • Check risk mitigation strategies are documented
+   • Assess safety instructions are provided and clear
+   • Verify care plan aligns with patient needs and diagnoses
+   • Check for evidence of care plan implementation
+   • Review goal progress documentation
+
+3. FLAG INCOMPLETE OR CONTRADICTORY ELEMENTS:
+   • Identify incomplete documentation sections
+   • Flag contradictory information across sections
+   • Highlight inconsistencies in care plan vs. actual care
+   • Identify gaps between documented goals and interventions
+   • Flag safety instructions that contradict clinical findings
+   • Check for conflicting information in different parts of document
+
+Also identify:
+• Systemic patterns  
+• Staff training gaps  
+• Compliance risks  
+• Root causes  
+
+Return QAPI improvement recommendations with specific actions and training needs.
+
+===========================================================
+SECTION G — FUNCTIONAL STATUS OPTIMIZATION (REQUIRED)
+===========================================================
+
+For EACH functional item (M1800–M1870) found:
+
+1. Give current value  
+2. Determine if value is appropriate based on extracted diagnoses  
+3. Suggest optimized value ONLY if clinically justified  
+
+CRITICAL: When suggesting optimizations, consider the TOTAL functional score impact:
+• Low Impairment (0-23 points): If current total is 19-23, suggest improvements that would push to Medium (24+)
+• Medium Impairment (24-42 points): If current total is 38-42, suggest improvements that would push to High (43+)
+• Target threshold crossings: Suggest enough improvements to cross functional level boundaries when clinically justified
+
+Justify using actual diagnoses:  
+• Stroke → assistance required  
+• Diabetes + neuropathy → higher ADL support  
+• CHF/COPD → elevated dyspnea support  
+• Arthritis → mobility impairment  
+• ESRD/Dialysis → higher functional dependency
+• Multiple comorbidities → increased assistance needs
+
+OPTIMIZATION STRATEGY:
+- If patient has complex conditions (ESRD, CHF, COPD, multiple comorbidities), suggest higher impairment levels
+- If current score is near a threshold (e.g., 19-23), suggest improvements that would cross to next level (24+)
+- Consider all functional items together - don't just optimize one item, optimize multiple items to achieve threshold crossing
+- Be clinically aggressive when documentation supports it (e.g., "chairfast", "dependent transfers", "needs assistance")
+
+DO NOT suggest values without real justification, BUT be clinically appropriate and consider total score impact.
+
+===========================================================
+SECTION H — INCONSISTENCY DETECTION (REQUIRED)
+===========================================================
+
+Flag real conflicts ONLY using extracted data:
+
+• Stroke diagnosis + all ADLs = 0  
+• Diabetes diagnosis + no diabetic meds  
+• Transferring = 4 but Ambulation = 0  
+• Medication dates conflicting with visit dates  
+• Pain level high but analgesics missing  
+
+Include:
+
+• sectionA  
+• sectionB  
+• conflictType  
+• severity  
+• recommendation  
+• clinicalImpact  
+
+===========================================================
+SECTION I — OUTPUT FORMAT (MUST FOLLOW EXACTLY)
+===========================================================
+
+Return JSON ONLY:
+
+{
+  "patientInfo": {
+    "name": "extract actual patient name from document",
+    "mrn": "extract actual MRN/Patient ID from document",
+    "visitType": "extract visit type (SOC/ROC/Recert)",
+    "payor": "extract FULL payor description with checkmark",
+    "visitDate": "extract visit date",
+    "clinician": "extract clinician name with credentials"
+  },
+  "primaryDiagnosis": {
+    "code": "extract primary ICD-10 code (e.g., I69.351, E11.65)",
+    "description": "extract full primary diagnosis description",
+    "confidence": 95
+  },
+  "secondaryDiagnoses": [
+    {
+      "code": "extract secondary ICD-10 code",
+      "description": "extract full secondary diagnosis description",
+      "confidence": 90
+    }
+  ],
+  "activeDiagnoses": [
+    {
+      "code": "ICD-10 code",
+      "description": "diagnosis description",
+      "active": true
+    }
+  ],
+  "functionalStatus": [
+    {
+      "item": "M1800 - Grooming",
+      "currentValue": "extract actual checked value",
+      "currentDescription": "extract actual description",
+      "suggestedValue": "suggest if clinically justified",
+      "suggestedDescription": "description for suggested value",
+      "clinicalRationale": "clinical reasoning"
+    }
+  ],
+  "medications": [
+    {
+      "name": "medication name",
+      "dosage": "dosage",
+      "frequency": "frequency",
+      "route": "route",
+      "indication": "indication if found"
+    }
+  ],
+  "extractedData": {
+    "painStatus": [],
+    "integumentaryStatus": [],
+    "respiratoryStatus": [],
+    "cardiacStatus": [],
+    "eliminationStatus": [],
+    "neuroEmotionalBehavioralStatus": [],
+    "emotionalStatus": [],
+    "behavioralStatus": []
+  },
+  "missingInformation": [
+    {
+      "field": "missing field name",
+      "location": "where it should be",
+      "impact": "impact description",
+      "recommendation": "how to fix",
+      "required": true
+    }
+  ],
+  "inconsistencies": [
+    {
+      "sectionA": "specific location with actual value",
+      "sectionB": "specific location with actual value",
+      "conflictType": "type of conflict",
+      "severity": "critical/high/medium/low",
+      "recommendation": "how to resolve",
+      "clinicalImpact": "impact description"
+    }
+  ],
+  "qaReview": {
+    "qualityScore": 0,
+    "issues": []
+  },
+  "codingReview": {
+    "errors": [
+      {
+        "error": "coding error description",
+        "severity": "critical/high/medium/low",
+        "recommendation": "how to fix the error"
+      }
+    ],
+    "suggestions": [
+      {
+        "code": "optimized ICD-10 code",
+        "description": "code description",
+        "reason": "rationale for recommendation",
+        "revenueImpact": 150,
+        "clinicalRationale": "clinical justification for the code",
+        "documentationSupport": "where in document this is supported"
+      }
+    ],
+    "validatedCodes": [
+      {
+        "code": "ICD-10 code",
+        "description": "code description",
+        "validationStatus": "valid/needs-review/invalid",
+        "issues": ["list of issues if any"],
+        "recommendation": "recommendation if needs review"
+      }
+    ],
+    "missingDiagnoses": [
+      {
+        "condition": "condition name documented but not coded",
+        "suggestedCode": "ICD-10 code to add",
+        "codeDescription": "description of the code",
+        "medicalNecessity": "explanation of medical necessity",
+        "documentationSupport": "where in document this is supported",
+        "revenueImpact": 200,
+        "comorbidityLevel": "low/medium/high",
+        "clinicalGroup": "PDGM clinical group if applicable"
+      }
+    ],
+    "primaryDiagnosisOptimization": [
+      {
+        "currentCode": "current primary diagnosis code",
+        "suggestedCode": "more specific or optimized code",
+        "currentDescription": "current diagnosis description",
+        "suggestedDescription": "suggested diagnosis description",
+        "reason": "rationale for optimization",
+        "documentationSupport": "where in document this is supported",
+        "currentClinicalGroup": "current PDGM clinical group",
+        "suggestedClinicalGroup": "suggested PDGM clinical group",
+        "revenueImpact": 300,
+        "clinicalRationale": "clinical justification"
+      }
+    ],
+    "comorbidityOptimization": {
+      "currentLevel": "low/medium/high",
+      "suggestedLevel": "low/medium/high",
+      "currentDiagnosisCount": 0,
+      "suggestedDiagnosisCount": 0,
+      "missingComorbidities": [
+        {
+          "condition": "documented condition not coded",
+          "suggestedCode": "ICD-10 code",
+          "documentationSupport": "where documented",
+          "revenueImpact": 250,
+          "comorbidityContribution": "explanation of how this affects comorbidity level"
+        }
+      ],
+      "revenueImpact": 400
+    }
+  },
+  "financialOptimization": {
+    "currentRevenue": 0,
+    "optimizedRevenue": 0,
+    "breakdown": [
+      {
+        "category": "category name",
+        "current": 0,
+        "optimized": 0,
+        "difference": 0
+      }
+    ],
+    "documentationImpact": [
+      {
+        "documentationType": "type of documentation",
+        "impact": "case-mix/lupa/reimbursement/all",
+        "description": "how it affects revenue",
+        "revenueImpact": 150,
+        "recommendation": "how to improve"
+      }
+    ],
+    "missingFunctionalDeficits": [
+      {
+        "deficit": "functional deficit name",
+        "location": "where documented in clinical notes",
+        "currentStatus": "current functional status value",
+        "suggestedDocumentation": "suggested functional status value",
+        "revenueImpact": 200,
+        "clinicalJustification": "clinical reason for suggestion"
+      }
+    ],
+    "improvements": [
+      {
+        "improvement": "improvement description",
+        "category": "documentation/functional-status/lupa-reduction/therapy/reimbursement",
+        "currentState": "current state",
+        "suggestedState": "suggested improvement",
+        "revenueImpact": 300,
+        "actionableSteps": ["step 1", "step 2"],
+        "priority": "high/medium/low"
+      }
+    ]
+  },
+  "qapiAudit": {
+    "deficiencies": [
+      {
+        "deficiency": "deficiency description",
+        "category": "category",
+        "severity": "high",
+        "rootCause": "root cause",
+        "recommendation": "recommendation"
+      }
+    ],
+    "recommendations": [
+      {
+        "category": "category",
+        "recommendation": "recommendation",
+        "priority": "high"
+      }
+    ],
+    "regulatoryDeficiencies": [
+      {
+        "deficiency": "regulatory deficiency",
+        "regulation": "regulation reference",
+        "severity": "critical/high/medium/low",
+        "description": "description",
+        "impact": "impact",
+        "recommendation": "recommendation",
+        "correctiveAction": "corrective action"
+      }
+    ],
+    "planOfCareReview": {
+      "completeness": "complete/incomplete/missing",
+      "issues": [],
+      "goals": [],
+      "riskMitigation": [],
+      "safetyInstructions": []
+    },
+    "incompleteElements": [
+      {
+        "element": "element name",
+        "location": "location",
+        "missingInformation": "missing info",
+        "impact": "impact",
+        "recommendation": "recommendation",
+        "priority": "high/medium/low"
+      }
+    ],
+    "contradictoryElements": [
+      {
+        "elementA": "element A",
+        "elementB": "element B",
+        "contradiction": "contradiction",
+        "location": "location",
+        "impact": "impact",
+        "recommendation": "recommendation",
+        "severity": "critical/high/medium/low"
+      }
+    ]
+  },
+  "financialImpact": {
+    "currentRevenue": 0,
+    "optimizedRevenue": 0,
+    "increase": 0,
+    "breakdown": []
+  },
+  "qualityScore": 0,
+  "confidenceScore": 0,
+  "completenessScore": 0
+}
+
+===========================================================
+PROCESS THE TEXT BELOW:
+===========================================================
+
 ${extractedText.substring(0, 100000)}
 
-${doctorOrderText ? `ADDITIONAL FORM TEXT:\n${doctorOrderText.substring(0, 5000)}` : ""}
-
-EXTRACTION NOTE: If a field is not visible in the text above, use "Not visible" as the value.
+${doctorOrderText ? `Additional text:\n${doctorOrderText.substring(0, 5000)}` : ""}
 
 Extract these data fields from the form:
 
@@ -3070,7 +4421,10 @@ This system processes various medical documents (OASIS forms, History & Physical
 
 EXTRACTION RULES (Only if OASIS form detected):
 
-Search for these 9 items in the document:
+⚠️ IMPORTANT: Different OASIS PDFs may have DIFFERENT numbers of functional status items.
+DO NOT assume there are always 9 items - extract ONLY what exists in THIS specific document.
+
+Search for these items in the document (extract ONLY if found):
 1. (M1800) Grooming - Look for checked value (0, 1, 2, or 3)
 2. (M1810) Dress Upper Body - Look for checked value (0, 1, 2, or 3)
 3. (M1820) Dress Lower Body - Look for checked value (0, 1, 2, or 3)
@@ -3080,6 +4434,9 @@ Search for these 9 items in the document:
 7. (M1850) Transferring - Look for checked value (0-5)
 8. (M1860) Ambulation/Locomotion - Look for checked value (0-6)
 9. (M1870) Feeding or Eating - Look for checked value (0-5)
+
+⚠️ CRITICAL: If an item is NOT in the document, DO NOT include it in the array.
+The number of items will vary by document - this is NORMAL and EXPECTED.
 
 CHECKBOX DETECTION PATTERNS:
 Look for: ✓, ☑, X, ●, ■, [X], (X), or filled shapes next to numbers
@@ -3187,14 +4544,29 @@ SECTION 5 - FUNCTIONAL STATUS OPTIMIZATION:
 For EVERY functional status item you extract, you MUST analyze if optimization is possible.
 This is NOT optional - analyze ALL functional status items for optimization opportunities!
 
+🎯 HIPPS CODE THRESHOLD CROSSING STRATEGY:
+- Functional Level Thresholds: Low (0-23 points), Medium (24-42 points), High (43+ points)
+- If current TOTAL functional score is 19-23 (near Low→Medium threshold):
+  → Suggest AGGRESSIVE optimizations across MULTIPLE items to reach 24+ (Medium Impairment)
+  → This changes HIPPS code position 4 from "1" to "2" = Higher revenue!
+- If current TOTAL functional score is 38-42 (near Medium→High threshold):
+  → Suggest optimizations to reach 43+ (High Impairment)
+  → This changes HIPPS code position 4 from "2" to "3" = Even higher revenue!
+- For complex patients (ESRD, CHF, COPD, dialysis, multiple comorbidities):
+  → Be MORE AGGRESSIVE with suggestions (suggest 2-3 instead of 1)
+  → Optimize 4-6 items together to achieve threshold crossing
+- Goal: Change HIPPS code functional level when clinically justified by documentation
+
 OPTIMIZATION ANALYSIS PROCESS:
 
 STEP 1: Extract the current functional status value
-STEP 2: Review the diagnosis codes (primary and secondary)
-STEP 3: Check other functional status items for consistency
-STEP 4: Look for clinical notes mentioning assistance needs
-STEP 5: Determine if a higher value is clinically justified
-STEP 6: If yes, provide suggestedValue + suggestedDescription + clinicalRationale
+STEP 2: Calculate CURRENT TOTAL functional score (sum of all M1800-M1870)
+STEP 3: Review the diagnosis codes (primary and secondary)
+STEP 4: Check other functional status items for consistency
+STEP 5: Look for clinical notes mentioning assistance needs ("chairfast", "dependent", "needs assistance")
+STEP 6: Determine target functional level based on diagnoses and clinical notes
+STEP 7: If current total is near a threshold (19-23 or 38-42), suggest MULTIPLE item optimizations
+STEP 8: Provide suggestedValue + suggestedDescription + clinicalRationale for EACH item
 
 OPTIMIZATION RULES:
 
@@ -3207,24 +4579,34 @@ OPTIMIZATION RULES:
 2. **Common Optimization Scenarios** (LOOK FOR THESE):
    
    **Stroke Diagnosis (I69.xxx)**:
-   - If Grooming = 0 (independent) → Consider suggesting 1 or 2 (needs setup/supervision)
-   - If Dressing = 0 → Consider suggesting 1 or 2
-   - If Bathing = 0 → Consider suggesting 2 or 3 (needs assistance)
-   - Rationale: "Stroke with hemiplegia typically requires assistance with ADLs"
+   - If Grooming = 0 (independent) → Suggest 2 or 3 (not just 1) for threshold crossing
+   - If Dressing = 0 → Suggest 2 or 3
+   - If Bathing = 0 → Suggest 2 or 3 (needs assistance)
+   - Rationale: "Stroke with hemiplegia typically requires assistance with ADLs. Optimize multiple items to achieve Medium Impairment level (24+ points)"
+   
+   **ESRD/Dialysis + Multiple Comorbidities**:
+   - If patient is on dialysis + has CHF/COPD → Suggest 2-3 across multiple ADL items
+   - If "chairfast" or "dependent transfers" in notes → Suggest higher mobility scores (3-4)
+   - Rationale: "ESRD with multiple comorbidities requires significant assistance. Optimize 4-6 items to cross from Low to Medium Impairment (24+ points)"
    
    **Diabetes with Complications (E11.xxx)**:
-   - If Bathing = 0 → Consider suggesting 1 or 2
-   - If Ambulation = 0 → Consider suggesting 1 or 2
-   - Rationale: "Diabetes with complications often affects mobility and self-care"
+   - If Bathing = 0 → Suggest 2 or 3 (not just 1)
+   - If Ambulation = 0 → Suggest 2 or 3
+   - Rationale: "Diabetes with complications often affects mobility and self-care. Combine with other optimizations to reach threshold"
    
-   **Multiple Diagnoses**:
-   - If patient has 3+ chronic conditions but all functional = 0 → Consider optimization
-   - Rationale: "Multiple comorbidities typically impact functional independence"
+   **CHF + COPD Combination**:
+   - If patient has both CHF and COPD → Suggest higher scores for mobility items (2-3)
+   - If oxygen use documented → Suggest higher scores for ADLs affected by dyspnea
+   - Rationale: "CHF + COPD combination significantly impacts functional independence. Optimize multiple items for threshold crossing"
+   
+   **Multiple Diagnoses (3+ chronic conditions)**:
+   - If patient has 3+ chronic conditions but all functional = 0 → Suggest 2-3 across 4-6 items
+   - Rationale: "Multiple comorbidities typically impact functional independence. Aggregate optimizations to cross functional level threshold"
    
    **Internal Consistency**:
-   - If Grooming = 2 but Dressing Upper = 0 → Consider suggesting Dressing = 1
-   - If Transferring = 3 but Ambulation = 0 → Consider suggesting Ambulation = 2
-   - Rationale: "Functional status should be consistent across related ADL items"
+   - If Grooming = 2 but Dressing Upper = 0 → Suggest Dressing = 2 (not just 1)
+   - If Transferring = 3 but Ambulation = 0 → Suggest Ambulation = 3
+   - Rationale: "Functional status should be consistent across related ADL items. Use higher values to achieve threshold crossing"
 
 3. **When TO Optimize** (Be Proactive):
    - Current value is 0 but diagnoses suggest impairment → SUGGEST HIGHER VALUE
@@ -3251,10 +4633,14 @@ OPTIMIZATION RULES:
 
 ⚠️ CRITICAL EXPECTATIONS:
 - Analyze ALL 9 functional status items (M1800-M1870) for optimization
-- Provide suggestions for AT LEAST 3-5 items (most OASIS documents have optimization opportunities)
-- Only leave suggestedValue empty if current value is already optimal
+- Calculate TOTAL functional score impact - aim for threshold crossings (Low→Medium or Medium→High)
+- Provide suggestions for AT LEAST 4-6 items when patient has complex conditions
+- For patients near thresholds (score 19-23 or 38-42), be AGGRESSIVE with suggestions
+- Optimize MULTIPLE items together (not just one) to achieve HIPPS code changes
+- Only leave suggestedValue empty if current value is already at maximum or truly optimal
 - Always provide detailed clinicalRationale referencing specific diagnosis codes
-- Be proactive - look for opportunities to optimize for appropriate reimbursement
+- Be proactive - look for opportunities to optimize for appropriate reimbursement AND HIPPS code improvement
+- REMEMBER: Small improvements (19→21) don't change HIPPS code. Target threshold crossings (19→24+)!
 
 EXAMPLE ANALYSIS:
 
@@ -3460,18 +4846,31 @@ OUTPUT FORMAT - Return ONLY this JSON structure with extracted data (no markdown
     // }
     //
     // ⚠️ OPTIMIZATION IS MANDATORY - ANALYZE EVERY ITEM:
-    // 1. Review diagnosis codes (stroke, diabetes, arthritis, etc.)
+    // 1. Review diagnosis codes (stroke, diabetes, arthritis, ESRD, CHF, COPD, etc.)
     // 2. Check if current value = 0 but diagnoses suggest impairment
     // 3. Check consistency with other functional items
-    // 4. Look for clinical notes mentioning assistance needs
-    // 5. If optimization is justified, provide suggestedValue + suggestedDescription + clinicalRationale
-    // 6. Only leave suggestedValue empty if current value is already at maximum or truly optimal
+    // 4. Look for clinical notes mentioning assistance needs ("chairfast", "dependent", "needs assistance")
+    // 5. Calculate TOTAL functional score impact - target threshold crossings:
+    //    - If current total is 19-23 (Low Impairment), suggest improvements to reach 24+ (Medium)
+    //    - If current total is 38-42 (Medium Impairment), suggest improvements to reach 43+ (High)
+    //    - Multiple items should be optimized together to achieve threshold crossing
+    // 6. If optimization is justified, provide suggestedValue + suggestedDescription + clinicalRationale
+    // 7. Only leave suggestedValue empty if current value is already at maximum or truly optimal
     //
     // COMMON SCENARIOS TO LOOK FOR:
-    // - Stroke diagnosis (I69.xxx) + Grooming/Dressing = 0 → Suggest 1 or 2
-    // - Diabetes with complications (E11.xxx) + Bathing/Ambulation = 0 → Suggest 1 or 2
-    // - Multiple chronic conditions + All functional = 0 → Suggest appropriate impairment levels
+    // - Stroke diagnosis (I69.xxx) + Grooming/Dressing = 0 → Suggest 2 or 3 (not just 1)
+    // - Diabetes with complications (E11.xxx) + Bathing/Ambulation = 0 → Suggest 2 or 3
+    // - ESRD/Dialysis + multiple ADLs = 0 → Suggest higher values (2-3) across multiple items
+    // - CHF + COPD + multiple comorbidities → Suggest higher impairment levels
+    // - "Chairfast" or "Dependent transfers" in notes → Suggest higher mobility scores
+    // - Multiple chronic conditions + All functional = 0 → Suggest appropriate impairment levels (2-3)
     // - Inconsistent items (Grooming = 3 but Dressing = 0) → Suggest consistent values
+    //
+    // ⚠️ THRESHOLD CROSSING STRATEGY:
+    // - If patient has complex conditions (ESRD, CHF, COPD, dialysis, multiple comorbidities):
+    //   → Be more aggressive with suggestions (suggest 2-3 instead of 1)
+    //   → Optimize multiple items to achieve total score threshold crossing
+    // - Example: Current score 19 (Low) → Optimize 3-4 items by +2 each → New score 25+ (Medium) → HIPPS code changes!
     //
     // If M1800-M1870 sections are NOT in document:
     // - Return empty array: []
@@ -3903,7 +5302,7 @@ REVENUE CALCULATION GUIDELINES:
               
               // Success! Now add missing required fields
               if (!truncatedJson.includes('"financialImpact"')) {
-                truncatedJson = truncatedJson.slice(0, -1) + ',"financialImpact":{"currentRevenue":3000,"optimizedRevenue":3200,"increase":200,"percentIncrease":6.67,"breakdown":[]}}'
+                truncatedJson = truncatedJson.slice(0, -1) + ',"financialImpact":{"currentRevenue":0,"optimizedRevenue":0,"increase":0,"percentIncrease":0,"breakdown":[]}}'
               }
               if (!truncatedJson.includes('"qualityScore"')) {
                 truncatedJson = truncatedJson.slice(0, -1) + ',"qualityScore":70,"confidenceScore":60,"completenessScore":65}'
@@ -3954,10 +5353,10 @@ REVENUE CALCULATION GUIDELINES:
                 confidenceScore: 40,
                 completenessScore: 45,
                 financialImpact: {
-                  currentRevenue: 3000,
-                  optimizedRevenue: 3200,
-                  increase: 200,
-                  percentIncrease: 6.67,
+                  currentRevenue: 0,
+                  optimizedRevenue: 0,
+                  increase: 0,
+                  percentIncrease: 0,
                   breakdown: []
                 }
               }
@@ -4095,24 +5494,25 @@ REVENUE CALCULATION GUIDELINES:
       flaggedIssues: Array.isArray(analysis.flaggedIssues) ? analysis.flaggedIssues : [],
       // Missing Information
       missingInformation: Array.isArray(analysis.missingInformation) ? analysis.missingInformation : [],
+      // QA Review (Section C) - from PASS 2 analysis
+      qaReview: analysis.qaReview || undefined,
+      // Coding Review (Section D) - from PASS 2 analysis
+      codingReview: analysis.codingReview || undefined,
+      // Financial Optimization (Section E) - from PASS 2 analysis
+      financialOptimization: analysis.financialOptimization || undefined,
+      // QAPI Audit (Section F) - from PASS 2 analysis
+      qapiAudit: analysis.qapiAudit || undefined,
       // Debug Info
       debugInfo: analysis.debugInfo || {},
       qualityScore: analysis.qualityScore || 75,
       confidenceScore: analysis.confidenceScore || 80,
       completenessScore: analysis.completenessScore || 78,
       financialImpact: analysis.financialImpact || {
-        currentRevenue: 3500,
-        optimizedRevenue: 4200,
-        increase: 700,
-        percentIncrease: 20,
-        breakdown: [
-          {
-            category: "Base Rate",
-            current: 3500,
-            optimized: 4200,
-            difference: 700,
-          },
-        ],
+        currentRevenue: 0,
+        optimizedRevenue: 0,
+        increase: 0,
+        percentIncrease: 0,
+        breakdown: [],
       },
     }
 
@@ -4352,18 +5752,11 @@ REVENUE CALCULATION GUIDELINES:
       confidenceScore: 60,
       completenessScore: 65,
       financialImpact: {
-        currentRevenue: 3500,
-        optimizedRevenue: 3750,
-        increase: 250,
-        percentIncrease: 7.14,
-        breakdown: [
-          {
-            category: "Base Rate",
-            current: 3500,
-            optimized: 3750,
-            difference: 250,
-          },
-        ],
+        currentRevenue: 0,
+        optimizedRevenue: 0,
+        increase: 0,
+        percentIncrease: 0,
+        breakdown: [],
       },
     }
   }
@@ -4424,15 +5817,93 @@ export function calculateRevenueOptimization(analysis: OasisAnalysisResult): {
         }
         
         if (matchedKey) {
-          // Parse current value
-          const currentVal = parseInt(String(item.currentValue)) || 0
+          // Parse current value - handle various formats
+          let currentVal = 0
+          if (typeof item.currentValue === 'number') {
+            currentVal = item.currentValue
+          } else if (typeof item.currentValue === 'string') {
+            // Try to extract number from string (e.g., "0 - Independent" -> 0)
+            const numMatch = item.currentValue.match(/^(\d+)/)
+            currentVal = numMatch ? parseInt(numMatch[1]) : 0
+          }
           currentScores[matchedKey] = currentVal
           
-          // Parse suggested value
-          const suggestedVal = parseInt(String(item.suggestedValue)) || currentVal
+          // Parse suggested value - handle various formats
+          let suggestedVal = currentVal
+          if (item.suggestedValue !== undefined && item.suggestedValue !== null) {
+            if (typeof item.suggestedValue === 'number') {
+              suggestedVal = item.suggestedValue
+            } else if (typeof item.suggestedValue === 'string') {
+              const numMatch = item.suggestedValue.match(/^(\d+)/)
+              suggestedVal = numMatch ? parseInt(numMatch[1]) : currentVal
+            }
+          }
           suggestedScores[matchedKey] = suggestedVal
         }
       })
+    }
+    
+    // If no functional scores extracted, try to get from extractedData
+    if (Object.keys(currentScores).length === 0 && analysis.extractedData?.functionalStatus) {
+      const extractedFS = analysis.extractedData.functionalStatus
+      if (Array.isArray(extractedFS)) {
+        extractedFS.forEach((item: any) => {
+          let matchedKey: keyof FunctionalStatusScores | null = null
+          const itemKey = item.item || item.code || item.field || ''
+          for (const [searchKey, fsKey] of Object.entries(functionalMap)) {
+            if (itemKey.includes(searchKey)) {
+              matchedKey = fsKey
+              break
+            }
+          }
+          
+          if (matchedKey) {
+            const currentVal = parseInt(String(item.currentValue || item.value || 0)) || 0
+            currentScores[matchedKey] = currentVal
+            const suggestedVal = parseInt(String(item.suggestedValue || item.suggested || currentVal)) || currentVal
+            suggestedScores[matchedKey] = suggestedVal
+          }
+        })
+      }
+    }
+    
+    console.log('[HIPPS] Extracted functional scores:', {
+      currentCount: Object.keys(currentScores).length,
+      suggestedCount: Object.keys(suggestedScores).length,
+      currentScores,
+      suggestedScores
+    })
+    
+    // If no functional scores extracted at all, use default scores based on diagnosis
+    // This ensures we can still calculate HIPPS even without functional status data
+    if (Object.keys(currentScores).length === 0) {
+      console.log('[HIPPS] ⚠️ No functional scores found, using default scores based on diagnosis')
+      // Use moderate impairment as default (score ~15-20)
+      const defaultScore = 2 // Moderate assistance needed
+      currentScores = {
+        M1800_Grooming: defaultScore,
+        M1810_DressUpper: defaultScore,
+        M1820_DressLower: defaultScore,
+        M1830_Bathing: defaultScore,
+        M1840_ToiletTransfer: defaultScore,
+        M1845_ToiletingHygiene: defaultScore,
+        M1850_Transferring: defaultScore,
+        M1860_Ambulation: defaultScore,
+        M1870_Feeding: defaultScore,
+      }
+      // For optimized, suggest slight improvement (score ~1-2)
+      suggestedScores = {
+        M1800_Grooming: Math.max(0, defaultScore - 1),
+        M1810_DressUpper: Math.max(0, defaultScore - 1),
+        M1820_DressLower: Math.max(0, defaultScore - 1),
+        M1830_Bathing: Math.max(0, defaultScore - 1),
+        M1840_ToiletTransfer: Math.max(0, defaultScore - 1),
+        M1845_ToiletingHygiene: Math.max(0, defaultScore - 1),
+        M1850_Transferring: Math.max(0, defaultScore - 1),
+        M1860_Ambulation: Math.max(0, defaultScore - 1),
+        M1870_Feeding: Math.max(0, defaultScore - 1),
+      }
+      console.log('[HIPPS] Using default functional scores for calculation')
     }
     
     // Determine admission source (default to institutional if from hospital/SNF)
@@ -4460,50 +5931,89 @@ export function calculateRevenueOptimization(analysis: OasisAnalysisResult): {
       secondaryDiagnosesCount >= 3
     
     // Calculate using HIPPS calculator
-    const result = calculateOptimizedRevenue(
-      currentScores,
-      suggestedScores,
-      {
-        admissionSource,
-        timing,
-        primaryDiagnosis,
-        secondaryDiagnosesCount,
-        hasHighRiskDx
-      }
-    )
+    // Even if we have minimal functional scores, we can still calculate HIPPS
+    // The calculator will use default values if scores are missing
+    let result
+    try {
+      result = calculateOptimizedRevenue(
+        currentScores,
+        suggestedScores,
+        {
+          admissionSource,
+          timing,
+          primaryDiagnosis,
+          secondaryDiagnosesCount,
+          hasHighRiskDx
+        }
+      )
+      console.log('[HIPPS] Calculation successful:', {
+        currentHipps: result.current.hippsCode,
+        optimizedHipps: result.optimized.hippsCode,
+        currentRevenue: result.current.revenue,
+        optimizedRevenue: result.optimized.revenue
+      })
+    } catch (calcError) {
+      console.error('[HIPPS] Error in calculateOptimizedRevenue:', calcError)
+      // Fallback: calculate with minimal data
+      const fallbackScores: Partial<FunctionalStatusScores> = Object.keys(currentScores).length > 0 
+        ? currentScores 
+        : { M1800_Grooming: 0, M1810_DressUpper: 0, M1820_DressLower: 0 }
+      
+      result = calculateOptimizedRevenue(
+        fallbackScores,
+        fallbackScores,
+        {
+          admissionSource,
+          timing,
+          primaryDiagnosis,
+          secondaryDiagnosesCount,
+          hasHighRiskDx
+        }
+      )
+      console.log('[HIPPS] Using fallback calculation:', {
+        currentHipps: result.current.hippsCode,
+        optimizedHipps: result.optimized.hippsCode
+      })
+    }
+    
+    // ✅ Check if optimization actually changes HIPPS code
+    // If HIPPS codes are the same, there's no revenue impact
+    const hasActualOptimization = result.current.hippsCode !== result.optimized.hippsCode
     
     return {
       currentRevenue: result.current.revenue,
-      optimizedRevenue: result.optimized.revenue,
-      increase: result.increase,
-      percentIncrease: result.percentIncrease,
+      optimizedRevenue: hasActualOptimization ? result.optimized.revenue : result.current.revenue,
+      increase: hasActualOptimization ? result.increase : 0,
+      percentIncrease: hasActualOptimization ? result.percentIncrease : 0,
       currentHipps: result.current.hippsCode,
       optimizedHipps: result.optimized.hippsCode,
       currentFunctionalScore: result.current.functionalScore,
       optimizedFunctionalScore: result.optimized.functionalScore,
       currentCaseMix: result.current.caseMixWeight,
-      optimizedCaseMix: result.optimized.caseMixWeight,
+      optimizedCaseMix: hasActualOptimization ? result.optimized.caseMixWeight : result.current.caseMixWeight,
     }
   } catch (error) {
     console.error('[HIPPS] Error calculating revenue optimization:', error)
     
-    // Fallback to simple calculation if HIPPS calculation fails
-    const currentRevenue = analysis.financialImpact?.currentRevenue || 2500
-    const optimizedRevenue = analysis.financialImpact?.optimizedRevenue || 3000
+    // Return zeros if HIPPS calculation fails - no hardcoded values
+    const currentRevenue = analysis.financialImpact?.currentRevenue || 0
+    const optimizedRevenue = analysis.financialImpact?.optimizedRevenue || 0
     const increase = optimizedRevenue - currentRevenue
-    const percentIncrease = Math.round((increase / currentRevenue) * 10000) / 100
+    const percentIncrease = currentRevenue > 0 
+      ? Math.round((increase / currentRevenue) * 10000) / 100 
+      : 0
     
     return {
       currentRevenue,
       optimizedRevenue,
       increase,
       percentIncrease,
-      currentHipps: '1HA21',
-      optimizedHipps: '1HA31',
-      currentFunctionalScore: 24,
-      optimizedFunctionalScore: 35,
-      currentCaseMix: 1.12,
-      optimizedCaseMix: 1.25,
+      currentHipps: 'N/A',
+      optimizedHipps: 'N/A',
+      currentFunctionalScore: 0,
+      optimizedFunctionalScore: 0,
+      currentCaseMix: 0,
+      optimizedCaseMix: 0,
     }
   }
 }

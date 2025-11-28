@@ -69,6 +69,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         status: ptVisit.status,
         processedAt: ptVisit.processed_at,
         extractedText: ptVisit.extracted_text,
+        uploadType: ptVisit.upload_type || 'comprehensive-qa',
+        priority: ptVisit.priority || 'medium',
+        notes: ptVisit.notes || '',
       },
       analysis: qaAnalysis ? {
         qualityScore: qaAnalysis.quality_score,
@@ -76,17 +79,27 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         completenessScore: qaAnalysis.completeness_score,
         accuracyScore: qaAnalysis.accuracy_score,
         confidenceScore: qaAnalysis.confidence_score,
-        findings: Array.isArray(qaAnalysis.findings) ? qaAnalysis.findings : (qaAnalysis.findings?.flaggedIssues || []),
-        recommendations: qaAnalysis.recommendations,
-        missingElements: qaAnalysis.missing_elements,
-        codingSuggestions: qaAnalysis.coding_suggestions,
-        revenueImpact: qaAnalysis.revenue_impact,
-        regulatoryIssues: qaAnalysis.regulatory_issues,
-        documentationGaps: qaAnalysis.documentation_gaps,
+        // Extract all findings data - this contains the full comprehensive analysis
+        findings: qaAnalysis.findings?.flaggedIssues || (Array.isArray(qaAnalysis.findings) ? qaAnalysis.findings : []),
+        // All comprehensive analysis sections
+        diagnoses: qaAnalysis.findings?.diagnoses || [],
+        suggestedCodes: qaAnalysis.coding_suggestions || qaAnalysis.findings?.suggestedCodes || [],
+        corrections: qaAnalysis.findings?.corrections || [],
+        flaggedIssues: qaAnalysis.findings?.flaggedIssues || [],
+        riskFactors: qaAnalysis.findings?.riskFactors || [],
+        recommendations: qaAnalysis.recommendations || qaAnalysis.findings?.recommendations || [],
+        missingElements: qaAnalysis.missing_elements || qaAnalysis.findings?.missingElements || [],
+        regulatoryIssues: qaAnalysis.regulatory_issues || qaAnalysis.findings?.regulatoryIssues || [],
+        documentationGaps: qaAnalysis.documentation_gaps || qaAnalysis.findings?.documentationGaps || [],
+        financialImpact: qaAnalysis.revenue_impact || qaAnalysis.findings?.financialImpact || null,
+        // PT-specific extracted data
         extractedPTData: qaAnalysis.findings?.extractedPTData || null,
         ptOptimizations: qaAnalysis.findings?.ptOptimizations || null,
+        // Processing metadata
         analyzedAt: qaAnalysis.analyzed_at,
         processingTime: qaAnalysis.findings?.processingTime || null,
+        // Full findings object for complete access
+        fullFindings: qaAnalysis.findings || null,
       } : null,
     }
 

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +39,7 @@ interface PatientQARecord {
   patientName: string
   mrn: string
   axxessId: string
+  chartId?: string
   lastQADate: string
   overallScore: number
   complianceScore: number
@@ -94,125 +95,75 @@ export default function ComprehensiveChartQA() {
   const [riskFilter, setRiskFilter] = useState("all")
   const [selectedPatient, setSelectedPatient] = useState<PatientQARecord | null>(null)
   const [showAnalysisModal, setShowAnalysisModal] = useState(false)
+  const [chartAnalysisData, setChartAnalysisData] = useState<any>(null)
+  const [isLoadingChartData, setIsLoadingChartData] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [lastAxxessSync, setLastAxxessSync] = useState<string | null>(null)
 
-  // Mock patient QA records
-  const [patientQARecords, setPatientQARecords] = useState<PatientQARecord[]>([
-    {
-      id: "PT-2024-001",
-      patientName: "Anderson, Margaret",
-      mrn: "MRN2024-7891",
-      axxessId: "AX-12345",
-      lastQADate: "2024-01-16",
-      overallScore: 89,
-      complianceScore: 87,
-      riskLevel: "medium",
-      status: "completed",
-      assignedStaff: "Dr. Sarah Johnson, MD",
-      documentTypes: {
-        oasis: { score: 94, status: "complete", issues: 1 },
-        clinicalNotes: { score: 89, status: "complete", issues: 2 },
-        medicationRecords: { score: 76, status: "incomplete", issues: 2 },
-        carePlan: { score: 91, status: "complete", issues: 1 },
-        physicianOrders: { score: 97, status: "complete", issues: 0 },
-        progressNotes: { score: 85, status: "complete", issues: 1 },
-        assessments: { score: 92, status: "complete", issues: 1 },
-        labResults: { score: 88, status: "complete", issues: 1 },
-        insuranceAuth: { score: 95, status: "complete", issues: 0 },
-      },
-      totalIssues: 9,
-      criticalIssues: 0,
-      financialImpact: 1247.5,
-      nextReviewDate: "2024-02-16",
-      axxessLastSync: "2024-01-16 14:30:00",
-    },
-    {
-      id: "PT-2024-002",
-      patientName: "Thompson, Robert",
-      mrn: "MRN2024-7892",
-      axxessId: "AX-12346",
-      lastQADate: "2024-01-15",
-      overallScore: 92,
-      complianceScore: 94,
-      riskLevel: "low",
-      status: "completed",
-      assignedStaff: "Michael Chen, PT",
-      documentTypes: {
-        oasis: { score: 96, status: "complete", issues: 0 },
-        clinicalNotes: { score: 94, status: "complete", issues: 1 },
-        medicationRecords: { score: 89, status: "complete", issues: 1 },
-        carePlan: { score: 93, status: "complete", issues: 0 },
-        physicianOrders: { score: 98, status: "complete", issues: 0 },
-        progressNotes: { score: 91, status: "complete", issues: 1 },
-        assessments: { score: 95, status: "complete", issues: 0 },
-        labResults: { score: 92, status: "complete", issues: 0 },
-        insuranceAuth: { score: 97, status: "complete", issues: 0 },
-      },
-      totalIssues: 3,
-      criticalIssues: 0,
-      financialImpact: 325.0,
-      nextReviewDate: "2024-02-15",
-      axxessLastSync: "2024-01-15 16:45:00",
-    },
-    {
-      id: "PT-2024-003",
-      patientName: "Williams, Dorothy",
-      mrn: "MRN2024-7893",
-      axxessId: "AX-12347",
-      lastQADate: "2024-01-14",
-      overallScore: 78,
-      complianceScore: 82,
-      riskLevel: "high",
-      status: "requires_review",
-      assignedStaff: "Emily Davis, OT",
-      documentTypes: {
-        oasis: { score: 85, status: "complete", issues: 2 },
-        clinicalNotes: { score: 72, status: "incomplete", issues: 4 },
-        medicationRecords: { score: 68, status: "incomplete", issues: 3 },
-        carePlan: { score: 81, status: "complete", issues: 2 },
-        physicianOrders: { score: 92, status: "complete", issues: 1 },
-        progressNotes: { score: 74, status: "incomplete", issues: 3 },
-        assessments: { score: 79, status: "complete", issues: 2 },
-        labResults: { score: 83, status: "complete", issues: 1 },
-        insuranceAuth: { score: 88, status: "complete", issues: 1 },
-      },
-      totalIssues: 19,
-      criticalIssues: 2,
-      financialImpact: 2850.0,
-      nextReviewDate: "2024-01-17",
-      axxessLastSync: "2024-01-14 11:20:00",
-    },
-    {
-      id: "PT-2024-004",
-      patientName: "Rodriguez, James",
-      mrn: "MRN2024-7894",
-      axxessId: "AX-12348",
-      lastQADate: "2024-01-13",
-      overallScore: 95,
-      complianceScore: 96,
-      riskLevel: "low",
-      status: "completed",
-      assignedStaff: "Lisa Park, RN",
-      documentTypes: {
-        oasis: { score: 98, status: "complete", issues: 0 },
-        clinicalNotes: { score: 96, status: "complete", issues: 0 },
-        medicationRecords: { score: 94, status: "complete", issues: 1 },
-        carePlan: { score: 97, status: "complete", issues: 0 },
-        physicianOrders: { score: 99, status: "complete", issues: 0 },
-        progressNotes: { score: 93, status: "complete", issues: 1 },
-        assessments: { score: 96, status: "complete", issues: 0 },
-        labResults: { score: 95, status: "complete", issues: 0 },
-        insuranceAuth: { score: 98, status: "complete", issues: 0 },
-      },
-      totalIssues: 2,
-      criticalIssues: 0,
-      financialImpact: 150.0,
-      nextReviewDate: "2024-02-13",
-      axxessLastSync: "2024-01-13 09:15:00",
-    },
-  ])
+  // Patient QA records from database
+  const [patientQARecords, setPatientQARecords] = useState<PatientQARecord[]>([])
+
+  // Fetch patient records from database on mount
+  useEffect(() => {
+    fetchPatientRecords()
+  }, [])
+
+  const fetchPatientRecords = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch("/api/comprehensive-qa/patients")
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          setPatientQARecords(result.data)
+          console.log("[Comprehensive QA] Loaded", result.data.length, "patient records from database")
+        }
+      }
+    } catch (error) {
+      console.error("[Comprehensive QA] Error fetching patient records:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const fetchChartAnalysisData = async (chartId: string) => {
+    if (!chartId) return
+    
+    setIsLoadingChartData(true)
+    try {
+      const response = await fetch(`/api/comprehensive-qa/chart/${chartId}`)
+      if (response.ok) {
+        const result = await response.json()
+        if (result.success && result.data) {
+          setChartAnalysisData(result.data)
+          console.log("[Comprehensive QA] Loaded chart analysis data for:", chartId)
+        } else {
+          console.warn("[Comprehensive QA] No chart data found for:", chartId)
+          setChartAnalysisData(null)
+        }
+      } else {
+        console.error("[Comprehensive QA] Failed to fetch chart data:", response.statusText)
+        setChartAnalysisData(null)
+      }
+    } catch (error) {
+      console.error("[Comprehensive QA] Error fetching chart data:", error)
+      setChartAnalysisData(null)
+    } finally {
+      setIsLoadingChartData(false)
+    }
+  }
+
+  // Fetch chart data when modal opens
+  useEffect(() => {
+    if (showAnalysisModal && selectedPatient) {
+      const chartId = (selectedPatient as any)?.chartId || selectedPatient?.axxessId
+      if (chartId) {
+        fetchChartAnalysisData(chartId)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAnalysisModal, selectedPatient])
 
   // Sync with Axxess to get complete chart data
   const syncWithAxxess = async (patientId?: string) => {
@@ -307,12 +258,16 @@ export default function ComprehensiveChartQA() {
   const runQAAnalysis = async (patientId: string) => {
     setIsLoading(true)
     try {
+      // Find the patient record to get chartId
+      const patient = patientQARecords.find((p) => p.id === patientId)
+      const chartId = (patient as any)?.chartId || patient?.axxessId || `CHART-${patientId}`
+
       const response = await fetch("/api/comprehensive-qa/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           patientId,
-          chartId: `CHART-${patientId}`,
+          chartId,
           documentTypes: [
             "oasis",
             "clinicalNotes",
@@ -352,6 +307,9 @@ export default function ComprehensiveChartQA() {
                 : p,
             ),
           )
+          
+          // Refresh patient records to get updated data
+          await fetchPatientRecords()
         }
       }
     } catch (error) {
@@ -451,6 +409,16 @@ export default function ComprehensiveChartQA() {
               </div>
             </div>
             <div className="flex items-center space-x-3">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fetchPatientRecords()}
+                disabled={isLoading}
+                className="bg-green-50 border-green-200 text-green-700"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+                {isLoading ? "Loading..." : "Refresh"}
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -1046,86 +1014,173 @@ export default function ComprehensiveChartQA() {
                 <FileText className="h-5 w-5 mr-2" />
                 {selectedPatient.patientName} - Chart QA Analysis
               </DialogTitle>
-              <DialogDescription>Comprehensive quality assessment with Axxess integration</DialogDescription>
+              <DialogDescription>
+                Comprehensive quality assessment for Chart ID: {(selectedPatient as any)?.chartId || selectedPatient.axxessId}
+              </DialogDescription>
             </DialogHeader>
 
-            <div className="space-y-6">
-              {/* Patient Overview */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="text-center p-3 bg-blue-50 rounded">
-                  <div className={`text-xl font-bold ${getScoreColor(selectedPatient.overallScore)}`}>
-                    {selectedPatient.overallScore}%
-                  </div>
-                  <p className="text-xs text-blue-700">Overall Score</p>
-                </div>
-                <div className="text-center p-3 bg-green-50 rounded">
-                  <div className={`text-xl font-bold ${getScoreColor(selectedPatient.complianceScore)}`}>
-                    {selectedPatient.complianceScore}%
-                  </div>
-                  <p className="text-xs text-green-700">Compliance</p>
-                </div>
-                <div className="text-center p-3 bg-red-50 rounded">
-                  <div className="text-xl font-bold text-red-600">{selectedPatient.totalIssues}</div>
-                  <p className="text-xs text-red-700">Total Issues</p>
-                </div>
-                <div className="text-center p-3 bg-purple-50 rounded">
-                  <div className="text-xl font-bold text-purple-600">${selectedPatient.financialImpact.toFixed(0)}</div>
-                  <p className="text-xs text-purple-700">Financial Impact</p>
-                </div>
+            {isLoadingChartData ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-8 w-8 animate-spin text-blue-600 mr-3" />
+                <p className="text-lg text-gray-600">Loading chart analysis data...</p>
               </div>
-
-              {/* Document Types Analysis */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Document Analysis (Axxess Integrated)</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {Object.entries(selectedPatient.documentTypes).map(([key, doc]) => (
-                      <div key={key} className="p-3 border rounded">
-                        <div className="flex items-center justify-between mb-2">
-                          <h4 className="font-medium text-sm">{key.replace(/([A-Z])/g, " $1").trim()}</h4>
-                          <Badge className={getStatusColor(doc.status)}>{doc.status}</Badge>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-xs">
-                            <span>Score:</span>
-                            <span className={`font-bold ${getScoreColor(doc.score)}`}>{doc.score}%</span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span>Issues:</span>
-                            <span className={doc.issues > 0 ? "text-red-600" : "text-green-600"}>{doc.issues}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+            ) : chartAnalysisData ? (
+              <>
+                {console.log("[Comprehensive QA Modal] Chart data loaded:", {
+                  documentsCount: chartAnalysisData.documents?.length || 0,
+                  oasisCount: chartAnalysisData.oasisAssessments?.length || 0,
+                  documentTypes: chartAnalysisData.documentTypes
+                })}
+              <div className="space-y-6">
+                {/* Patient Overview */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="text-center p-3 bg-blue-50 rounded">
+                    <div className={`text-xl font-bold ${getScoreColor(chartAnalysisData.overallScore)}`}>
+                      {chartAnalysisData.overallScore}%
+                    </div>
+                    <p className="text-xs text-blue-700">Overall Score</p>
                   </div>
-                </CardContent>
-              </Card>
+                  <div className="text-center p-3 bg-green-50 rounded">
+                    <div className={`text-xl font-bold ${getScoreColor(chartAnalysisData.complianceScore)}`}>
+                      {chartAnalysisData.complianceScore}%
+                    </div>
+                    <p className="text-xs text-green-700">Compliance</p>
+                  </div>
+                  <div className="text-center p-3 bg-red-50 rounded">
+                    <div className="text-xl font-bold text-red-600">{chartAnalysisData.totalIssues}</div>
+                    <p className="text-xs text-red-700">Total Issues</p>
+                  </div>
+                  <div className="text-center p-3 bg-purple-50 rounded">
+                    <div className="text-xl font-bold text-purple-600">${chartAnalysisData.financialImpact.toFixed(0)}</div>
+                    <p className="text-xs text-purple-700">Financial Impact</p>
+                  </div>
+                </div>
 
-              {/* Actions */}
+                {/* Document Types Analysis */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Document Analysis (Chart ID: {chartAnalysisData.chartId})</CardTitle>
+                    <CardDescription>
+                      Documents grouped by chart_id from database
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {Object.entries(chartAnalysisData.documentTypes).map(([key, doc]: [string, any]) => (
+                        <div key={key} className="p-3 border rounded">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-medium text-sm">{key.replace(/([A-Z])/g, " $1").trim()}</h4>
+                            <Badge className={getStatusColor(doc.status)}>{doc.status}</Badge>
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs">
+                              <span>Score:</span>
+                              <span className={`font-bold ${getScoreColor(doc.score)}`}>{doc.score}%</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span>Issues:</span>
+                              <span className={doc.issues > 0 ? "text-red-600" : "text-green-600"}>{doc.issues}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Document List */}
+                {(chartAnalysisData.documents?.length > 0 || chartAnalysisData.oasisAssessments?.length > 0) && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg">Uploaded Documents</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {chartAnalysisData.oasisAssessments?.map((oasis: any, idx: number) => (
+                          <div key={`oasis-${idx}`} className="p-2 border rounded flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">{oasis.file_name}</p>
+                              <p className="text-xs text-gray-500">OASIS - {oasis.visit_type || 'Assessment'}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Badge variant={oasis.quality_score >= 80 ? "default" : "destructive"}>
+                                {oasis.quality_score || 0}%
+                              </Badge>
+                              <Badge variant="outline">
+                                {Array.isArray(oasis.flagged_issues) ? oasis.flagged_issues.length : 0} issues
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                        {chartAnalysisData.documents?.map((doc: any, idx: number) => (
+                          <div key={`doc-${idx}`} className="p-2 border rounded flex items-center justify-between">
+                            <div className="flex-1">
+                              <p className="font-medium text-sm">{doc.file_name}</p>
+                              <p className="text-xs text-gray-500">{doc.document_type?.replace('_', ' ') || 'Document'}</p>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Badge variant={doc.quality_score >= 80 ? "default" : "destructive"}>
+                                {doc.quality_score || 0}%
+                              </Badge>
+                              <Link href={`/${doc.document_type === 'physician_order' ? 'physician-order' : doc.document_type === 'poc' ? 'poc-qa' : doc.document_type === 'pt_note' ? 'pt-visit-qa' : 'oasis-qa'}/optimization/${doc.id}`}>
+                                <Button size="sm" variant="outline">
+                                  <Eye className="h-3 w-3 mr-1" />
+                                  View
+                                </Button>
+                              </Link>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+              </>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-600">No chart data found for this patient.</p>
+                <p className="text-sm text-gray-500 mt-2">Chart ID: {(selectedPatient as any)?.chartId || selectedPatient.axxessId}</p>
+              </div>
+            )}
+
+            {/* Actions */}
+            {chartAnalysisData && (
               <div className="flex space-x-2">
-                <Button onClick={() => runQAAnalysis(selectedPatient.id)} disabled={isLoading} className="flex-1">
-                  <Brain className="h-4 w-4 mr-2" />
-                  Re-run Analysis
+                <Button 
+                  onClick={() => {
+                    const chartId = (selectedPatient as any)?.chartId || selectedPatient?.axxessId
+                    if (chartId) {
+                      fetchChartAnalysisData(chartId)
+                    }
+                  }} 
+                  disabled={isLoadingChartData} 
+                  className="flex-1"
+                >
+                  <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingChartData ? "animate-spin" : ""}`} />
+                  Refresh Data
                 </Button>
                 <Button
-                  onClick={() => syncWithAxxess(selectedPatient.id)}
-                  disabled={isSyncing}
+                  onClick={() => {
+                    const chartId = (selectedPatient as any)?.chartId || selectedPatient?.axxessId
+                    if (chartId) {
+                      window.open(`/oasis-upload?chartId=${chartId}`, '_blank')
+                    }
+                  }}
                   variant="outline"
                   className="flex-1"
                 >
-                  <Database className="h-4 w-4 mr-2" />
-                  Sync Axxess
+                  <FileText className="h-4 w-4 mr-2" />
+                  View Upload Page
                 </Button>
-                <Link href={`/comprehensive-qa/${selectedPatient.id}`}>
+                <Link href={`/api/oasis-qa/qapi-report/${(selectedPatient as any)?.chartId || selectedPatient?.axxessId}`} target="_blank">
                   <Button variant="outline">
                     <ExternalLink className="h-4 w-4 mr-2" />
-                    Full Analysis
+                    QAPI Report
                   </Button>
                 </Link>
               </div>
-            </div>
+            )}
           </DialogContent>
         </Dialog>
       )}

@@ -260,3 +260,5 @@ SELECT extracted_data FROM oasis_assessments WHERE upload_id = ?
 
 **SYSTEM COMPLETE! Ang inconsistencies naa na sa extracted JSON data ug ma-display properly!** 🎉🚀
 
+
+

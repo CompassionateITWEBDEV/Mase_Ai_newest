@@ -34,6 +34,9 @@ interface PTVisitData {
     status: string
     processedAt: string
     extractedText: string
+    uploadType?: 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit'
+    priority?: 'low' | 'medium' | 'high' | 'urgent'
+    notes?: string
   }
   analysis: {
     qualityScore: number
@@ -42,11 +45,22 @@ interface PTVisitData {
     accuracyScore: number
     confidenceScore: number
     findings: any[]
+    flaggedIssues?: any[]
+    diagnoses?: any[]
+    suggestedCodes?: any[]
+    corrections?: any[]
+    riskFactors?: any[]
     recommendations: any[]
     missingElements: any[]
-    codingSuggestions: any[]
+    codingSuggestions?: any[]
     regulatoryIssues: any[]
     documentationGaps: any[]
+    financialImpact?: {
+      currentRevenue: number
+      optimizedRevenue: number
+      increase: number
+      breakdown: any[]
+    } | null
     analyzedAt: string
     extractedPTData?: any
     ptOptimizations?: any
@@ -56,7 +70,74 @@ interface PTVisitData {
       startTime: string
       endTime: string
     } | null
+    fullFindings?: any
   } | null
+}
+
+// Helper function to determine which sections to show based on QA Type
+const getPTVisitSectionVisibility = (qaType: string) => {
+  switch (qaType) {
+    case 'coding-review':
+      return {
+        qualityScores: false, // Hide - not coding focus
+        diagnoses: true, // ✅ PRIMARY FOCUS - ICD-10 codes
+        missingInformation: true, // Show - coding documentation gaps
+        inconsistencies: true, // Show - coding conflicts
+        documentationGaps: false, // Hide - not coding focus
+        recommendations: true, // Show - coding recommendations
+        riskFactors: false, // Hide - not coding focus
+        regulatoryIssues: false, // Hide - not coding focus
+        financialImpact: false, // Hide - not coding focus
+        extractedPTData: false, // Hide - not coding focus
+        ptOptimizations: false, // Hide - not coding focus
+      }
+    
+    case 'financial-optimization':
+      return {
+        qualityScores: true, // Show - overall quality
+        diagnoses: true, // Show - affects revenue
+        missingInformation: true, // Show - documentation affects revenue
+        inconsistencies: true, // Show - affects accuracy
+        documentationGaps: true, // ✅ PRIMARY FOCUS - revenue optimization
+        recommendations: true, // ✅ PRIMARY FOCUS - optimization recommendations
+        riskFactors: false, // Hide - not revenue focus
+        regulatoryIssues: false, // Hide - not revenue focus
+        financialImpact: true, // ✅ PRIMARY FOCUS - revenue metrics
+        extractedPTData: true, // Show - functional data affects revenue
+        ptOptimizations: true, // ✅ PRIMARY FOCUS - optimization suggestions
+      }
+    
+    case 'qapi-audit':
+      return {
+        qualityScores: true, // ✅ PRIMARY FOCUS - quality metrics
+        diagnoses: true, // Show - compliance check
+        missingInformation: true, // ✅ PRIMARY FOCUS - documentation completeness
+        inconsistencies: true, // ✅ PRIMARY FOCUS - data accuracy
+        documentationGaps: true, // ✅ PRIMARY FOCUS - compliance gaps
+        recommendations: true, // Show - improvement actions
+        riskFactors: true, // Show - safety and compliance
+        regulatoryIssues: true, // ✅ PRIMARY FOCUS - regulatory compliance
+        financialImpact: false, // Hide - not QAPI focus
+        extractedPTData: true, // Show - documentation completeness
+        ptOptimizations: false, // Hide - not QAPI focus
+      }
+    
+    case 'comprehensive-qa':
+    default:
+      return {
+        qualityScores: true, // Show everything
+        diagnoses: true,
+        missingInformation: true,
+        inconsistencies: true,
+        documentationGaps: true,
+        recommendations: true,
+        riskFactors: true,
+        regulatoryIssues: true,
+        financialImpact: true,
+        extractedPTData: true,
+        ptOptimizations: true,
+      }
+  }
 }
 
 export default function PTVisitOptimizationPage() {
@@ -172,6 +253,19 @@ export default function PTVisitOptimizationPage() {
                     )}
                   </span>
                 </div>
+              )}
+              {ptVisit.uploadType && (
+                <Badge className={`${
+                  ptVisit.uploadType === 'coding-review' ? 'bg-purple-500 hover:bg-purple-600' :
+                  ptVisit.uploadType === 'financial-optimization' ? 'bg-green-500 hover:bg-green-600' :
+                  ptVisit.uploadType === 'qapi-audit' ? 'bg-orange-500 hover:bg-orange-600' :
+                  'bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600'
+                } text-white px-4 py-2 text-base shadow-lg`}>
+                  {ptVisit.uploadType === 'coding-review' ? 'Coding Review' :
+                   ptVisit.uploadType === 'financial-optimization' ? 'Financial Optimization' :
+                   ptVisit.uploadType === 'qapi-audit' ? 'QAPI Audit' :
+                   'Comprehensive QA'}
+                </Badge>
               )}
             </div>
           </div>
@@ -319,8 +413,10 @@ export default function PTVisitOptimizationPage() {
         </Card>
 
         {/* Quality Scores - Enhanced with Progress Bars */}
-        {analysis && (
-          <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
+        {analysis && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').qualityScores && (
+          <Card className={`border-2 shadow-lg hover:shadow-xl transition-shadow ${
+            ptVisit.uploadType === 'qapi-audit' ? 'ring-4 ring-orange-400 ring-offset-2' : ''
+          }`}>
             <CardHeader className="bg-gradient-to-r from-indigo-50 to-purple-50 border-b">
               <CardTitle className="flex items-center gap-3 text-xl">
                 <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md">
@@ -375,10 +471,12 @@ export default function PTVisitOptimizationPage() {
         )}
 
       {/* AI Analysis & Optimization - Extracted Data with Optimization Suggestions */}
-      {analysis?.extractedPTData && (
+      {analysis?.extractedPTData && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').extractedPTData && (
         <>
           {/* Homebound Reasons - Enhanced */}
-          <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
+          <Card className={`border-2 shadow-lg hover:shadow-xl transition-shadow ${
+            ptVisit.uploadType === 'financial-optimization' ? 'ring-2 ring-green-300 ring-offset-1' : ''
+          }`}>
             <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b">
               <CardTitle className="flex items-center gap-3 text-xl">
                 <div className="h-10 w-10 rounded-lg bg-blue-600 flex items-center justify-center text-white shadow-md">
@@ -405,8 +503,10 @@ export default function PTVisitOptimizationPage() {
                     ))}
                   </div>
                 </div>
-                {analysis.ptOptimizations?.homeboundReasons && (
-                  <div className="p-5 rounded-xl border-2 border-green-200 bg-gradient-to-br from-green-50 to-emerald-100/50 shadow-md">
+                {analysis.ptOptimizations?.homeboundReasons && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').ptOptimizations && (
+                  <div className={`p-5 rounded-xl border-2 border-green-200 bg-gradient-to-br from-green-50 to-emerald-100/50 shadow-md ${
+                    ptVisit.uploadType === 'financial-optimization' ? 'ring-2 ring-green-400' : ''
+                  }`}>
                     <div className="flex items-center gap-2 mb-4">
                       <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center text-white">
                         <TrendingUp className="h-4 w-4" />
@@ -451,7 +551,7 @@ export default function PTVisitOptimizationPage() {
                     ))}
                   </div>
                 </div>
-                {analysis.ptOptimizations?.functionalLimitations && (
+                {analysis.ptOptimizations?.functionalLimitations && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').ptOptimizations && (
                   <div className="p-4 border rounded-lg bg-green-50">
                     <p className="font-medium mb-2 text-green-900">✨ AI Optimization Suggestions:</p>
                     <div className="space-y-1">
@@ -548,7 +648,7 @@ export default function PTVisitOptimizationPage() {
                       )}
                     </div>
                   </div>
-                  {analysis.ptOptimizations?.bedMobility && (
+                  {analysis.ptOptimizations?.bedMobility && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').ptOptimizations && (
                     <div className="p-4 border rounded-lg bg-green-50">
                       <p className="font-medium mb-3 text-green-900">✨ AI Optimization Suggestions:</p>
                       <div className="space-y-2 text-sm">
@@ -620,7 +720,7 @@ export default function PTVisitOptimizationPage() {
                       )}
                     </div>
                   </div>
-                  {analysis.ptOptimizations?.transferTraining && (
+                  {analysis.ptOptimizations?.transferTraining && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').ptOptimizations && (
                     <div className="p-4 border rounded-lg bg-green-50">
                       <p className="font-medium mb-3 text-green-900">✨ AI Optimization Suggestions:</p>
                       <div className="space-y-2 text-sm">
@@ -675,7 +775,7 @@ export default function PTVisitOptimizationPage() {
                       )}
                     </div>
                   </div>
-                  {analysis.ptOptimizations?.gaitTraining && (
+                  {analysis.ptOptimizations?.gaitTraining && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').ptOptimizations && (
                     <div className="p-4 border rounded-lg bg-green-50">
                       <p className="font-medium mb-3 text-green-900">✨ AI Optimization Suggestions:</p>
                       <div className="space-y-2 text-sm">
@@ -718,7 +818,7 @@ export default function PTVisitOptimizationPage() {
                       ))}
                     </div>
                   </div>
-                  {analysis.ptOptimizations?.skilledTreatment && (
+                  {analysis.ptOptimizations?.skilledTreatment && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').ptOptimizations && (
                     <div className="p-4 border rounded-lg bg-green-50">
                       <p className="font-medium mb-2 text-green-900">✨ AI Optimization Suggestions:</p>
                       <div className="space-y-1">
@@ -737,7 +837,7 @@ export default function PTVisitOptimizationPage() {
           )}
 
           {/* Documentation Improvements */}
-          {analysis.ptOptimizations?.documentationImprovements && analysis.ptOptimizations.documentationImprovements.length > 0 && (
+          {analysis.ptOptimizations?.documentationImprovements && analysis.ptOptimizations.documentationImprovements.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').ptOptimizations && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -771,44 +871,101 @@ export default function PTVisitOptimizationPage() {
         </>
       )}
 
-      {/* Diagnoses */}
-      {analysis?.findings && analysis.findings.length > 0 && (
-        <Card>
+      {/* Diagnoses - Section 2: Coding Review */}
+      {analysis?.diagnoses && analysis.diagnoses.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').diagnoses && (
+        <Card className={`${
+          ptVisit.uploadType === 'coding-review' ? 'ring-4 ring-purple-400 ring-offset-2' : ''
+        }`}>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Stethoscope className="h-5 w-5" />
-              Diagnoses
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <Stethoscope className="h-5 w-5" />
+                Diagnoses
+              </CardTitle>
+              {ptVisit.uploadType === 'coding-review' && (
+                <Badge className="bg-purple-500 text-white font-bold px-3 py-1 shadow-lg animate-pulse">
+                  🎯 PRIMARY FOCUS
+                </Badge>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {Array.isArray(analysis.findings) && analysis.findings
-                .filter((f: any) => f.category === "diagnosis" || f.issue?.toLowerCase().includes("diagnosis"))
-                .map((finding: any, idx: number) => (
-                  <div key={idx} className="p-3 border rounded-lg">
-                    <p className="font-medium">{finding.issue || finding.description || "Diagnosis"}</p>
-                    {finding.suggestion && (
-                      <p className="text-sm text-muted-foreground mt-1">{finding.suggestion}</p>
-                    )}
+            <div className="space-y-3">
+              {analysis.diagnoses.map((diagnosis: any, idx: number) => (
+                <div key={idx} className="p-4 border-2 border-purple-200 rounded-lg bg-gradient-to-r from-purple-50 to-indigo-50 hover:shadow-md transition-shadow">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Badge className="bg-purple-600 text-white font-mono text-sm">
+                          {diagnosis.code || "N/A"}
+                        </Badge>
+                        <span className="text-xs text-gray-500">Confidence: {diagnosis.confidence || "N/A"}%</span>
+                      </div>
+                      <p className="font-semibold text-gray-900 mb-1">{diagnosis.description || "No description"}</p>
+                      {diagnosis.source && (
+                        <p className="text-xs text-gray-600">Source: {diagnosis.source}</p>
+                      )}
+                    </div>
                   </div>
-                ))}
+                </div>
+              ))}
+              {/* Show suggested codes if available */}
+              {analysis?.suggestedCodes && analysis.suggestedCodes.length > 0 && (
+                <div className="mt-4 p-4 border-2 border-green-200 rounded-lg bg-green-50">
+                  <p className="font-semibold text-green-900 mb-3">✨ Suggested Additional Codes:</p>
+                  <div className="space-y-2">
+                    {analysis.suggestedCodes.map((code: any, idx: number) => (
+                      <div key={idx} className="p-3 bg-white rounded border border-green-200">
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge className="bg-green-600 text-white font-mono text-sm">
+                            {code.code}
+                          </Badge>
+                          {code.revenueImpact && (
+                            <Badge variant="outline" className="text-green-700 border-green-300">
+                              Revenue Impact: ${code.revenueImpact}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-sm font-medium">{code.description}</p>
+                        {code.reason && (
+                          <p className="text-xs text-gray-600 mt-1">Reason: {code.reason}</p>
+                        )}
+                        {code.confidence && (
+                          <p className="text-xs text-gray-500 mt-1">Confidence: {code.confidence}%</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
       )}
 
         {/* 🔎 Missing Information Detection - Enhanced */}
-        {analysis?.missingElements && analysis.missingElements.length > 0 && (
-          <Card className="border-2 border-red-200 shadow-lg hover:shadow-xl transition-shadow">
+        {analysis?.missingElements && analysis.missingElements.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').missingInformation && (
+          <Card className={`border-2 border-red-200 shadow-lg hover:shadow-xl transition-shadow ${
+            ptVisit.uploadType === 'qapi-audit' ? 'ring-4 ring-red-400 ring-offset-2' : ''
+          }`}>
             <CardHeader className="bg-gradient-to-r from-red-50 to-orange-50 border-b border-red-200">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-red-600 to-orange-600 flex items-center justify-center text-white shadow-md">
-                  <AlertCircle className="h-5 w-5" />
-                </div>
-                Missing Information Detection ({analysis.missingElements.length})
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-3 text-xl">
+                  <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-red-600 to-orange-600 flex items-center justify-center text-white shadow-md">
+                    <AlertCircle className="h-5 w-5" />
+                  </div>
+                  Missing Information Detection ({analysis.missingElements.length})
+                </CardTitle>
+                {ptVisit.uploadType === 'qapi-audit' && (
+                  <Badge className="bg-red-500 text-white font-bold px-3 py-1.5 shadow-lg animate-pulse">
+                    🎯 PRIMARY FOCUS
+                  </Badge>
+                )}
+              </div>
               <CardDescription className="text-base mt-2">
-                These fields are blank or incomplete and require attention
+                {ptVisit.uploadType === 'qapi-audit' 
+                  ? 'QAPI Audit Focus: Document all missing fields to ensure CMS compliance and prevent survey deficiencies.'
+                  : 'These fields are blank or incomplete and require attention'}
               </CardDescription>
             </CardHeader>
           <CardContent>
@@ -845,24 +1002,35 @@ export default function PTVisitOptimizationPage() {
       )}
 
         {/* ⚠️ Inconsistencies & Clinical Issues - Enhanced */}
-        {analysis?.findings && analysis.findings.length > 0 && (
-          <Card className="border-2 border-orange-200 shadow-lg hover:shadow-xl transition-shadow">
+        {analysis?.flaggedIssues && analysis.flaggedIssues.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').inconsistencies && (
+          <Card className={`border-2 border-orange-200 shadow-lg hover:shadow-xl transition-shadow ${
+            ptVisit.uploadType === 'qapi-audit' ? 'ring-4 ring-orange-400 ring-offset-2' : ''
+          }`}>
             <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-200">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-orange-600 to-amber-600 flex items-center justify-center text-white shadow-md">
-                  <AlertCircle className="h-5 w-5" />
-                </div>
-                Inconsistencies & Clinical Issues ({analysis.findings.length})
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-3 text-xl">
+                  <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-orange-600 to-amber-600 flex items-center justify-center text-white shadow-md">
+                    <AlertCircle className="h-5 w-5" />
+                  </div>
+                  Inconsistencies & Clinical Issues ({analysis.flaggedIssues.length})
+                </CardTitle>
+                {ptVisit.uploadType === 'qapi-audit' && (
+                  <Badge className="bg-orange-500 text-white font-bold px-3 py-1.5 shadow-lg animate-pulse">
+                    🎯 PRIMARY FOCUS
+                  </Badge>
+                )}
+              </div>
               <CardDescription className="text-base mt-2">
-                Detected conflicts and problems in documentation requiring review
+                {ptVisit.uploadType === 'qapi-audit'
+                  ? 'QAPI Audit Focus: Identify and resolve all data conflicts to ensure clinical accuracy and documentation integrity.'
+                  : 'Detected conflicts and problems in documentation requiring review'}
               </CardDescription>
             </CardHeader>
           <CardContent>
             <div className="space-y-4">
               {/* Group by category */}
               {["inconsistency", "clinical", "documentation", "treatment"].map((category) => {
-                const categoryItems = analysis.findings.filter((f: any) => f.category === category)
+                const categoryItems = analysis.flaggedIssues.filter((f: any) => f.category === category)
                 if (categoryItems.length === 0) return null
                 return (
                   <div key={category} className="p-4 border rounded-lg bg-orange-50">
@@ -897,17 +1065,33 @@ export default function PTVisitOptimizationPage() {
       )}
 
         {/* 📉 Clinical Documentation Weak Points - Enhanced */}
-        {analysis?.documentationGaps && analysis.documentationGaps.length > 0 && (
-          <Card className="border-2 border-purple-200 shadow-lg hover:shadow-xl transition-shadow">
+        {analysis?.documentationGaps && analysis.documentationGaps.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').documentationGaps && (
+          <Card className={`border-2 border-purple-200 shadow-lg hover:shadow-xl transition-shadow ${
+            ptVisit.uploadType === 'financial-optimization' ? 'ring-4 ring-green-400 ring-offset-2' :
+            ptVisit.uploadType === 'qapi-audit' ? 'ring-4 ring-orange-400 ring-offset-2' : ''
+          }`}>
             <CardHeader className="bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-200">
-              <CardTitle className="flex items-center gap-3 text-xl">
-                <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-white shadow-md">
-                  <TrendingUp className="h-5 w-5" />
-                </div>
-                Clinical Documentation Weak Points ({analysis.documentationGaps.length})
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-3 text-xl">
+                  <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-white shadow-md">
+                    <TrendingUp className="h-5 w-5" />
+                  </div>
+                  Clinical Documentation Weak Points ({analysis.documentationGaps.length})
+                </CardTitle>
+                {(ptVisit.uploadType === 'financial-optimization' || ptVisit.uploadType === 'qapi-audit') && (
+                  <Badge className={`${
+                    ptVisit.uploadType === 'financial-optimization' ? 'bg-green-500' : 'bg-orange-500'
+                  } text-white font-bold px-3 py-1.5 shadow-lg ${ptVisit.uploadType === 'qapi-audit' ? 'animate-pulse' : ''}`}>
+                    🎯 PRIMARY FOCUS
+                  </Badge>
+                )}
+              </div>
               <CardDescription className="text-base mt-2">
-                Quality scoring gaps identified for improvement
+                {ptVisit.uploadType === 'financial-optimization' 
+                  ? 'Financial Optimization Focus: Improve documentation to maximize legitimate revenue through better documentation.'
+                  : ptVisit.uploadType === 'qapi-audit'
+                  ? 'QAPI Audit Focus: Address documentation gaps to ensure compliance and prevent survey deficiencies.'
+                  : 'Quality scoring gaps identified for improvement'}
               </CardDescription>
             </CardHeader>
           <CardContent>
@@ -950,7 +1134,7 @@ export default function PTVisitOptimizationPage() {
               )}
 
               {/* Risk Factors Explanation Missing */}
-              {analysis.riskFactors && analysis.riskFactors.length > 0 && (
+              {analysis.riskFactors && analysis.riskFactors.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').riskFactors && (
                 <div className="p-4 border rounded-lg bg-red-50">
                   <p className="font-semibold mb-2 text-red-900">No Risk Factors Explanation</p>
                   <div className="space-y-2">
@@ -978,14 +1162,145 @@ export default function PTVisitOptimizationPage() {
         </Card>
       )}
 
-      {/* Recommendations */}
-      {analysis?.recommendations && analysis.recommendations.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <ClipboardCheck className="h-5 w-5" />
-              Recommendations ({analysis.recommendations.length})
+      {/* 💰 Financial Impact - Section 3: Financial Optimization */}
+      {analysis?.financialImpact && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').financialImpact && (
+        <Card className={`border-2 border-green-200 shadow-lg hover:shadow-xl transition-shadow ${
+          ptVisit.uploadType === 'financial-optimization' ? 'ring-4 ring-green-400 ring-offset-2' : ''
+        }`}>
+          <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-200">
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-3 text-xl">
+                <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-green-600 to-emerald-600 flex items-center justify-center text-white shadow-md">
+                  <TrendingUp className="h-5 w-5" />
+                </div>
+                Financial Impact Analysis
+              </CardTitle>
+              {ptVisit.uploadType === 'financial-optimization' && (
+                <Badge className="bg-green-500 text-white font-bold px-3 py-1.5 shadow-lg animate-pulse">
+                  🎯 PRIMARY FOCUS
+                </Badge>
+              )}
+            </div>
+            <CardDescription className="text-base mt-2">
+              Revenue optimization opportunities through improved documentation
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <div className="p-5 rounded-xl bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-200 shadow-md">
+                <p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">Current Revenue</p>
+                <p className="text-3xl font-bold text-red-900">
+                  ${analysis.financialImpact.currentRevenue?.toLocaleString() || '0'}
+                </p>
+              </div>
+              <div className="p-5 rounded-xl bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-200 shadow-md">
+                <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Optimized Revenue</p>
+                <p className="text-3xl font-bold text-green-900">
+                  ${analysis.financialImpact.optimizedRevenue?.toLocaleString() || '0'}
+                </p>
+              </div>
+              <div className="p-5 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-200 shadow-md">
+                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Potential Increase</p>
+                <p className="text-3xl font-bold text-blue-900">
+                  ${analysis.financialImpact.increase?.toLocaleString() || '0'}
+                </p>
+              </div>
+            </div>
+            {analysis.financialImpact.breakdown && analysis.financialImpact.breakdown.length > 0 && (
+              <div className="mt-4">
+                <p className="font-semibold mb-3 text-gray-900">Revenue Breakdown by Category:</p>
+                <div className="space-y-2">
+                  {analysis.financialImpact.breakdown.map((item: any, idx: number) => (
+                    <div key={idx} className="p-4 border rounded-lg bg-gray-50">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="font-medium">{item.category || "Category"}</p>
+                        <Badge className="bg-green-600 text-white">
+                          +${item.difference?.toLocaleString() || '0'}
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <p className="text-gray-600">Current: ${item.current?.toLocaleString() || '0'}</p>
+                        </div>
+                        <div>
+                          <p className="text-gray-600">Optimized: ${item.optimized?.toLocaleString() || '0'}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 📝 Corrections - Section 2: Coding Review */}
+      {analysis?.corrections && analysis.corrections.length > 0 && ptVisit.uploadType === 'coding-review' && (
+        <Card className="border-2 border-purple-200 shadow-lg">
+          <CardHeader className="bg-gradient-to-r from-purple-50 to-indigo-50 border-b">
+            <CardTitle className="flex items-center gap-3 text-xl">
+              <div className="h-10 w-10 rounded-lg bg-purple-600 flex items-center justify-center text-white shadow-md">
+                <ClipboardCheck className="h-5 w-5" />
+              </div>
+              Suggested Corrections ({analysis.corrections.length})
             </CardTitle>
+          </CardHeader>
+          <CardContent className="p-6">
+            <div className="space-y-3">
+              {analysis.corrections.map((correction: any, idx: number) => (
+                <div key={idx} className="p-4 border-2 border-purple-200 rounded-lg bg-purple-50">
+                  <div className="flex items-start justify-between mb-2">
+                    <p className="font-semibold text-purple-900">{correction.field || "Field"}</p>
+                    {correction.revenueChange && (
+                      <Badge className="bg-green-600 text-white">
+                        Revenue: ${correction.revenueChange}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+                    <div className="p-3 bg-red-50 rounded border border-red-200">
+                      <p className="text-xs font-semibold text-red-700 mb-1">Current:</p>
+                      <p className="text-sm text-red-900">{correction.current || "N/A"}</p>
+                    </div>
+                    <div className="p-3 bg-green-50 rounded border border-green-200">
+                      <p className="text-xs font-semibold text-green-700 mb-1">Suggested:</p>
+                      <p className="text-sm text-green-900">{correction.suggested || "N/A"}</p>
+                    </div>
+                  </div>
+                  {correction.reason && (
+                    <div className="mt-3 p-3 bg-blue-50 rounded border border-blue-200">
+                      <p className="text-xs font-semibold text-blue-700 mb-1">Reason:</p>
+                      <p className="text-sm text-blue-900">{correction.reason}</p>
+                    </div>
+                  )}
+                  {correction.impact && (
+                    <p className="text-xs text-gray-600 mt-2">Impact: {correction.impact}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Recommendations */}
+      {analysis?.recommendations && analysis.recommendations.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').recommendations && (
+        <Card className={`${
+          ptVisit.uploadType === 'financial-optimization' ? 'ring-4 ring-green-400 ring-offset-2' : ''
+        }`}>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardCheck className="h-5 w-5" />
+                Recommendations ({analysis.recommendations.length})
+              </CardTitle>
+              {ptVisit.uploadType === 'financial-optimization' && (
+                <Badge className="bg-green-500 text-white font-bold px-3 py-1 shadow-lg animate-pulse">
+                  🎯 PRIMARY FOCUS
+                </Badge>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">

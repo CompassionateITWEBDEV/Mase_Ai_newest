@@ -36,13 +36,14 @@ export async function POST(request: NextRequest) {
     const uploadId = formData.get("uploadId") as string
     const uploadType = formData.get("uploadType") as string
     const priority = formData.get("priority") as string
-    const fileType = formData.get("fileType") as string // "oasis" or "doctor-order" or "pt-note"
+    const fileType = formData.get("fileType") as string // "oasis" or "physician-order" or "pt-note" or "poc"
     const patientId = formData.get("patientId") as string | null
     const notes = formData.get("notes") as string | null
     const assessmentId = formData.get("assessmentId") as string | null
     const chartId = formData.get("chartId") as string | null
 
-    console.log("[OASIS] Received request:", { uploadId, fileType, fileName: file?.name })
+    console.log("[OASIS] Received request:", { uploadId, fileType, fileName: file?.name, chartId })
+    console.log("[OASIS] 📋 Chart ID from formData:", chartId)
 
     if (!file || !uploadId || !uploadType || !priority || !fileType) {
       console.error("[OASIS] Missing required fields:", { 
@@ -225,9 +226,20 @@ export async function POST(request: NextRequest) {
         return parsed.toISOString()
       }
 
+      // Ensure chart_id is always set - use provided chartId or generate consistent one
+      const finalChartId = chartId && chartId.trim() !== '' ? chartId.trim() : `chart-${Date.now()}`
+      console.log("[OASIS] 📋 Chart ID from formData:", chartId)
+      console.log("[OASIS] 📋 Final chart_id to insert:", finalChartId)
+      
+      if (!finalChartId || finalChartId.trim() === '') {
+        console.error("[OASIS] ❌ ERROR: finalChartId is empty!")
+        throw new Error("chart_id cannot be empty")
+      }
+      
       const insertData = {
         upload_id: uploadId,
         patient_id: patientId,
+        chart_id: finalChartId, // Ensure this is always a non-empty string
         patient_name: sanitizeText(analysis.patientInfo?.name),
         mrn: sanitizeText(analysis.patientInfo?.mrn),
         visit_type: sanitizeText(analysis.patientInfo?.visitType),
@@ -259,7 +271,9 @@ export async function POST(request: NextRequest) {
         extracted_data: {
           ...(analysis.extractedData || {}),
           // Ensure patientInfo is included in extracted_data
-          patientInfo: analysis.patientInfo || null
+          patientInfo: analysis.patientInfo || null,
+          // Store qapiAudit in extracted_data so QAPI report can find it
+          qapiAudit: analysis.qapiAudit || undefined
         },
         missing_information: analysis.missingInformation || [],
         inconsistencies: analysis.inconsistencies || [],
@@ -268,7 +282,19 @@ export async function POST(request: NextRequest) {
         corrections: analysis.corrections || [],
         risk_factors: analysis.riskFactors || [],
         recommendations: analysis.recommendations || [],
-        flagged_issues: analysis.flaggedIssues || [],
+        // Combine flaggedIssues and inconsistencies - inconsistencies should also be flagged as issues
+        flagged_issues: [
+          ...(analysis.flaggedIssues || []),
+          // Convert inconsistencies to flagged_issues format
+          ...(analysis.inconsistencies || []).map((inc: any) => ({
+            issue: `${inc.conflictType || 'Inconsistency'}: ${inc.sectionA || ''} vs ${inc.sectionB || ''}`,
+            severity: inc.severity || 'medium',
+            location: `${inc.sectionA || 'Section A'} vs ${inc.sectionB || 'Section B'}`,
+            suggestion: inc.recommendation || inc.clinicalImpact || 'Review and resolve inconsistency',
+            category: 'inconsistency',
+            clinicalImpact: inc.clinicalImpact || ''
+          }))
+        ],
         quality_score: analysis.qualityScore || 70,
         confidence_score: analysis.confidenceScore || 70,
         completeness_score: analysis.completenessScore || 70,
@@ -279,20 +305,33 @@ export async function POST(request: NextRequest) {
       }
 
       console.log("[OASIS] Inserting assessment into database...")
+      console.log("[OASIS] 🔍 Verifying chart_id in insertData:", insertData.chart_id)
+      console.log("[OASIS] 🔍 Type of chart_id:", typeof insertData.chart_id)
+      console.log("[OASIS] 🔍 Is chart_id empty?", !insertData.chart_id || insertData.chart_id.trim() === '')
 
       const { data: assessment, error } = await supabase.from("oasis_assessments").insert(insertData).select().single()
 
       if (error) {
-        console.error("[OASIS] Database error details:", {
+        console.error("[OASIS] ❌ Database error details:", {
           message: error.message,
           details: error.details,
           hint: error.hint,
           code: error.code,
         })
+        console.error("[OASIS] ❌ Failed insertData.chart_id:", insertData.chart_id)
         throw new Error(`Failed to store assessment: ${error.message}`)
       }
 
-      console.log("[OASIS] Assessment stored in database:", assessment.id)
+      console.log("[OASIS] ✅ Assessment stored in database:", assessment.id)
+      console.log("[OASIS] ✅ Verifying chart_id was saved:", assessment.chart_id)
+      
+      if (!assessment.chart_id || assessment.chart_id === null) {
+        console.error("[OASIS] ⚠️ WARNING: chart_id is NULL after insert!")
+        console.error("[OASIS] ⚠️ This means the database insert failed to save chart_id")
+        console.error("[OASIS] ⚠️ Check if chart_id column exists and allows NULL values")
+      } else {
+        console.log("[OASIS] ✅ chart_id successfully saved:", assessment.chart_id)
+      }
 
       return NextResponse.json({
         success: true,
@@ -301,75 +340,283 @@ export async function POST(request: NextRequest) {
         analysis: {
           qualityScore: analysis.qualityScore,
           confidence: analysis.confidenceScore,
-          financialImpact: analysis.financialImpact.increase,
-          flaggedIssues: analysis.flaggedIssues,
+          // Return full financialImpact object so frontend can access increase, currentRevenue, optimizedRevenue
+          financialImpact: analysis.financialImpact || {
+            currentRevenue: 0,
+            optimizedRevenue: 0,
+            increase: 0,
+            breakdown: [],
+          },
+          // Include both flaggedIssues and inconsistencies for frontend counting
+          flaggedIssues: analysis.flaggedIssues || [],
+          inconsistencies: analysis.inconsistencies || [],
+          // Also include recommendations, regulatoryIssues, documentationGaps for QAPI report
+          recommendations: analysis.recommendations || [],
+          regulatoryIssues: analysis.qapiAudit?.regulatoryDeficiencies || [],
+          documentationGaps: analysis.missingInformation || [],
         },
       })
-    } else if (fileType === "doctor-order") {
-      if (!assessmentId) {
-        return NextResponse.json({ error: "Assessment ID required for doctor orders" }, { status: 400 })
+    } else if (fileType === "physician-order") {
+      // Physician orders can be analyzed standalone or linked to an OASIS assessment
+      // If assessmentId is provided, use it; otherwise, try to find the most recent OASIS for this chart
+      // If no OASIS is found, the physician order will be analyzed standalone
+      console.log("[PHYSICIAN ORDER] 📋 Starting physician order processing:", {
+        hasAssessmentId: !!assessmentId,
+        hasChartId: !!chartId,
+        chartId: chartId,
+        assessmentId: assessmentId
+      })
+      
+      let targetAssessmentId = assessmentId
+      let oasisExtractedText: string | null = null
+      
+      // Try to find OASIS assessment if not provided
+      if (!targetAssessmentId && chartId) {
+        console.log("[PHYSICIAN ORDER] 🔍 No assessmentId provided, finding most recent OASIS for chartId:", chartId)
+        
+        // Find the most recent OASIS assessment for this chart
+        const { data: recentAssessment, error: findError } = await supabase
+          .from("oasis_assessments")
+          .select("upload_id, id, chart_id, status, created_at, extracted_text")
+          .eq("chart_id", chartId)
+          .eq("status", "completed")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (findError) {
+          console.error("[PHYSICIAN ORDER] ⚠️ Database error finding OASIS assessment (will proceed standalone):", findError)
+        } else if (recentAssessment) {
+          targetAssessmentId = recentAssessment.upload_id
+          oasisExtractedText = recentAssessment.extracted_text
+          console.log("[PHYSICIAN ORDER] ✅ Found OASIS assessment:", targetAssessmentId)
+        } else {
+          console.log("[PHYSICIAN ORDER] ℹ️ No OASIS assessment found - will analyze physician order standalone")
+        }
+      } else if (targetAssessmentId) {
+        // Get the OASIS assessment if assessmentId was provided
+        const { data: assessment, error: fetchError } = await supabase
+          .from("oasis_assessments")
+          .select("extracted_text, upload_id")
+          .eq("upload_id", targetAssessmentId)
+          .maybeSingle()
+
+        if (fetchError) {
+          console.error("[PHYSICIAN ORDER] ⚠️ Error fetching assessment (will proceed standalone):", fetchError)
+        } else if (assessment) {
+          oasisExtractedText = assessment.extracted_text
+          console.log("[PHYSICIAN ORDER] ✅ Loaded OASIS assessment text")
+        }
       }
 
-      console.log("[OASIS] Processing doctor's order for assessment:", assessmentId)
-
-      // Get the OASIS assessment
-      const { data: assessment, error: fetchError } = await supabase
-        .from("oasis_assessments")
-        .select("extracted_text")
-        .eq("upload_id", assessmentId)
-        .single()
-
-      if (fetchError || !assessment) {
-        console.error("[OASIS] Error fetching assessment:", fetchError)
-        return NextResponse.json({ error: "Assessment not found" }, { status: 404 })
-      }
-
-      console.log("[OASIS] 📋 Configuration for doctor order analysis:", {
+      console.log("[PHYSICIAN ORDER] 📋 Configuration for physician order analysis:", {
         qaType: uploadType,
         priority: priority,
         patientId: patientId || 'None',
         hasNotes: !!notes
       })
 
-      const analysis = await analyzeOasisDocument(assessment.extracted_text, fileText, {
-        qaType: uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
-        notes: notes || '',
-        priority: priority as 'low' | 'medium' | 'high' | 'urgent',
-        patientId: patientId || ''
+      // Import the new Physician Order analyzer
+      const { analyzePhysicianOrder } = await import("@/lib/clinical-qa-analyzer")
+      
+      // Track AI analysis start time
+      const aiAnalysisStartTime = Date.now()
+      const analysis = await analyzePhysicianOrder(
+        fileText,
+        uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+        notes || '',
+        priority as 'low' | 'medium' | 'high' | 'urgent'
+      )
+      const aiAnalysisEndTime = Date.now()
+      const aiAnalysisDuration = aiAnalysisEndTime - aiAnalysisStartTime
+      
+      console.log("[PHYSICIAN ORDER] ⏱️ AI Analysis completed in:", (aiAnalysisDuration / 1000).toFixed(2), "seconds")
+      console.log("[PHYSICIAN ORDER] 📊 Analysis Results:", {
+        presentInPdf: analysis.presentInPdf?.length || 0,
+        missingInformation: analysis.missingInformation?.length || 0,
+        qaFindings: analysis.qaFindings?.length || 0,
+        codingReview: analysis.codingReview?.length || 0,
+        financialRisks: analysis.financialRisks?.length || 0,
+        qapiDeficiencies: analysis.qapiDeficiencies?.length || 0,
+        qualityScore: analysis.qualityScore,
+        confidenceScore: analysis.confidenceScore,
       })
 
-      const { error: orderError } = await supabase.from("doctor_orders").insert({
-        assessment_id: assessmentId,
+      // Convert analysis to format compatible with doctor_orders table
+      const discrepancies = [
+        ...(analysis.missingInformation || []).map((item: any) => ({
+          type: 'missing',
+          element: item.element,
+          location: item.location,
+          impact: item.impact,
+          recommendation: item.recommendation,
+          severity: item.severity || 'medium'
+        })),
+        ...(analysis.qaFindings || []).map((item: any) => ({
+          type: 'finding',
+          finding: item.finding,
+          category: item.category,
+          severity: item.severity || 'medium',
+          recommendation: item.recommendation
+        })),
+        ...(analysis.qapiDeficiencies || []).map((item: any) => ({
+          type: 'deficiency',
+          deficiency: item.deficiency,
+          category: item.category,
+          severity: item.severity || 'medium',
+          impact: item.impact,
+          recommendation: item.recommendation
+        }))
+      ]
+
+      // Use clinical_documents table (same as PT visit and POC)
+      // Determine chart_id
+      const finalChartId = chartId || `chart-${Date.now()}`
+
+      // Store analysis data in findings JSONB (same structure as PT visit)
+      const findingsWithAnalysis = {
+        ...discrepancies,
+        _analysis: analysis, // Store full analysis
+        presentInPdf: analysis.presentInPdf || [],
+        missingInformation: analysis.missingInformation || [],
+        qaFindings: analysis.qaFindings || [],
+        codingReview: analysis.codingReview || [],
+        financialRisks: analysis.financialRisks || [],
+        qapiDeficiencies: analysis.qapiDeficiencies || [],
+        optimizedOrderTemplate: analysis.optimizedOrderTemplate || "",
+      }
+
+      // Prepare insert data for clinical_documents table (same as PT visit)
+      const insertData: any = {
         upload_id: uploadId,
+        chart_id: finalChartId,
+        document_type: "physician_order",
+        patient_id: patientId || null,
+        patient_name: sanitizeText(analysis.presentInPdf?.find((p: any) => p.element?.toLowerCase().includes('patient'))?.content || ""),
         file_name: file.name,
         file_size: file.size,
         file_url: fileUrl,
-        file_type: file.type,
         extracted_text: sanitizeText(fileText.substring(0, 10000)),
-        matches_oasis: analysis.flaggedIssues.length === 0,
-        discrepancies: analysis.flaggedIssues,
+        document_date: new Date().toISOString(),
+        clinician_name: sanitizeText(analysis.presentInPdf?.find((p: any) => p.element?.toLowerCase().includes('physician'))?.content || ""),
+        discipline: "MD",
+        upload_type: uploadType,
+        priority: priority,
+        notes: sanitizeText(notes || ""),
+        status: "completed",
+        processed_at: new Date().toISOString(),
+      }
+
+      console.log("[PHYSICIAN ORDER] 📝 Storing in clinical_documents table:", {
+        upload_id: insertData.upload_id,
+        chart_id: insertData.chart_id,
+        document_type: insertData.document_type,
+        file_name: insertData.file_name,
       })
 
-      if (orderError) {
-        console.error("[OASIS] Error storing doctor order:", orderError)
-        throw new Error("Failed to store doctor order")
+      // Insert into clinical_documents (same as PT visit)
+      const { data: physicianOrderDoc, error: insertError } = await supabase
+        .from("clinical_documents")
+        .insert(insertData)
+        .select()
+        .single()
+
+      if (insertError) {
+        console.error("[PHYSICIAN ORDER] ❌ Database insert error:", insertError)
+        console.error("[PHYSICIAN ORDER] ❌ Error details:", {
+          message: insertError.message,
+          details: insertError.details,
+          hint: insertError.hint,
+          code: insertError.code,
+        })
+        throw new Error(`Failed to store physician order: ${insertError.message || 'Unknown database error'}`)
       }
+
+      console.log("[PHYSICIAN ORDER] ✅ Physician order stored in clinical_documents with ID:", physicianOrderDoc.id)
+
+      // Also store QA analysis in qa_analysis table (same as PT visit)
+      // Convert decimal scores to integers (database expects INTEGER type)
+      const analysisData = {
+        document_id: physicianOrderDoc.id,
+        document_type: "physician_order",
+        chart_id: finalChartId,
+        quality_score: Math.round(analysis.qualityScore || 0),
+        compliance_score: 0,
+        completeness_score: 0,
+        accuracy_score: 0,
+        confidence_score: Math.round(analysis.confidenceScore || 0),
+        findings: findingsWithAnalysis, // Store full analysis in findings JSONB
+        recommendations: analysis.qapiDeficiencies?.map((d: any) => d.recommendation) || [],
+        missing_elements: analysis.missingInformation || [],
+        coding_suggestions: analysis.codingReview || [],
+        revenue_impact: analysis.financialRisks || [],
+        regulatory_issues: analysis.qapiDeficiencies || [],
+        documentation_gaps: analysis.missingInformation || [],
+        analyzed_at: new Date().toISOString(),
+      }
+
+      console.log("[PHYSICIAN ORDER] 📊 Storing QA analysis:", {
+        document_id: analysisData.document_id,
+        quality_score: analysisData.quality_score,
+        confidence_score: analysisData.confidence_score,
+        findings_keys: Object.keys(findingsWithAnalysis),
+        has_analysis: !!findingsWithAnalysis._analysis,
+      })
+
+      const { data: qaAnalysis, error: qaError } = await supabase
+        .from("qa_analysis")
+        .insert(analysisData)
+        .select()
+        .single()
+
+      if (qaError) {
+        console.error("[PHYSICIAN ORDER] ⚠️ Warning: Failed to store QA analysis:", qaError)
+        // Don't fail the whole request if QA analysis insert fails
+      } else {
+        console.log("[PHYSICIAN ORDER] ✅ QA Analysis stored with ID:", qaAnalysis.id)
+      }
+
+      // Update OASIS assessment with physician order analysis summary
+      const summaryIssues = [
+        ...(analysis.missingInformation || []).slice(0, 5).map((item: any) => `Missing: ${item.element}`),
+        ...(analysis.qaFindings || []).slice(0, 5).map((item: any) => `Finding: ${item.finding}`),
+        ...(analysis.qapiDeficiencies || []).slice(0, 5).map((item: any) => `Deficiency: ${item.deficiency}`)
+      ]
 
       await supabase
         .from("oasis_assessments")
         .update({
-          flagged_issues: analysis.flaggedIssues,
+          flagged_issues: summaryIssues.length > 0 ? summaryIssues : null,
           updated_at: new Date().toISOString(),
         })
         .eq("upload_id", assessmentId)
 
-      console.log("[OASIS] Doctor order processed and stored")
+      console.log("[PHYSICIAN ORDER] ✅ Physician order processed and stored successfully")
 
       return NextResponse.json({
         success: true,
-        message: "Doctor order processed and compared with OASIS assessment",
+        message: "Physician order processed and analyzed with 4-type QA review",
         assessmentId,
-        discrepancies: analysis.flaggedIssues.length,
+        uploadId,
+        analysis: {
+          // Include counts for summary
+          presentInPdf: analysis.presentInPdf?.length || 0,
+          missingInformation: analysis.missingInformation?.length || 0,
+          qaFindings: analysis.qaFindings?.length || 0,
+          codingReview: analysis.codingReview?.length || 0,
+          financialRisks: analysis.financialRisks?.length || 0,
+          qapiDeficiencies: analysis.qapiDeficiencies?.length || 0,
+          qualityScore: analysis.qualityScore,
+          confidenceScore: analysis.confidenceScore,
+          // Include full arrays for frontend to calculate issues properly
+          missingInformationArray: analysis.missingInformation || [],
+          qaFindingsArray: analysis.qaFindings || [],
+          qapiDeficienciesArray: analysis.qapiDeficiencies || [],
+          // Also include for backward compatibility
+          confidence: analysis.confidenceScore,
+          confidence_score: analysis.confidenceScore,
+        },
+        discrepancies: discrepancies.length,
       })
     } else if (fileType === "pt-note") {
       console.log("[PT VISIT] ========================================")
@@ -404,10 +651,23 @@ export async function POST(request: NextRequest) {
 
       console.log("[PT VISIT] Starting AI analysis with clinical-qa-analyzer...")
       console.log("[PT VISIT] Using FULL extracted text for analysis (", fileText.length, "characters)")
+      console.log("[PT VISIT] 📋 Configuration:", {
+        qaType: uploadType,
+        priority: priority,
+        patientId: patientId || 'None',
+        hasNotes: !!notes
+      })
       
       // Track AI analysis start time
       const aiAnalysisStartTime = Date.now()
-      const analysis = await analyzeClinicalDocument(fileText, "pt_note")
+      const analysis = await analyzeClinicalDocument(
+        fileText, 
+        "pt_note",
+        undefined,
+        uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+        notes || '',
+        priority as 'low' | 'medium' | 'high' | 'urgent'
+      )
       const aiAnalysisEndTime = Date.now()
       const aiAnalysisDuration = aiAnalysisEndTime - aiAnalysisStartTime
       
@@ -441,10 +701,14 @@ export async function POST(request: NextRequest) {
       console.log("[PT VISIT] Financial Impact:", analysis.financialImpact)
       console.log("[PT VISIT] ========================================")
 
+      // Use the same chartId for all documents in the same chart
+      const finalChartId = chartId || `chart-${Date.now()}`
+      console.log("[PT VISIT] 📋 Using chart_id:", finalChartId, chartId ? "(from formData)" : "(generated)")
+
       // Store PT Visit in clinical_documents table
       const insertData = {
         upload_id: uploadId,
-        chart_id: chartId || `chart-${Date.now()}`,
+        chart_id: finalChartId,
         document_type: "pt_note",
         patient_id: patientId || extractedMRN || null,
         patient_name: sanitizeText(analysis.patientInfo?.name || ""),
@@ -455,6 +719,9 @@ export async function POST(request: NextRequest) {
         document_date: analysis.patientInfo?.visitDate ? new Date(analysis.patientInfo.visitDate).toISOString() : new Date().toISOString(),
         clinician_name: sanitizeText(analysis.patientInfo?.clinician || ""),
         discipline: "PT",
+        upload_type: uploadType,
+        priority: priority,
+        notes: sanitizeText(notes),
         status: "completed",
         processed_at: new Date().toISOString(),
       }
@@ -485,23 +752,41 @@ export async function POST(request: NextRequest) {
       console.log("[PT VISIT]   - Database Operations:", ((processingEndTime - aiAnalysisEndTime) / 1000).toFixed(2), "seconds")
 
       // Store analysis in qa_analysis table
-      // Store extracted PT data and optimizations in findings JSONB (flexible storage)
+      // Store ALL comprehensive analysis data in findings JSONB (includes all 4 sections: Clinical QA, Coding Review, Financial Optimization, QAPI Audit)
       const findingsWithPTData = {
+        // Section 1: Clinical Quality Assurance (QA)
         flaggedIssues: analysis.flaggedIssues,
-        extractedPTData: analysis.extractedPTData || null,
+        inconsistencies: analysis.structuredData?.inconsistencies || [], // Store inconsistencies for counting
+        missingElements: analysis.missingElements,
+        riskFactors: analysis.riskFactors,
+        // Section 2: Coding Review
+        diagnoses: analysis.diagnoses,
+        suggestedCodes: analysis.suggestedCodes,
+        corrections: analysis.corrections,
+        // Section 3: Financial Optimization
+        financialImpact: analysis.financialImpact,
         ptOptimizations: analysis.ptOptimizations || null,
+        // Section 4: QAPI Audit
+        regulatoryIssues: analysis.regulatoryIssues,
+        documentationGaps: analysis.documentationGaps,
+        recommendations: analysis.recommendations,
+        // PT-specific extracted data
+        extractedPTData: analysis.extractedPTData || null,
+        // Processing metadata
         processingTime: {
           totalSeconds: parseFloat(processingDurationSeconds),
           aiAnalysisSeconds: parseFloat((aiAnalysisDuration / 1000).toFixed(2)),
           startTime: new Date(processingStartTime).toISOString(),
           endTime: new Date(processingEndTime).toISOString(),
         },
+        // Full analysis object for complete access
+        fullAnalysis: analysis,
       }
 
       const analysisData = {
         document_id: ptVisit.id,
         document_type: "pt_note",
-        chart_id: chartId || ptVisit.chart_id || `chart-${Date.now()}`,
+        chart_id: finalChartId,
         quality_score: analysis.qualityScores.overall,
         compliance_score: analysis.qualityScores.compliance,
         completeness_score: analysis.qualityScores.completeness,
@@ -579,7 +864,12 @@ export async function POST(request: NextRequest) {
 
       // Analyze Plan of Care using specialized analyzer
       const aiAnalysisStartTime = Date.now()
-      const pocAnalysis = await analyzePlanOfCare(fileText)
+      const pocAnalysis = await analyzePlanOfCare(
+        fileText,
+        uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+        notes || '',
+        priority as 'low' | 'medium' | 'high' | 'urgent'
+      )
       const aiAnalysisEndTime = Date.now()
       const aiAnalysisDuration = aiAnalysisEndTime - aiAnalysisStartTime
 
@@ -643,12 +933,30 @@ export async function POST(request: NextRequest) {
       console.log("[POC] ⏱️ Total processing time:", processingDurationSeconds, "seconds")
 
       // Convert to standard ClinicalQAResult format for storage
-      const analysis = await analyzeClinicalDocument(fileText, "poc")
+      console.log("[POC] 📋 Configuration:", {
+        qaType: uploadType,
+        priority: priority,
+        patientId: patientId || 'None',
+        hasNotes: !!notes
+      })
+      
+      const analysis = await analyzeClinicalDocument(
+        fileText, 
+        "poc",
+        undefined,
+        uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+        notes || '',
+        priority as 'low' | 'medium' | 'high' | 'urgent'
+      )
+
+      // Use the same chartId for all documents in the same chart
+      const finalChartId = chartId || `chart-${Date.now()}`
+      console.log("[POC] 📋 Using chart_id:", finalChartId, chartId ? "(from formData)" : "(generated)")
 
       // Store Plan of Care in clinical_documents table
       const insertData = {
         upload_id: uploadId,
-        chart_id: chartId || `chart-${Date.now()}`,
+        chart_id: finalChartId,
         document_type: "poc",
         patient_id: patientId || null,
         patient_name: sanitizeText(analysis.patientInfo?.name || ""),
@@ -659,6 +967,9 @@ export async function POST(request: NextRequest) {
         document_date: analysis.patientInfo?.visitDate ? new Date(analysis.patientInfo.visitDate).toISOString() : new Date().toISOString(),
         clinician_name: sanitizeText(analysis.patientInfo?.clinician || ""),
         discipline: "N/A",
+        upload_type: uploadType,
+        priority: priority,
+        notes: sanitizeText(notes),
         status: "completed",
         processed_at: new Date().toISOString(),
       }
@@ -678,11 +989,23 @@ export async function POST(request: NextRequest) {
       console.log("[POC] ✅ Plan of Care stored in database with ID:", pocDocument.id)
 
       // Store analysis in qa_analysis table with POC-specific data
+      // Store ALL comprehensive analysis data in findings JSONB (includes all 4 sections: Comprehensive QA, Coding Review, Financial Optimization, QAPI Audit)
       const findingsWithPOCData = {
         flaggedIssues: analysis.flaggedIssues,
+        inconsistencies: pocAnalysis.structuredData?.inconsistencies || [], // Store inconsistencies for counting
         pocQAAnalysis: pocAnalysis.qaAnalysis,
         pocStructuredData: pocAnalysis.structuredData,
         pocExtractedData: pocAnalysis.extractedData,
+        // Comprehensive 4-Section QA Analysis
+        qaComprehensive: pocAnalysis.qaComprehensive,
+        qaCodingReview: pocAnalysis.qaCodingReview,
+        qaFinancialOptimization: pocAnalysis.qaFinancialOptimization,
+        qaQAPI: pocAnalysis.qaQAPI,
+        safetyRisks: pocAnalysis.safetyRisks,
+        suggestedCodes: pocAnalysis.suggestedCodes,
+        finalRecommendations: pocAnalysis.finalRecommendations,
+        qualityScore: pocAnalysis.qualityScore,
+        confidenceScore: pocAnalysis.confidenceScore,
         processingTime: {
           totalSeconds: parseFloat(processingDurationSeconds),
           aiAnalysisSeconds: parseFloat((aiAnalysisDuration / 1000).toFixed(2)),
@@ -694,7 +1017,7 @@ export async function POST(request: NextRequest) {
       const analysisData = {
         document_id: pocDocument.id,
         document_type: "poc",
-        chart_id: chartId || pocDocument.chart_id || `chart-${Date.now()}`,
+        chart_id: finalChartId,
         quality_score: analysis.qualityScores.overall,
         compliance_score: analysis.qualityScores.compliance,
         completeness_score: analysis.qualityScores.completeness,

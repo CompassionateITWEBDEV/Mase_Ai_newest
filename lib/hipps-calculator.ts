@@ -122,6 +122,16 @@ const CASE_MIX_WEIGHTS: { [key: string]: number } = {
   '2HD21': 1.4568, '2HD22': 1.5457, '2HD23': 1.6346, '2HD24': 1.7223,
   '2HD31': 1.6223, '2HD32': 1.7212, '2HD33': 1.8301, '2HD34': 1.9279,
   
+  // Community - Early - Other (Clinical Group G)
+  '1HG11': 0.9876, '1HG12': 1.0543, '1HG13': 1.1234, '1HG14': 1.1987,
+  '1HG21': 1.1234, '1HG22': 1.2012, '1HG23': 1.2876, '1HG24': 1.3654,
+  '1HG31': 1.2543, '1HG32': 1.3421, '1HG33': 1.4398, '1HG34': 1.5287,
+  
+  // Institutional - Early - Other (Clinical Group G)
+  '2HG11': 1.1876, '2HG12': 1.2654, '2HG13': 1.3543, '2HG14': 1.4321,
+  '2HG21': 1.3543, '2HG22': 1.4432, '2HG23': 1.5321, '2HG24': 1.6198,
+  '2HG31': 1.5198, '2HG32': 1.6187, '2HG33': 1.7276, '2HG34': 1.8254,
+  
   // Late timing (J) - generally lower rates
   '1JA11': 0.7876, '1JA21': 0.9234, '1JA31': 1.0543,
   '1JB11': 0.8234, '1JB21': 0.9876, '1JB31': 1.1543,
@@ -135,9 +145,13 @@ const MEDICARE_BASE_RATE_2025 = 2058.16
 
 /**
  * Calculate total functional impairment score from M1800-M1870
- * Returns score 0-38 (sum of all 9 items)
+ * Returns score 0-38 (sum of all available items)
+ * Note: Different OASIS documents may have different numbers of items
+ * This function calculates based on whatever items are provided
  */
 export function calculateFunctionalScore(scores: Partial<FunctionalStatusScores>): number {
+  // Calculate sum of all available functional status items
+  // Not all documents will have all 9 items - use only what's provided
   const total = 
     (scores.M1800_Grooming || 0) +
     (scores.M1810_DressUpper || 0) +
@@ -149,7 +163,9 @@ export function calculateFunctionalScore(scores: Partial<FunctionalStatusScores>
     (scores.M1860_Ambulation || 0) +
     (scores.M1870_Feeding || 0)
   
-  return Math.min(total, 38) // Cap at maximum possible score
+  // Cap at maximum possible score (38 if all 9 items present)
+  // But allow for documents with fewer items
+  return Math.min(total, 38)
 }
 
 /**

@@ -191,21 +191,161 @@ interface OptimizationData {
     suggestedDescription?: string
     clinicalRationale?: string
   }>
-  missingInformation: Array<{
-    field: string
-    location: string
-    impact: string
-    recommendation: string
-    required: boolean
-  }>
-  inconsistencies: Array<{
-    sectionA: string
-    sectionB: string
-    conflictType: string
-    severity: string
-    recommendation: string
-    clinicalImpact: string
-  }>
+      missingInformation: Array<{
+        field: string
+        location: string
+        impact: string
+        recommendation: string
+        required: boolean
+      }>
+      inconsistencies: Array<{
+        sectionA: string
+        sectionB: string
+        conflictType: string
+        severity: string
+        recommendation: string
+        clinicalImpact: string
+      }>
+      // Comprehensive Analysis Sections
+      qaReview?: {
+        qualityScore: number
+        issues: Array<{
+          issue: string
+          severity: string
+          location: string
+          recommendation: string
+        }>
+      }
+      codingReview?: {
+        errors: Array<{
+          error: string
+          severity: string
+          recommendation: string
+        }>
+        suggestions: Array<{
+          code: string
+          description: string
+          reason: string
+          revenueImpact: number
+          clinicalRationale?: string
+        }>
+        validatedCodes?: Array<{
+          code: string
+          description: string
+          validationStatus: 'valid' | 'needs-review' | 'invalid'
+          issues?: string[]
+          recommendation?: string
+        }>
+        missingDiagnoses?: Array<{
+          condition: string
+          suggestedCode: string
+          codeDescription: string
+          medicalNecessity: string
+          documentationSupport: string
+          revenueImpact?: number
+        }>
+      }
+      financialOptimization?: {
+        currentRevenue: number
+        optimizedRevenue: number
+        breakdown: Array<{
+          category: string
+          current: number
+          optimized: number
+          difference: number
+        }>
+        documentationImpact?: Array<{
+          documentationType: string
+          impact: 'case-mix' | 'lupa' | 'reimbursement' | 'all'
+          description: string
+          revenueImpact: number
+          recommendation: string
+        }>
+        missingFunctionalDeficits?: Array<{
+          deficit: string
+          location: string
+          currentStatus: string
+          suggestedDocumentation: string
+          revenueImpact: number
+          clinicalJustification: string
+        }>
+        improvements?: Array<{
+          improvement: string
+          category: 'documentation' | 'functional-status' | 'lupa-reduction' | 'therapy' | 'reimbursement'
+          currentState: string
+          suggestedState: string
+          revenueImpact: number
+          actionableSteps: string[]
+          priority: 'high' | 'medium' | 'low'
+        }>
+      }
+      qapiAudit?: {
+        deficiencies: Array<{
+          deficiency: string
+          category: string
+          severity: string
+          rootCause: string
+          recommendation: string
+        }>
+        recommendations: Array<{
+          category: string
+          recommendation: string
+          priority: string
+        }>
+        regulatoryDeficiencies?: Array<{
+          deficiency: string
+          regulation: string
+          severity: 'critical' | 'high' | 'medium' | 'low'
+          description: string
+          impact: string
+          recommendation: string
+          correctiveAction: string
+        }>
+        planOfCareReview?: {
+          completeness: 'complete' | 'incomplete' | 'missing'
+          issues: Array<{
+            issue: string
+            location: string
+            severity: string
+            recommendation: string
+          }>
+          goals?: Array<{
+            goal: string
+            status: 'met' | 'in-progress' | 'not-met' | 'missing'
+            issues?: string[]
+            recommendation?: string
+          }>
+          riskMitigation?: Array<{
+            risk: string
+            mitigationStrategy: string
+            status: 'documented' | 'missing' | 'inadequate'
+            recommendation?: string
+          }>
+          safetyInstructions?: Array<{
+            instruction: string
+            status: 'present' | 'missing' | 'unclear'
+            location: string
+            recommendation?: string
+          }>
+        }
+        incompleteElements?: Array<{
+          element: string
+          location: string
+          missingInformation: string
+          impact: string
+          recommendation: string
+          priority: 'high' | 'medium' | 'low'
+        }>
+        contradictoryElements?: Array<{
+          elementA: string
+          elementB: string
+          contradiction: string
+          location: string
+          impact: string
+          recommendation: string
+          severity: 'critical' | 'high' | 'medium' | 'low'
+        }>
+      }
   debugInfo?: Record<string, any>
   codingRequest: {
     issueSubtype: string
@@ -277,6 +417,10 @@ const getSectionVisibility = (qaType: string) => {
   switch (qaType) {
     case 'coding-review':
       return {
+        qaReview: true, // Show - general QA
+        codingReview: true, // ✅ PRIMARY FOCUS
+        financialOptimization: false, // Hide - not coding focus
+        qapiAudit: false, // Hide - not coding focus
         revenueOptimization: false, // Hide - not relevant for coding
         priorityActions: false, // Hide - not coding focus
         documentationQualityScore: false, // Hide - not coding focus
@@ -299,6 +443,10 @@ const getSectionVisibility = (qaType: string) => {
     
     case 'financial-optimization':
       return {
+        qaReview: true, // Show - general QA
+        codingReview: false, // Hide - not financial focus
+        financialOptimization: true, // ✅ PRIMARY FOCUS
+        qapiAudit: false, // Hide - not financial focus
         revenueOptimization: true, // ✅ PRIMARY FOCUS - revenue metrics
         priorityActions: true, // ✅ NEW - Action list for optimization
         documentationQualityScore: true, // ✅ NEW - Overall quality metrics
@@ -321,6 +469,10 @@ const getSectionVisibility = (qaType: string) => {
     
     case 'qapi-audit':
       return {
+        qaReview: true, // ✅ PRIMARY FOCUS
+        codingReview: false, // Hide - not QAPI focus
+        financialOptimization: false, // Hide - not QAPI focus
+        qapiAudit: true, // ✅ PRIMARY FOCUS
         revenueOptimization: true, // Show - compliance includes revenue
         priorityActions: true, // ✅ NEW - Show action list
         documentationQualityScore: true, // ✅ NEW - PRIMARY FOCUS for QAPI
@@ -344,6 +496,10 @@ const getSectionVisibility = (qaType: string) => {
     case 'comprehensive-qa':
     default:
       return {
+        qaReview: true, // ✅ Show all comprehensive sections
+        codingReview: true, // ✅ Show all comprehensive sections
+        financialOptimization: true, // ✅ Show all comprehensive sections
+        qapiAudit: true, // ✅ Show all comprehensive sections
         revenueOptimization: true, // Show everything
         priorityActions: true, // ✅ NEW - Show all actions
         documentationQualityScore: true, // ✅ NEW - Show quality metrics
@@ -690,14 +846,14 @@ export default function OasisOptimizationReport() {
       currentReimbursement:
         financialImpactSource?.currentRevenue ||
         financialImpactSource?.currentReimbursement ||
-        2500,
+        0,
       potentialReimbursement:
         financialImpactSource?.optimizedRevenue ||
         financialImpactSource?.potentialReimbursement ||
-        2900,
+        0,
       additionalRevenue:
-        financialImpactSource?.increase || financialImpactSource?.additionalRevenue || 400,
-      percentIncrease: financialImpactSource?.percentIncrease || 16,
+        financialImpactSource?.increase || financialImpactSource?.additionalRevenue || 0,
+      percentIncrease: financialImpactSource?.percentIncrease || 0,
     }
 
     // ⚠️ PRIORITIZE: Use extracted_data patient info (freshly analyzed) first
@@ -776,27 +932,27 @@ export default function OasisOptimizationReport() {
           episodeTiming: analysisResults?.financialImpact?.timing || "Early (1-30 days)",
           clinicalGroup: analysisResults?.financialImpact?.clinicalGroup || "A",
           comorbidityAdj: analysisResults?.financialImpact?.comorbidityLevel || "Medium Comorbidity",
-          functionalScore: analysisResults?.financialImpact?.currentFunctionalScore || 24,
+          functionalScore: analysisResults?.financialImpact?.currentFunctionalScore || 0,
           functionalLevel: analysisResults?.financialImpact?.currentFunctionalLevel || "Low Impairment",
-          hippsCode: analysisResults?.financialImpact?.currentHipps || "1HA21",
-          caseMixWeight: analysisResults?.financialImpact?.currentCaseMix || 1.12,
-          weightedRate: analysisResults?.financialImpact?.currentRevenue || 2305.14,
-          revenue: financialImpact.currentReimbursement,
+          hippsCode: analysisResults?.financialImpact?.currentHipps || "N/A",
+          caseMixWeight: analysisResults?.financialImpact?.currentCaseMix || 0,
+          weightedRate: analysisResults?.financialImpact?.currentRevenue || 0,
+          revenue: analysisResults?.financialImpact?.currentRevenue || financialImpact.currentReimbursement || 0,
         },
         optimized: {
           admissionSource: analysisResults?.financialImpact?.admissionSource || "Community",
           episodeTiming: analysisResults?.financialImpact?.timing || "Early (1-30 days)",
           clinicalGroup: analysisResults?.financialImpact?.clinicalGroup || "A",
           comorbidityAdj: analysisResults?.financialImpact?.comorbidityLevel || "Medium Comorbidity",
-          functionalScore: analysisResults?.financialImpact?.optimizedFunctionalScore || 35,
+          functionalScore: analysisResults?.financialImpact?.optimizedFunctionalScore || 0,
           functionalLevel: analysisResults?.financialImpact?.optimizedFunctionalLevel || "Medium Impairment",
-          hippsCode: analysisResults?.financialImpact?.optimizedHipps || "1HA31",
-          caseMixWeight: analysisResults?.financialImpact?.optimizedCaseMix || 1.25,
-          weightedRate: analysisResults?.financialImpact?.optimizedRevenue || 2572.70,
-          revenue: financialImpact.potentialReimbursement,
+          hippsCode: analysisResults?.financialImpact?.optimizedHipps || "N/A",
+          caseMixWeight: analysisResults?.financialImpact?.optimizedCaseMix || 0,
+          weightedRate: analysisResults?.financialImpact?.optimizedRevenue || 0,
+          revenue: analysisResults?.financialImpact?.optimizedRevenue || financialImpact.potentialReimbursement || 0,
         },
-        revenueIncrease: financialImpact.additionalRevenue,
-        percentageIncrease: analysisResults?.financialImpact?.percentIncrease || financialImpact.percentIncrease,
+        revenueIncrease: analysisResults?.financialImpact?.increase || financialImpact.additionalRevenue || 0,
+        percentageIncrease: analysisResults?.financialImpact?.percentIncrease || financialImpact.percentIncrease || 0,
       },
       diagnoses: {
         primary: {
@@ -837,6 +993,11 @@ export default function OasisOptimizationReport() {
       missingInformation: baseMissingInformation,
       inconsistencies,
       debugInfo,
+      // Comprehensive Analysis Sections
+      qaReview: analysisResults?.qaReview || extractedData?.qaReview,
+      codingReview: analysisResults?.codingReview || extractedData?.codingReview,
+      financialOptimization: analysisResults?.financialOptimization || extractedData?.financialOptimization,
+      qapiAudit: analysisResults?.qapiAudit || extractedData?.qapiAudit,
       codingRequest: {
         issueSubtype: "Discharge Paperwork - Functional Assessment Optimization",
         status: analysisResults?.codingStatus || "Resolved - Ultra-High Confidence Optimization Complete",
@@ -860,8 +1021,11 @@ export default function OasisOptimizationReport() {
 
   // ⚠️ CRITICAL: Re-detect missing fields based on CURRENT data (not database cache)
   // This function checks the ACTUAL displayed data - only flag items that are TRULY missing
+  // AND relevant to the selected QA type
   const detectMissingFields = (data: OptimizationData): OptimizationData => {
     const missingFields: any[] = []
+    const qaType = data.qaType || 'comprehensive-qa'
+    const visibility = getSectionVisibility(qaType)
     
     // Helper to check if a value is actually missing (not just placeholder)
     const isTrulyMissing = (value: string | undefined | null): boolean => {
@@ -876,6 +1040,7 @@ export default function OasisOptimizationReport() {
       )
     }
     
+    // ALWAYS check these core fields (required for all QA types)
     // Check if primary diagnosis is TRULY missing
     const hasPrimaryDx = data.diagnoses.primary.code && 
                          !isTrulyMissing(data.diagnoses.primary.code) &&
@@ -892,39 +1057,23 @@ export default function OasisOptimizationReport() {
     }
     
     // Check if secondary diagnoses are TRULY missing (must have at least 1)
-    const hasSecondaryDx = data.diagnoses.secondary.length > 0 &&
-                           data.diagnoses.secondary.some(dx => dx.code && !isTrulyMissing(dx.code))
-    
-    if (!hasSecondaryDx) {
-      missingFields.push({
-        field: "Secondary Diagnoses (M1023)",
-        location: "Section M1023 - Other Diagnoses (typically pages 3-5 of OASIS form)",
-        impact: "HIGH - Secondary diagnoses affect case mix weight and reimbursement.",
-        recommendation: "Review the OASIS document M1023 section.",
-        required: true,
-      })
+    // Only check if diagnosis codes are relevant for this QA type
+    if (visibility.diagnosisCodes) {
+      const hasSecondaryDx = data.diagnoses.secondary.length > 0 &&
+                             data.diagnoses.secondary.some(dx => dx.code && !isTrulyMissing(dx.code))
+      
+      if (!hasSecondaryDx) {
+        missingFields.push({
+          field: "Secondary Diagnoses (M1023)",
+          location: "Section M1023 - Other Diagnoses (typically pages 3-5 of OASIS form)",
+          impact: "HIGH - Secondary diagnoses affect case mix weight and reimbursement.",
+          recommendation: "Review the OASIS document M1023 section.",
+          required: true,
+        })
+      }
     }
     
-    // ⚠️ Check CURRENT functional status data
-    const validFunctionalItems = data.functionalStatus.filter(item => 
-      item.currentValue && !isTrulyMissing(item.currentValue)
-    )
-    
-    console.log('[OASIS] 🔍 CURRENT Functional Status Count:', validFunctionalItems.length, '/ 9 items')
-    
-    // Only flag as missing if NO valid items (0 items)
-    if (validFunctionalItems.length === 0) {
-      missingFields.push({
-        field: "Functional Status Items (M1800-M1870)",
-        location: "Functional Status Section (typically pages 12-15 of OASIS form)",
-        impact: "CRITICAL - Functional status items are required for case mix calculation.",
-        recommendation: "Complete functional status items M1800-M1870.",
-        required: true,
-      })
-    }
-    // Note: If we have SOME items but not all 9, don't flag as missing - partial data is acceptable
-    
-    // Check if patient name is TRULY missing
+    // Check if patient name is TRULY missing (always required)
     if (isTrulyMissing(data.patientInfo.name)) {
       missingFields.push({
         field: "Patient Name",
@@ -935,7 +1084,7 @@ export default function OasisOptimizationReport() {
       })
     }
     
-    // Check if MRN is TRULY missing
+    // Check if MRN is TRULY missing (always required)
     if (isTrulyMissing(data.patientInfo.mrn)) {
       missingFields.push({
         field: "Medical Record Number (MRN)",
@@ -946,53 +1095,90 @@ export default function OasisOptimizationReport() {
       })
     }
     
-    // ⚠️ Check CURRENT medications data
-    const validMedications = data.medications.filter(med => 
-      med.item && !isTrulyMissing(med.item) && 
-      med.currentValue && !isTrulyMissing(med.currentValue)
-    )
+    // ⚠️ Only check functional status if it's relevant to the QA type
+    if (visibility.functionalStatus) {
+      const validFunctionalItems = data.functionalStatus.filter(item => 
+        item.currentValue && !isTrulyMissing(item.currentValue)
+      )
+      
+      console.log('[OASIS] 🔍 CURRENT Functional Status Count:', validFunctionalItems.length, '/ 9 items')
+      
+      // Only flag as missing if NO valid items (0 items)
+      if (validFunctionalItems.length === 0) {
+        missingFields.push({
+          field: "Functional Status Items (M1800-M1870)",
+          location: "Functional Status Section (typically pages 12-15 of OASIS form)",
+          impact: "CRITICAL - Functional status items are required for case mix calculation.",
+          recommendation: "Complete functional status items M1800-M1870.",
+          required: true,
+        })
+      }
+      // Note: If we have SOME items but not all 9, don't flag as missing - partial data is acceptable
+    } else {
+      console.log('[OASIS] 🔍 Skipping Functional Status check - not relevant for QA type:', qaType)
+    }
     
-    console.log('[OASIS] 💊 CURRENT Medications Count:', validMedications.length, 'items')
-    
-    // Only flag medications as missing if there are truly NO valid items
-    if (validMedications.length === 0) {
-      missingFields.push({
-        field: "Medication Management",
-        location: "Medication Management Section (typically pages 8-10 of OASIS form)",
-        impact: "HIGH - Medication management assessment is important for care planning.",
-        recommendation: "Review the medication sections (M2001, M2010, M2020, M2030).",
-        required: true,
-      })
+    // ⚠️ Only check medications if it's relevant to the QA type
+    if (visibility.medicationManagement) {
+      const validMedications = data.medications.filter(med => 
+        med.item && !isTrulyMissing(med.item) && 
+        med.currentValue && !isTrulyMissing(med.currentValue)
+      )
+      
+      console.log('[OASIS] 💊 CURRENT Medications Count:', validMedications.length, 'items')
+      
+      // Only flag medications as missing if there are truly NO valid items
+      if (validMedications.length === 0) {
+        missingFields.push({
+          field: "Medication Management",
+          location: "Medication Management Section (typically pages 8-10 of OASIS form)",
+          impact: "HIGH - Medication management assessment is important for care planning.",
+          recommendation: "Review the medication sections (M2001, M2010, M2020, M2030).",
+          required: true,
+        })
+      }
+    } else {
+      console.log('[OASIS] 💊 Skipping Medication Management check - not relevant for QA type:', qaType)
     }
 
-    // ⚠️ Check CURRENT status sections data
-    const validPainItems = data.painStatus?.filter(item => 
-      item.item && !isTrulyMissing(item.item) && 
-      item.currentValue && !isTrulyMissing(item.currentValue)
-    ) || []
-    
-    console.log('[OASIS] 🩹 CURRENT Pain Status Count:', validPainItems.length, 'items')
-    
-    if (validPainItems.length === 0) {
-      missingFields.push({
-        field: "Pain Status",
-        location: "PAIN STATUS section (check document for labeled section)",
-        impact: "HIGH - Pain status documentation is important for care planning.",
-        recommendation: "Locate the PAIN STATUS section and extract all pain-related information.",
-        required: false,
-      })
+    // ⚠️ Only check pain status if it's relevant to the QA type
+    if (visibility.painStatus) {
+      const validPainItems = data.painStatus?.filter(item => 
+        item.item && !isTrulyMissing(item.item) && 
+        item.currentValue && !isTrulyMissing(item.currentValue)
+      ) || []
+      
+      console.log('[OASIS] 🩹 CURRENT Pain Status Count:', validPainItems.length, 'items')
+      
+      if (validPainItems.length === 0) {
+        missingFields.push({
+          field: "Pain Status",
+          location: "PAIN STATUS section (check document for labeled section)",
+          impact: "HIGH - Pain status documentation is important for care planning.",
+          recommendation: "Locate the PAIN STATUS section and extract all pain-related information.",
+          required: false,
+        })
+      }
+    } else {
+      console.log('[OASIS] 🩹 Skipping Pain Status check - not relevant for QA type:', qaType)
     }
 
-    // Check other status sections
+    // Check other status sections ONLY if they're relevant to the QA type
     const statusSections = [
-      { data: data.integumentaryStatus, name: "Integumentary Status", emoji: "🏥", location: "INTEGUMENTARY STATUS section" },
-      { data: data.respiratoryStatus, name: "Respiratory Status", emoji: "🫁", location: "RESPIRATORY STATUS section" },
-      { data: data.cardiacStatus, name: "Cardiac Status", emoji: "❤️", location: "CARDIAC STATUS section" },
-      { data: data.eliminationStatus, name: "Elimination Status", emoji: "🚽", location: "ELIMINATION STATUS section" },
-      { data: data.neuroEmotionalBehavioralStatus, name: "Neuro/Emotional/Behavioral Status", emoji: "🧠", location: "NEURO/EMOTIONAL/BEHAVIORAL STATUS section" },
+      { data: data.integumentaryStatus, name: "Integumentary Status", emoji: "🏥", location: "INTEGUMENTARY STATUS section", visible: visibility.integumentaryStatus },
+      { data: data.respiratoryStatus, name: "Respiratory Status", emoji: "🫁", location: "RESPIRATORY STATUS section", visible: visibility.respiratoryStatus },
+      { data: data.cardiacStatus, name: "Cardiac Status", emoji: "❤️", location: "CARDIAC STATUS section", visible: visibility.cardiacStatus },
+      { data: data.eliminationStatus, name: "Elimination Status", emoji: "🚽", location: "ELIMINATION STATUS section", visible: visibility.eliminationStatus },
+      { data: data.neuroEmotionalBehavioralStatus, name: "Neuro/Emotional/Behavioral Status", emoji: "🧠", location: "NEURO/EMOTIONAL/BEHAVIORAL STATUS section", visible: visibility.neuroEmotionalBehavioralStatus },
     ]
 
     statusSections.forEach(section => {
+      // Only check if this section is visible/relevant for the QA type
+      if (!section.visible) {
+        console.log(`[OASIS] ${section.emoji} Skipping ${section.name} check - not relevant for QA type: ${qaType}`)
+        return
+      }
+      
       const validItems = section.data?.filter((item: any) => 
         item.item && !isTrulyMissing(item.item) && 
         item.currentValue && !isTrulyMissing(item.currentValue)
@@ -1011,14 +1197,14 @@ export default function OasisOptimizationReport() {
       }
     })
     
-    console.log('[OASIS] 📋 Frontend detected TRULY missing fields:', missingFields.length, 'items')
+    console.log('[OASIS] 📋 Frontend detected TRULY missing fields (QA type filtered):', missingFields.length, 'items for QA type:', qaType)
     if (missingFields.length > 0) {
       console.log('[OASIS] 📋 Missing fields:', missingFields.map(f => f.field).join(', '))
     } else {
-      console.log('[OASIS] ✅ No missing fields detected - all required data is present')
+      console.log('[OASIS] ✅ No missing fields detected - all required data is present for QA type:', qaType)
     }
     
-    // Return ONLY truly missing fields
+    // Return ONLY truly missing fields that are relevant to the QA type
     return {
       ...data,
       missingInformation: missingFields
@@ -1303,12 +1489,16 @@ export default function OasisOptimizationReport() {
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium text-blue-700">HIPPS Code</span>
                     <span className="font-mono font-bold text-blue-900 text-lg bg-white/50 px-3 py-1 rounded">
-                      {data.revenueAnalysis.initial.hippsCode}
+                      {data.revenueAnalysis.initial.hippsCode || 'N/A'}
                     </span>
                 </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium text-blue-700">Case Mix Weight</span>
-                    <span className="font-semibold text-blue-900">{data.revenueAnalysis.initial.caseMixWeight}</span>
+                    <span className="font-semibold text-blue-900">
+                      {data.revenueAnalysis.initial.caseMixWeight > 0 
+                        ? data.revenueAnalysis.initial.caseMixWeight.toFixed(4) 
+                        : 'N/A'}
+                    </span>
                 </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium text-blue-700">Functional Score</span>
@@ -1339,13 +1529,31 @@ export default function OasisOptimizationReport() {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium text-emerald-700">HIPPS Code</span>
-                    <span className="font-mono font-bold text-emerald-900 text-lg bg-white/50 px-3 py-1 rounded">
-                      {data.revenueAnalysis.optimized.hippsCode}
+                    <span className={`font-mono font-bold text-lg bg-white/50 px-3 py-1 rounded ${
+                      data.revenueAnalysis.initial.hippsCode === data.revenueAnalysis.optimized.hippsCode
+                        ? 'text-gray-600' // Same code - gray
+                        : 'text-emerald-900' // Different code - green
+                    }`}>
+                      {data.revenueAnalysis.optimized.hippsCode || 'N/A'}
+                      {data.revenueAnalysis.initial.hippsCode === data.revenueAnalysis.optimized.hippsCode && (
+                        <span className="ml-2 text-xs text-gray-500">(No change)</span>
+                      )}
                     </span>
                 </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium text-emerald-700">Case Mix Weight</span>
-                    <span className="font-semibold text-emerald-900">{data.revenueAnalysis.optimized.caseMixWeight}</span>
+                    <span className={`font-semibold ${
+                      data.revenueAnalysis.initial.caseMixWeight === data.revenueAnalysis.optimized.caseMixWeight
+                        ? 'text-gray-600' // Same weight - gray
+                        : 'text-emerald-900' // Different weight - green
+                    }`}>
+                      {data.revenueAnalysis.optimized.caseMixWeight > 0 
+                        ? data.revenueAnalysis.optimized.caseMixWeight.toFixed(4) 
+                        : 'N/A'}
+                      {data.revenueAnalysis.initial.caseMixWeight === data.revenueAnalysis.optimized.caseMixWeight && (
+                        <span className="ml-2 text-xs text-gray-500">(No change)</span>
+                      )}
+                    </span>
                 </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium text-emerald-700">Functional Score</span>
@@ -1381,12 +1589,18 @@ export default function OasisOptimizationReport() {
                   <p className="text-5xl font-bold text-white">
                   ${(data.revenueAnalysis.revenueIncrease || 0).toLocaleString()}
                 </p>
-                {data.revenueAnalysis.percentageIncrease && (
+                {data.revenueAnalysis.percentageIncrease && data.revenueAnalysis.percentageIncrease > 0 && (
                     <Badge className="bg-white text-green-700 font-bold text-lg px-4 py-1.5">
                       +{data.revenueAnalysis.percentageIncrease}%
                     </Badge>
                 )}
               </div>
+              {/* Show message if no optimization opportunity */}
+              {data.revenueAnalysis.revenueIncrease === 0 && (
+                <p className="text-white/80 mt-2 text-sm italic">
+                  Current documentation is already optimized. No revenue increase available without HIPPS code change.
+                </p>
+              )}
                 <p className="text-white/90 mt-2 text-sm">
                   Additional revenue per 60-day episode through accurate functional assessment
                 </p>
@@ -2317,26 +2531,813 @@ export default function OasisOptimizationReport() {
         </Card>
       )}
 
-      {/* Debug Information */}
-      {data.debugInfo && Object.keys(data.debugInfo).length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Extraction Debug Info</CardTitle>
+      {/* Comprehensive QA Review (Section C) */}
+      {data.qaReview && getSectionVisibility(data.qaType).qaReview && (
+        <Card className={`shadow-lg border-0 ${
+          data.qaType === 'comprehensive-qa' ? 'ring-2 ring-blue-300' : ''
+        }`}>
+          <CardHeader className="bg-gradient-to-r from-blue-50 to-cyan-50">
+            <CardTitle className="flex items-center gap-2">
+              <ClipboardCheck className="h-5 w-5 text-blue-600" />
+              Comprehensive QA Review
+            </CardTitle>
+            <CardDescription>Quality assurance analysis and issues</CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="grid md:grid-cols-2 gap-4 text-sm">
-              {Object.entries(data.debugInfo).map(([key, value]) => (
-                <div key={key} className="p-3 bg-gray-50 rounded border">
-                  <p className="text-xs font-semibold uppercase text-gray-600">{key}</p>
-                  <p className="text-gray-800 mt-1">
-                    {typeof value === "boolean" ? (value ? "Yes" : "No") : JSON.stringify(value, null, 2)}
-                  </p>
-                </div>
-              ))}
+          <CardContent className="pt-6">
+            <div className="mb-4">
+              <p className="text-2xl font-bold text-blue-600">{data.qaReview.qualityScore}%</p>
+              <p className="text-sm text-muted-foreground">Quality Score</p>
             </div>
+            {data.qaReview.issues && data.qaReview.issues.length > 0 && (
+              <div className="space-y-3">
+                <h4 className="font-semibold">Issues Identified</h4>
+                {data.qaReview.issues.map((issue: any, index: number) => (
+                  <div key={index} className="p-3 border rounded-lg">
+                    <div className="flex items-start justify-between mb-2">
+                      <p className="font-medium">{issue.issue}</p>
+                      <Badge variant={issue.severity === 'high' ? 'destructive' : 'secondary'}>
+                        {issue.severity}
+                      </Badge>
+                    </div>
+                    {issue.location && <p className="text-sm text-muted-foreground">📍 {issue.location}</p>}
+                    {issue.recommendation && (
+                      <p className="text-sm text-green-700 mt-2">✅ {issue.recommendation}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
+
+      {/* Coding Review (Section D) */}
+      {data.codingReview && getSectionVisibility(data.qaType).codingReview && (
+        <Card className={`shadow-lg border-0 ${
+          data.qaType === 'coding-review' ? 'ring-4 ring-purple-400 ring-offset-2' : ''
+        }`}>
+          <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50">
+            <div className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5 text-purple-600" />
+                Coding Review (ICD-10 + PDGM)
+              </CardTitle>
+              {data.qaType === 'coding-review' && (
+                <Badge className="bg-purple-500 text-white font-bold px-3 py-1">
+                  🎯 PRIMARY FOCUS
+                </Badge>
+              )}
+            </div>
+            <CardDescription>ICD-10 coding accuracy, validation, and optimization recommendations</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-6">
+            {/* 1. Validated ICD-10 Codes */}
+            {data.codingReview.validatedCodes && data.codingReview.validatedCodes.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-blue-700 flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5" />
+                  1. Validated ICD-10 Codes
+                </h4>
+                <div className="space-y-2">
+                  {data.codingReview.validatedCodes.map((validated: any, index: number) => (
+                    <div 
+                      key={index} 
+                      className={`p-3 border-2 rounded-lg ${
+                        validated.validationStatus === 'valid' 
+                          ? 'border-green-300 bg-green-50' 
+                          : validated.validationStatus === 'needs-review'
+                          ? 'border-yellow-300 bg-yellow-50'
+                          : 'border-red-300 bg-red-50'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-mono font-bold text-slate-900">{validated.code}</p>
+                            <Badge 
+                              className={
+                                validated.validationStatus === 'valid'
+                                  ? 'bg-green-600 text-white'
+                                  : validated.validationStatus === 'needs-review'
+                                  ? 'bg-yellow-600 text-white'
+                                  : 'bg-red-600 text-white'
+                              }
+                            >
+                              {validated.validationStatus === 'valid' ? '✓ Valid' : 
+                               validated.validationStatus === 'needs-review' ? '⚠ Review' : 
+                               '✗ Invalid'}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-slate-700">{validated.description}</p>
+                        </div>
+                      </div>
+                      {validated.issues && validated.issues.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {validated.issues.map((issue: string, idx: number) => (
+                            <p key={idx} className="text-sm text-orange-700">⚠️ {issue}</p>
+                          ))}
+                        </div>
+                      )}
+                      {validated.recommendation && (
+                        <p className="text-sm text-blue-700 mt-2">💡 {validated.recommendation}</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 2. Optimized Code Recommendations */}
+            {data.codingReview.suggestions && data.codingReview.suggestions.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-green-700 flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  2. Optimized Code Recommendations
+                </h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Recommended codes for improved clinical accuracy and reimbursement
+                </p>
+                <div className="space-y-3">
+                  {data.codingReview.suggestions.map((suggestion: any, index: number) => (
+                    <div key={index} className="p-4 border-2 border-green-200 rounded-lg bg-green-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-mono font-bold text-green-900 text-lg">{suggestion.code}</p>
+                            {suggestion.revenueImpact > 0 && (
+                              <Badge className="bg-green-600 text-white">
+                                +${suggestion.revenueImpact.toLocaleString()}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm font-medium text-green-800 mb-2">{suggestion.description}</p>
+                        </div>
+                      </div>
+                      {suggestion.reason && (
+                        <div className="bg-white border border-green-200 rounded p-2 mb-2">
+                          <p className="text-sm text-green-900">
+                            <span className="font-semibold">💡 Recommendation Rationale:</span> {suggestion.reason}
+                          </p>
+                        </div>
+                      )}
+                      {suggestion.clinicalRationale && (
+                        <div className="bg-blue-50 border border-blue-200 rounded p-2">
+                          <p className="text-sm text-blue-900">
+                            <span className="font-semibold">⚕️ Clinical Rationale:</span> {suggestion.clinicalRationale}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 3. Missing Medically-Necessary Diagnoses */}
+            {data.codingReview.missingDiagnoses && data.codingReview.missingDiagnoses.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-amber-700 flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5" />
+                  3. Missing Medically-Necessary Diagnoses
+                </h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Conditions documented but not currently coded
+                </p>
+                <div className="space-y-3">
+                  {data.codingReview.missingDiagnoses.map((missing: any, index: number) => (
+                    <div key={index} className="p-4 border-2 border-amber-200 rounded-lg bg-amber-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-amber-900 mb-1">{missing.condition}</p>
+                          <div className="flex items-center gap-2 mb-2">
+                            <p className="font-mono font-bold text-amber-800">{missing.suggestedCode}</p>
+                            <Badge className="bg-amber-600 text-white">Suggested Code</Badge>
+                            {missing.revenueImpact && missing.revenueImpact > 0 && (
+                              <Badge className="bg-green-600 text-white">
+                                +${missing.revenueImpact.toLocaleString()}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-amber-800 mb-2">{missing.codeDescription}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="bg-white border border-amber-200 rounded p-2">
+                          <p className="text-sm text-amber-900">
+                            <span className="font-semibold">⚕️ Medical Necessity:</span> {missing.medicalNecessity}
+                          </p>
+                        </div>
+                        <div className="bg-blue-50 border border-blue-200 rounded p-2">
+                          <p className="text-sm text-blue-900">
+                            <span className="font-semibold">📋 Documentation Support:</span> {missing.documentationSupport}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Coding Errors (if any) */}
+            {data.codingReview.errors && data.codingReview.errors.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-red-700 flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5" />
+                  Coding Errors
+                </h4>
+                {data.codingReview.errors.map((error: any, index: number) => (
+                  <div key={index} className="p-3 border-2 border-red-200 rounded-lg mb-2 bg-red-50">
+                    <div className="flex items-start justify-between mb-2">
+                      <p className="font-medium text-red-900">{error.error}</p>
+                      <Badge variant="destructive">{error.severity}</Badge>
+                    </div>
+                    {error.recommendation && (
+                      <p className="text-sm text-red-700">✅ {error.recommendation}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Financial Optimization (Section E) */}
+      {data.financialOptimization && getSectionVisibility(data.qaType).financialOptimization && (
+        <Card className={`shadow-lg border-0 ${
+          data.qaType === 'financial-optimization' ? 'ring-4 ring-green-400 ring-offset-2' : ''
+        }`}>
+          <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50">
+            <div className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2">
+                <DollarSign className="h-5 w-5 text-green-600" />
+                Financial Optimization Review
+              </CardTitle>
+              {data.qaType === 'financial-optimization' && (
+                <Badge className="bg-green-500 text-white font-bold px-3 py-1">
+                  🎯 PRIMARY FOCUS
+                </Badge>
+              )}
+            </div>
+            <CardDescription>Revenue optimization opportunities, documentation impact, and improvement recommendations</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-6">
+            {/* Revenue Summary */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-4 bg-slate-50 rounded-lg border">
+                <p className="text-sm text-muted-foreground">Current Revenue</p>
+                <p className="text-2xl font-bold">${data.financialOptimization.currentRevenue.toLocaleString()}</p>
+              </div>
+              <div className="p-4 bg-green-50 rounded-lg border-2 border-green-300">
+                <p className="text-sm text-green-700">Optimized Revenue</p>
+                <p className="text-2xl font-bold text-green-600">
+                  ${data.financialOptimization.optimizedRevenue.toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            {/* 1. Documentation Impact */}
+            {data.financialOptimization.documentationImpact && data.financialOptimization.documentationImpact.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-blue-700 flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  1. Documentation Affecting Case-Mix, LUPA, and Reimbursement
+                </h4>
+                <div className="space-y-3">
+                  {data.financialOptimization.documentationImpact.map((impact: any, index: number) => (
+                    <div key={index} className="p-4 border-2 border-blue-200 rounded-lg bg-blue-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-blue-900 mb-1">{impact.documentationType}</p>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge className={
+                              impact.impact === 'case-mix' ? 'bg-purple-600 text-white' :
+                              impact.impact === 'lupa' ? 'bg-red-600 text-white' :
+                              impact.impact === 'reimbursement' ? 'bg-green-600 text-white' :
+                              'bg-blue-600 text-white'
+                            }>
+                              {impact.impact.toUpperCase()}
+                            </Badge>
+                            {impact.revenueImpact > 0 && (
+                              <Badge className="bg-green-600 text-white">
+                                +${impact.revenueImpact.toLocaleString()}
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-blue-800 mb-2">{impact.description}</p>
+                        </div>
+                      </div>
+                      {impact.recommendation && (
+                        <div className="bg-white border border-blue-200 rounded p-2">
+                          <p className="text-sm text-blue-900">
+                            <span className="font-semibold">💡 Recommendation:</span> {impact.recommendation}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 2. Missing Functional Deficits */}
+            {data.financialOptimization.missingFunctionalDeficits && data.financialOptimization.missingFunctionalDeficits.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-amber-700 flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5" />
+                  2. Missing Functional Deficits
+                </h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Functional deficits documented in clinical notes but not coded in M1800-M1870
+                </p>
+                <div className="space-y-3">
+                  {data.financialOptimization.missingFunctionalDeficits.map((deficit: any, index: number) => (
+                    <div key={index} className="p-4 border-2 border-amber-200 rounded-lg bg-amber-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-amber-900 mb-1">{deficit.deficit}</p>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge className="bg-amber-600 text-white">Missing</Badge>
+                            {deficit.revenueImpact > 0 && (
+                              <Badge className="bg-green-600 text-white">
+                                +${deficit.revenueImpact.toLocaleString()}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="space-y-1 text-sm mb-2">
+                            <p className="text-amber-800">
+                              <span className="font-semibold">📍 Location:</span> {deficit.location}
+                            </p>
+                            <p className="text-amber-800">
+                              <span className="font-semibold">Current:</span> {deficit.currentStatus}
+                            </p>
+                            <p className="text-green-700">
+                              <span className="font-semibold">Suggested:</span> {deficit.suggestedDocumentation}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      {deficit.clinicalJustification && (
+                        <div className="bg-white border border-amber-200 rounded p-2">
+                          <p className="text-sm text-amber-900">
+                            <span className="font-semibold">⚕️ Clinical Justification:</span> {deficit.clinicalJustification}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 3. Improvement Recommendations */}
+            {data.financialOptimization.improvements && data.financialOptimization.improvements.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-green-700 flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5" />
+                  3. Improvement Recommendations
+                </h4>
+                <div className="space-y-3">
+                  {data.financialOptimization.improvements.map((improvement: any, index: number) => (
+                    <div key={index} className="p-4 border-2 border-green-200 rounded-lg bg-green-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-green-900 mb-1">{improvement.improvement}</p>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge className={
+                              improvement.category === 'documentation' ? 'bg-blue-600 text-white' :
+                              improvement.category === 'functional-status' ? 'bg-purple-600 text-white' :
+                              improvement.category === 'lupa-reduction' ? 'bg-red-600 text-white' :
+                              improvement.category === 'therapy' ? 'bg-orange-600 text-white' :
+                              'bg-green-600 text-white'
+                            }>
+                              {improvement.category.replace('-', ' ').toUpperCase()}
+                            </Badge>
+                            <Badge className={
+                              improvement.priority === 'high' ? 'bg-red-600 text-white' :
+                              improvement.priority === 'medium' ? 'bg-yellow-600 text-white' :
+                              'bg-blue-600 text-white'
+                            }>
+                              {improvement.priority.toUpperCase()} PRIORITY
+                            </Badge>
+                            {improvement.revenueImpact > 0 && (
+                              <Badge className="bg-green-600 text-white">
+                                +${improvement.revenueImpact.toLocaleString()}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="space-y-1 text-sm mb-2">
+                            <p className="text-slate-700">
+                              <span className="font-semibold">Current:</span> {improvement.currentState}
+                            </p>
+                            <p className="text-green-700">
+                              <span className="font-semibold">Suggested:</span> {improvement.suggestedState}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      {improvement.actionableSteps && improvement.actionableSteps.length > 0 && (
+                        <div className="bg-white border border-green-200 rounded p-3 mt-2">
+                          <p className="font-semibold text-green-900 mb-2">📋 Actionable Steps:</p>
+                          <ul className="space-y-1">
+                            {improvement.actionableSteps.map((step: string, stepIndex: number) => (
+                              <li key={stepIndex} className="text-sm text-green-800 flex items-start gap-2">
+                                <span className="text-green-600">•</span>
+                                <span>{step}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Revenue Breakdown */}
+            {data.financialOptimization.breakdown && data.financialOptimization.breakdown.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3">Revenue Breakdown</h4>
+                {data.financialOptimization.breakdown.map((item: any, index: number) => (
+                  <div key={index} className="p-3 border rounded-lg mb-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="font-medium">{item.category}</p>
+                      <Badge className="bg-green-600 text-white">
+                        +${item.difference.toLocaleString()}
+                      </Badge>
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      ${item.current.toLocaleString()} → ${item.optimized.toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* QAPI Audit (Section F) */}
+      {data.qapiAudit && getSectionVisibility(data.qaType).qapiAudit && (
+        <Card className={`shadow-lg border-0 ${
+          data.qaType === 'qapi-audit' ? 'ring-4 ring-orange-400 ring-offset-2' : ''
+        }`}>
+          <CardHeader className="bg-gradient-to-r from-orange-50 to-amber-50">
+            <div className="flex items-center gap-2">
+              <CardTitle className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-orange-600" />
+                QAPI Audit Review
+              </CardTitle>
+              {data.qaType === 'qapi-audit' && (
+                <Badge className="bg-orange-500 text-white font-bold px-3 py-1">
+                  🎯 PRIMARY FOCUS
+                </Badge>
+              )}
+            </div>
+            <CardDescription>Quality assurance and performance improvement audit with regulatory compliance review</CardDescription>
+          </CardHeader>
+          <CardContent className="pt-6 space-y-6">
+            {/* 1. Regulatory Deficiencies */}
+            {data.qapiAudit.regulatoryDeficiencies && data.qapiAudit.regulatoryDeficiencies.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-red-700 flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5" />
+                  1. Regulatory Deficiencies
+                </h4>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Compliance issues with CMS Conditions of Participation and regulations
+                </p>
+                <div className="space-y-3">
+                  {data.qapiAudit.regulatoryDeficiencies.map((reg: any, index: number) => (
+                    <div key={index} className="p-4 border-2 border-red-200 rounded-lg bg-red-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-red-900 mb-1">{reg.deficiency}</p>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge className={
+                              reg.severity === 'critical' ? 'bg-red-700 text-white' :
+                              reg.severity === 'high' ? 'bg-red-600 text-white' :
+                              reg.severity === 'medium' ? 'bg-orange-600 text-white' :
+                              'bg-yellow-600 text-white'
+                            }>
+                              {reg.severity.toUpperCase()}
+                            </Badge>
+                            <Badge className="bg-purple-600 text-white">{reg.regulation}</Badge>
+                          </div>
+                          <p className="text-sm text-red-800 mb-2">{reg.description}</p>
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="bg-white border border-red-200 rounded p-2">
+                          <p className="text-sm text-red-900">
+                            <span className="font-semibold">⚠️ Impact:</span> {reg.impact}
+                          </p>
+                        </div>
+                        {reg.recommendation && (
+                          <div className="bg-blue-50 border border-blue-200 rounded p-2">
+                            <p className="text-sm text-blue-900">
+                              <span className="font-semibold">💡 Recommendation:</span> {reg.recommendation}
+                            </p>
+                          </div>
+                        )}
+                        {reg.correctiveAction && (
+                          <div className="bg-green-50 border border-green-200 rounded p-2">
+                            <p className="text-sm text-green-900">
+                              <span className="font-semibold">✅ Corrective Action:</span> {reg.correctiveAction}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 2. Plan of Care, Goals, Risk Mitigation, Safety Instructions */}
+            {data.qapiAudit.planOfCareReview && (
+              <div>
+                <h4 className="font-semibold mb-3 text-blue-700 flex items-center gap-2">
+                  <ClipboardCheck className="h-5 w-5" />
+                  2. Plan of Care, Goals, Risk Mitigation, Safety Instructions Review
+                </h4>
+                <div className="space-y-4">
+                  {/* Plan of Care Completeness */}
+                  <div className="p-4 border-2 border-blue-200 rounded-lg bg-blue-50">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="font-semibold text-blue-900">Plan of Care Completeness</p>
+                      <Badge className={
+                        data.qapiAudit.planOfCareReview.completeness === 'complete' ? 'bg-green-600 text-white' :
+                        data.qapiAudit.planOfCareReview.completeness === 'incomplete' ? 'bg-yellow-600 text-white' :
+                        'bg-red-600 text-white'
+                      }>
+                        {data.qapiAudit.planOfCareReview.completeness.toUpperCase()}
+                      </Badge>
+                    </div>
+                    {data.qapiAudit.planOfCareReview.issues && data.qapiAudit.planOfCareReview.issues.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {data.qapiAudit.planOfCareReview.issues.map((issue: any, idx: number) => (
+                          <div key={idx} className="bg-white border border-blue-200 rounded p-2">
+                            <p className="text-sm text-blue-900">
+                              <span className="font-semibold">⚠️ {issue.issue}</span> - {issue.location}
+                            </p>
+                            {issue.recommendation && (
+                              <p className="text-sm text-green-700 mt-1">✅ {issue.recommendation}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Goals Review */}
+                  {data.qapiAudit.planOfCareReview.goals && data.qapiAudit.planOfCareReview.goals.length > 0 && (
+                    <div>
+                      <h5 className="font-semibold mb-2 text-blue-800">Goals Review</h5>
+                      <div className="space-y-2">
+                        {data.qapiAudit.planOfCareReview.goals.map((goal: any, idx: number) => (
+                          <div key={idx} className="p-3 border border-blue-200 rounded-lg bg-white">
+                            <div className="flex items-start justify-between mb-2">
+                              <p className="font-medium text-blue-900">{goal.goal}</p>
+                              <Badge className={
+                                goal.status === 'met' ? 'bg-green-600 text-white' :
+                                goal.status === 'in-progress' ? 'bg-yellow-600 text-white' :
+                                goal.status === 'not-met' ? 'bg-orange-600 text-white' :
+                                'bg-red-600 text-white'
+                              }>
+                                {goal.status.toUpperCase()}
+                              </Badge>
+                            </div>
+                            {goal.issues && goal.issues.length > 0 && (
+                              <div className="mt-2">
+                                {goal.issues.map((issue: string, issueIdx: number) => (
+                                  <p key={issueIdx} className="text-sm text-orange-700">⚠️ {issue}</p>
+                                ))}
+                              </div>
+                            )}
+                            {goal.recommendation && (
+                              <p className="text-sm text-green-700 mt-2">💡 {goal.recommendation}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Risk Mitigation Review */}
+                  {data.qapiAudit.planOfCareReview.riskMitigation && data.qapiAudit.planOfCareReview.riskMitigation.length > 0 && (
+                    <div>
+                      <h5 className="font-semibold mb-2 text-blue-800">Risk Mitigation Review</h5>
+                      <div className="space-y-2">
+                        {data.qapiAudit.planOfCareReview.riskMitigation.map((risk: any, idx: number) => (
+                          <div key={idx} className="p-3 border border-blue-200 rounded-lg bg-white">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <p className="font-medium text-blue-900">{risk.risk}</p>
+                                <p className="text-sm text-blue-700 mt-1">Strategy: {risk.mitigationStrategy}</p>
+                              </div>
+                              <Badge className={
+                                risk.status === 'documented' ? 'bg-green-600 text-white' :
+                                risk.status === 'inadequate' ? 'bg-yellow-600 text-white' :
+                                'bg-red-600 text-white'
+                              }>
+                                {risk.status.toUpperCase()}
+                              </Badge>
+                            </div>
+                            {risk.recommendation && (
+                              <p className="text-sm text-green-700 mt-2">💡 {risk.recommendation}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Safety Instructions Review */}
+                  {data.qapiAudit.planOfCareReview.safetyInstructions && data.qapiAudit.planOfCareReview.safetyInstructions.length > 0 && (
+                    <div>
+                      <h5 className="font-semibold mb-2 text-blue-800">Safety Instructions Review</h5>
+                      <div className="space-y-2">
+                        {data.qapiAudit.planOfCareReview.safetyInstructions.map((instruction: any, idx: number) => (
+                          <div key={idx} className="p-3 border border-blue-200 rounded-lg bg-white">
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <p className="font-medium text-blue-900">{instruction.instruction}</p>
+                                <p className="text-sm text-blue-700 mt-1">📍 {instruction.location}</p>
+                              </div>
+                              <Badge className={
+                                instruction.status === 'present' ? 'bg-green-600 text-white' :
+                                instruction.status === 'unclear' ? 'bg-yellow-600 text-white' :
+                                'bg-red-600 text-white'
+                              }>
+                                {instruction.status.toUpperCase()}
+                              </Badge>
+                            </div>
+                            {instruction.recommendation && (
+                              <p className="text-sm text-green-700 mt-2">💡 {instruction.recommendation}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* 3. Incomplete Elements */}
+            {data.qapiAudit.incompleteElements && data.qapiAudit.incompleteElements.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-amber-700 flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5" />
+                  3. Incomplete Elements
+                </h4>
+                <div className="space-y-3">
+                  {data.qapiAudit.incompleteElements.map((element: any, index: number) => (
+                    <div key={index} className="p-4 border-2 border-amber-200 rounded-lg bg-amber-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-amber-900 mb-1">{element.element}</p>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge className={
+                              element.priority === 'high' ? 'bg-red-600 text-white' :
+                              element.priority === 'medium' ? 'bg-yellow-600 text-white' :
+                              'bg-blue-600 text-white'
+                            }>
+                              {element.priority.toUpperCase()} PRIORITY
+                            </Badge>
+                          </div>
+                          <div className="space-y-1 text-sm mb-2">
+                            <p className="text-amber-800">
+                              <span className="font-semibold">📍 Location:</span> {element.location}
+                            </p>
+                            <p className="text-amber-800">
+                              <span className="font-semibold">❌ Missing:</span> {element.missingInformation}
+                            </p>
+                            <p className="text-amber-800">
+                              <span className="font-semibold">⚠️ Impact:</span> {element.impact}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      {element.recommendation && (
+                        <div className="bg-white border border-amber-200 rounded p-2">
+                          <p className="text-sm text-green-700">
+                            <span className="font-semibold">✅ Recommendation:</span> {element.recommendation}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* 4. Contradictory Elements */}
+            {data.qapiAudit.contradictoryElements && data.qapiAudit.contradictoryElements.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-red-700 flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5" />
+                  4. Contradictory Elements
+                </h4>
+                <div className="space-y-3">
+                  {data.qapiAudit.contradictoryElements.map((contradiction: any, index: number) => (
+                    <div key={index} className="p-4 border-2 border-red-200 rounded-lg bg-red-50">
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <p className="font-semibold text-red-900 mb-1">{contradiction.contradiction}</p>
+                          <div className="flex items-center gap-2 mb-2">
+                            <Badge className={
+                              contradiction.severity === 'critical' ? 'bg-red-700 text-white' :
+                              contradiction.severity === 'high' ? 'bg-red-600 text-white' :
+                              contradiction.severity === 'medium' ? 'bg-orange-600 text-white' :
+                              'bg-yellow-600 text-white'
+                            }>
+                              {contradiction.severity.toUpperCase()}
+                            </Badge>
+                          </div>
+                          <div className="space-y-1 text-sm mb-2">
+                            <p className="text-red-800">
+                              <span className="font-semibold">📍 Location:</span> {contradiction.location}
+                            </p>
+                            <div className="bg-white border border-red-200 rounded p-2">
+                              <p className="text-red-800">
+                                <span className="font-semibold">Element A:</span> {contradiction.elementA}
+                              </p>
+                              <p className="text-red-800 mt-1">
+                                <span className="font-semibold">Element B:</span> {contradiction.elementB}
+                              </p>
+                            </div>
+                            <p className="text-red-800">
+                              <span className="font-semibold">⚠️ Impact:</span> {contradiction.impact}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      {contradiction.recommendation && (
+                        <div className="bg-green-50 border border-green-200 rounded p-2">
+                          <p className="text-sm text-green-700">
+                            <span className="font-semibold">✅ Recommendation:</span> {contradiction.recommendation}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* General Deficiencies */}
+            {data.qapiAudit.deficiencies && data.qapiAudit.deficiencies.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-orange-700">General Deficiencies</h4>
+                {data.qapiAudit.deficiencies.map((deficiency: any, index: number) => (
+                  <div key={index} className="p-3 border-2 border-orange-200 rounded-lg mb-2 bg-orange-50">
+                    <div className="flex items-start justify-between mb-2">
+                      <div className="flex-1">
+                        <p className="font-medium text-orange-900">{deficiency.deficiency}</p>
+                        <p className="text-sm text-orange-700 mt-1">Category: {deficiency.category}</p>
+                      </div>
+                      <Badge variant={deficiency.severity === 'high' ? 'destructive' : 'secondary'}>
+                        {deficiency.severity}
+                      </Badge>
+                    </div>
+                    {deficiency.rootCause && (
+                      <p className="text-sm text-orange-800 mt-2">
+                        <span className="font-semibold">Root Cause:</span> {deficiency.rootCause}
+                      </p>
+                    )}
+                    {deficiency.recommendation && (
+                      <p className="text-sm text-green-700 mt-2 bg-green-50 p-2 rounded">
+                        ✅ <span className="font-semibold">Recommendation:</span> {deficiency.recommendation}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* QAPI Recommendations */}
+            {data.qapiAudit.recommendations && data.qapiAudit.recommendations.length > 0 && (
+              <div>
+                <h4 className="font-semibold mb-3 text-green-700">QAPI Recommendations</h4>
+                {data.qapiAudit.recommendations.map((rec: any, index: number) => (
+                  <div key={index} className="p-3 border-2 border-green-200 rounded-lg mb-2 bg-green-50">
+                    <div className="flex items-start justify-between mb-2">
+                      <p className="font-medium text-green-900">{rec.recommendation}</p>
+                      <Badge className="bg-green-600 text-white">{rec.priority}</Badge>
+                    </div>
+                    <p className="text-sm text-green-700">Category: {rec.category}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
 
       {/* Outcome Summary - Modern Card */}
       <Card className="shadow-lg hover:shadow-xl transition-shadow duration-300 border-0 bg-gradient-to-br from-emerald-50 to-teal-50">
