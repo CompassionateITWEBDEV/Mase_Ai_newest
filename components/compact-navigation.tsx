@@ -350,11 +350,11 @@ export function CompactNavigation({ userRole = "Neural Director", userName = "AI
       )}
 
       {mounted && (
-        <div
-          className={`fixed left-0 top-0 z-40 h-full w-56 transform glass-morphism border-r border-white/10 transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:z-auto ${
-            isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-          }`}
-        >
+      <div
+        className={`fixed left-0 top-0 z-40 h-full w-56 transform glass-morphism border-r border-white/10 transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:z-auto ${
+          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
         <div className="flex flex-col h-full">
           <div className="flex-shrink-0 p-3 border-b border-white/10">
             <div className="flex items-center space-x-2">
@@ -494,7 +494,7 @@ export function CompactNavigation({ userRole = "Neural Director", userName = "AI
             </div>
           </div>
         </div>
-        </div>
+      </div>
       )}
     </>
   )

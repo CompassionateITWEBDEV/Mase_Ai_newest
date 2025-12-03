@@ -359,19 +359,19 @@ const getPriorityColor = (priority: string) => {
       const data = await response.json()
 
       // Update local state
-      const updatedOrders = orders.map((order) => {
-        if (order.id === orderId) {
-          return {
-            ...order,
+    const updatedOrders = orders.map((order) => {
+      if (order.id === orderId) {
+        return {
+          ...order,
             status: newStatus as Order["status"],
             qaReviewer: qaReviewerName || "QA Reviewer",
             qaDate: qaDate.split("T")[0],
-            qaComments: comments,
-          }
+          qaComments: comments,
         }
-        return order
-      })
-      setOrders(updatedOrders)
+      }
+      return order
+    })
+    setOrders(updatedOrders)
       
       toast({
         title: action === "approve" ? "✓ Order Approved" : "Order Rejected",
@@ -409,10 +409,10 @@ const getPriorityColor = (priority: string) => {
       const updatedOrders = orders.map((order) => {
         if (order.id === editingOrder.id) {
           return editingOrder
-        }
-        return order
-      })
-      setOrders(updatedOrders)
+      }
+      return order
+    })
+    setOrders(updatedOrders)
 
       toast({
         title: "Order Updated",
@@ -795,17 +795,17 @@ const getPriorityColor = (priority: string) => {
           <h1 className="text-3xl font-bold text-gray-900">Order Management</h1>
           <p className="text-gray-600 mt-1">Manage healthcare orders from Axxess sync to digital signatures</p>
         </div>
-            <div className="flex gap-2">
-              <Button onClick={handleAxxessSync} disabled={isLoading} className="bg-blue-600 hover:bg-blue-700">
-                <Database className="h-4 w-4 mr-2" />
-                {isLoading ? "Syncing..." : "Sync with Axxess"}
-              </Button>
+        <div className="flex gap-2">
+          <Button onClick={handleAxxessSync} disabled={isLoading} className="bg-blue-600 hover:bg-blue-700">
+            <Database className="h-4 w-4 mr-2" />
+            {isLoading ? "Syncing..." : "Sync with Axxess"}
+          </Button>
               <Button variant="outline" onClick={handleExportReport}>
-                <Download className="h-4 w-4 mr-2" />
-                Export Report
-              </Button>
-            </div>
-          </div>
+            <Download className="h-4 w-4 mr-2" />
+            Export Report
+          </Button>
+        </div>
+      </div>
 
       {/* Sync Progress */}
       {isLoading && (
