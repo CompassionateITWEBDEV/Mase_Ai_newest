@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     // Get all unique chart_ids from clinical_documents and oasis_assessments
     const { data: clinicalDocs, error: docsError } = await supabase
       .from("clinical_documents")
-      .select("id, chart_id, patient_name, patient_id, document_type, file_name, status, quality_score, created_at")
+      .select("id, chart_id, patient_name, patient_id, document_type, file_name, status, created_at, processed_at")
       .eq("status", "completed")
       .order("created_at", { ascending: false })
 
@@ -59,7 +59,7 @@ export async function GET(request: NextRequest) {
       chart.documents.push({
         type: doc.document_type,
         fileName: doc.file_name,
-        qualityScore: doc.quality_score || 0,
+        qualityScore: 0, // Will be filled from qa_analysis table
         status: doc.status,
         createdAt: doc.created_at,
       })
@@ -157,6 +157,15 @@ export async function GET(request: NextRequest) {
       // Calculate average quality scores
       const qualityScores: number[] = []
       const complianceScores: number[] = []
+
+      // Update document quality scores from QA analyses
+      chart.documents.forEach((doc: any) => {
+        // Find QA analysis for this document type
+        const docQA = chartQAs.find((qa: any) => qa.document_type === doc.type)
+        if (docQA && docQA.quality_score) {
+          doc.qualityScore = docQA.quality_score
+        }
+      })
 
       chartQAs.forEach((qa: any) => {
         if (qa.quality_score) qualityScores.push(qa.quality_score)

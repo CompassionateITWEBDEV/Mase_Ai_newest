@@ -86,6 +86,7 @@ export class PDFcoService {
 
   /**
    * Perform OCR on an uploaded file URL (async mode for large files)
+   * OPTIMIZED: Faster processing with better extraction
    */
   async performOCR(fileUrl: string): Promise<OCRResult> {
     try {
@@ -97,8 +98,8 @@ export class PDFcoService {
         }
       }
 
-      // Start async OCR job with timeout
-      console.log("[PDF.co] Starting async OCR job...")
+      // Start async OCR job with OPTIMIZED settings for faster processing
+      console.log("[PDF.co] Starting OPTIMIZED async OCR job for faster extraction...")
       const response = await fetchWithTimeout(
         `${this.baseUrl}/pdf/convert/to/text`,
         {
@@ -111,8 +112,13 @@ export class PDFcoService {
             url: fileUrl,
             inline: false, // Use async mode
             async: true,   // Enable async processing
-            pages: "",     // Process all pages
+            pages: "",     // Process all pages (empty = all)
             name: "ocr-result.txt",
+            // ✅ OPTIMIZED extraction parameters for speed AND accuracy
+            unwrap: true,           // Better text flow for form fields
+            lang: "eng",            // English language OCR
+            checkboxes: true,       // Extract checkbox states (important for OASIS forms)
+            // Note: extractCheckboxes and profiles not supported in pdf/convert/to/text
           }),
         },
         this.ocrTimeout
@@ -133,14 +139,15 @@ export class PDFcoService {
 
       console.log("[PDF.co] OCR job started, jobId:", jobId)
 
-      // Poll job status until complete (max 5 minutes for large PDFs)
-      const maxAttempts = 60 // 60 attempts * 5 seconds = 300 seconds (5 minutes)
+      // Poll job status until complete (OPTIMIZED: shorter polling interval for faster response)
+      const maxAttempts = 120 // 120 attempts * 3 seconds = 360 seconds (6 minutes max)
       let attempts = 0
       let consecutiveErrors = 0
       const maxConsecutiveErrors = 3
 
       while (attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 5000)) // Wait 5 seconds
+        // OPTIMIZED: Reduced wait time from 5s to 3s for faster detection of completion
+        await new Promise(resolve => setTimeout(resolve, 3000)) // Wait 3 seconds
         attempts++
 
         console.log(`[PDF.co] Checking job status (attempt ${attempts}/${maxAttempts})...`)

@@ -1,8 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { createServiceClient } from "@/lib/supabase/service"
-import { analyzeOasisDocument } from "@/lib/oasis-ai-analyzer"
+import { analyzeOasisDocument, analyzeOasisFast } from "@/lib/oasis-ai-analyzer"
 import { pdfcoService } from "@/lib/pdfco-service"
-import { analyzeClinicalDocument, analyzePlanOfCare } from "@/lib/clinical-qa-analyzer"
+import { analyzeClinicalDocument, analyzePlanOfCare, analyzeClinicalDocumentFast } from "@/lib/clinical-qa-analyzer"
 
 function sanitizeText(value: any): string {
   // Handle null, undefined, or non-string values
@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
     console.log("[OASIS] Supabase client ready for database operations")
 
     if (fileType === "oasis") {
-      console.log("[OASIS] Analyzing OASIS document with AI...")
+      console.log("[OASIS] Analyzing OASIS document with FULL AI analyzer for complete data extraction...")
       console.log("[OASIS] 📋 Configuration:", {
         qaType: uploadType,
         priority: priority,
@@ -177,12 +177,143 @@ export async function POST(request: NextRequest) {
         hasNotes: !!notes
       })
       
-      const analysis = await analyzeOasisDocument(fileText, undefined, {
-        qaType: uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
-        notes: notes || '',
-        priority: priority as 'low' | 'medium' | 'high' | 'urgent',
-        patientId: patientId || ''
-      })
+      // ⚠️ DEBUG: Check what M-codes are present in the extracted text
+      const mCodes = ['M1800', 'M1810', 'M1820', 'M1830', 'M1840', 'M1845', 'M1850', 'M1860', 'M1870', 'M2001', 'M2010', 'M2020', 'M2030']
+      const foundMCodes = mCodes.filter(code => fileText.includes(code))
+      console.log("[OASIS] 🔍 M-codes found in extracted text:", foundMCodes.join(', ') || 'NONE')
+      console.log("[OASIS] 🔍 Text contains 'Functional':", fileText.toLowerCase().includes('functional'))
+      console.log("[OASIS] 🔍 Text contains 'Medication':", fileText.toLowerCase().includes('medication'))
+      console.log("[OASIS] 🔍 Text contains 'Grooming':", fileText.toLowerCase().includes('grooming'))
+      console.log("[OASIS] 🔍 Text contains 'Drug Regimen':", fileText.toLowerCase().includes('drug regimen'))
+      
+      let analysis: any
+      
+      // Track analysis start time
+      const analysisStartTime = Date.now()
+      const documentSize = fileText.length
+      
+      console.log("[OASIS] ⏱️ Starting SMART AI analysis at:", new Date(analysisStartTime).toISOString())
+      console.log("[OASIS] 📄 Document size:", documentSize, "characters (~", Math.ceil(documentSize / 2000), "pages)")
+      console.log("[OASIS] 📊 Analysis type:", uploadType)
+      console.log("[OASIS] 🎯 Priority level:", priority)
+      
+      // ✅ SMART STRATEGY: Choose analyzer based on document size to avoid timeout
+      let analyzerUsed = ''
+      let textToAnalyze = fileText
+      
+      try {
+        if (documentSize > 60000) {
+          // VERY LARGE document (>60k chars / 30+ pages) - use smart chunking
+          console.log("[OASIS] 🚀 LARGE DOCUMENT DETECTED - Using Smart Chunking + Fast Analyzer")
+          analyzerUsed = 'Smart Chunking + Fast'
+          
+          // Extract key sections strategically to stay within AI token limits
+          const sections = {
+            demographics: fileText.substring(0, 5000),     // First 5k - patient info, visit info
+            middle: fileText.substring(5000, 45000),       // Middle 40k - diagnoses, functional status
+            medications: fileText.substring(45000, 65000), // Next 20k - medications section
+            end: fileText.substring(Math.max(0, documentSize - 10000)) // Last 10k - signatures, notes
+          }
+          
+          // Combine strategically (total ~75k chars - optimized for AI processing)
+          textToAnalyze = `[PATIENT DEMOGRAPHICS]\n${sections.demographics}\n\n[ASSESSMENT DATA - DIAGNOSES & FUNCTIONAL STATUS]\n${sections.middle}\n\n[MEDICATIONS SECTION]\n${sections.medications}\n\n[END OF DOCUMENT - SIGNATURES & NOTES]\n${sections.end}`
+          
+          console.log("[OASIS] 📊 Smart extraction: Combined", textToAnalyze.length, "chars from", documentSize, "char document")
+          
+          analysis = await analyzeOasisFast(textToAnalyze, {
+            qaType: uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+            notes: notes || '',
+            priority: priority as 'low' | 'medium' | 'high' | 'urgent'
+          })
+          
+        } else if (documentSize > 30000) {
+          // LARGE document (30-60k chars / 15-30 pages) - use Fast analyzer with full text
+          console.log("[OASIS] ⚡ MEDIUM-LARGE DOCUMENT - Using Fast Analyzer with full text")
+          analyzerUsed = 'Fast (Full Text)'
+          
+          analysis = await analyzeOasisFast(fileText, {
+            qaType: uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+            notes: notes || '',
+            priority: priority as 'low' | 'medium' | 'high' | 'urgent'
+          })
+          
+        } else {
+          // NORMAL document (<30k chars / <15 pages) - use FULL two-pass analyzer
+          console.log("[OASIS] 📊 NORMAL DOCUMENT - Using Full Two-Pass Analyzer")
+          analyzerUsed = 'Full Two-Pass'
+          
+          analysis = await analyzeOasisDocument(fileText, undefined, {
+            qaType: uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+            notes: notes || '',
+            priority: priority as 'low' | 'medium' | 'high' | 'urgent',
+            patientId: patientId || ''
+          })
+        }
+        
+        const analysisEndTime = Date.now()
+        const analysisDuration = ((analysisEndTime - analysisStartTime) / 1000).toFixed(2)
+        
+        console.log("[OASIS] ✅ Analysis completed in:", analysisDuration, "seconds")
+        console.log("[OASIS] 📊 Analyzer used:", analyzerUsed)
+        console.log("[OASIS] 📊 Extracted data:")
+        console.log("[OASIS]    - Patient Info:", !!analysis.patientInfo)
+        console.log("[OASIS]    - Diagnoses:", (analysis.secondaryDiagnoses?.length || 0) + 1)
+        console.log("[OASIS]    - Functional Status Items:", analysis.functionalStatus?.length || 0)
+        console.log("[OASIS]    - Medications:", analysis.medications?.length || 0)
+        console.log("[OASIS]    - Optimization Suggestions:", analysis.suggestedCodes?.length || 0)
+        console.log("[OASIS]    - Financial Impact: $", analysis.financialImpact?.increase || 0)
+        
+      } catch (aiError) {
+        const analysisEndTime = Date.now()
+        const analysisDuration = ((analysisEndTime - analysisStartTime) / 1000).toFixed(2)
+        console.error("[OASIS] ⚠️ Analysis failed after", analysisDuration, "seconds:", aiError)
+        console.log("[OASIS] 🔄 Trying ultimate fallback...")
+        
+        // Ultimate fallback - try Fast analyzer one more time with reduced text
+        try {
+          const fastStartTime = Date.now()
+          const reducedText = fileText.substring(0, 50000) // First 50k only
+          console.log("[OASIS] 🔄 Fallback: Using first 50k chars only...")
+          
+          analysis = await analyzeOasisFast(reducedText, {
+            qaType: uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+            notes: notes || '',
+            priority: priority as 'low' | 'medium' | 'high' | 'urgent'
+          })
+          
+          const fastEndTime = Date.now()
+          const fastDuration = ((fastEndTime - fastStartTime) / 1000).toFixed(2)
+          console.log("[OASIS] ✅ Fallback analyzer completed in:", fastDuration, "seconds")
+        } catch (fastError) {
+          console.error("[OASIS] ⚠️ All analyzers failed, using basic extraction:", fastError)
+          // Extract basic info from text
+          const mrnMatch = fileText.match(/MRN[:\s]*([A-Z0-9]+)/i)
+          const nameMatch = fileText.match(/Patient(?:\s+Name)?[:\s]*([A-Z][a-z]+(?:,\s*[A-Z][a-z]+)?)/i)
+          
+          // Provide a basic fallback analysis
+          analysis = {
+            patientInfo: {
+              name: nameMatch ? nameMatch[1] : "Unknown Patient",
+              mrn: mrnMatch ? mrnMatch[1] : "N/A",
+              visitType: "OASIS",
+              payor: "N/A",
+              visitDate: new Date().toISOString().split('T')[0],
+              clinician: "N/A"
+            },
+            primaryDiagnosis: { code: "N/A", description: "Unable to extract - AI timeout", confidence: 0 },
+            secondaryDiagnoses: [],
+            functionalStatus: [],
+            medications: [],
+            qualityScore: 60,
+            confidenceScore: 50,
+            completenessScore: 60,
+            flaggedIssues: [{ issue: "AI analysis timed out - manual review recommended", severity: "high", category: "system" }],
+            recommendations: [{ recommendation: "Manual review of OASIS document recommended due to AI timeout", priority: "high", category: "system" }],
+            financialImpact: { currentRevenue: 0, optimizedRevenue: 0, potentialIncrease: 0 },
+            suggestedCodes: []
+          }
+        }
+      }
 
       console.log("[OASIS] ✅ Analysis completed!")
       console.log("[OASIS] 📊 Quality Metrics:", {
@@ -273,7 +404,30 @@ export async function POST(request: NextRequest) {
           // Ensure patientInfo is included in extracted_data
           patientInfo: analysis.patientInfo || null,
           // Store qapiAudit in extracted_data so QAPI report can find it
-          qapiAudit: analysis.qapiAudit || undefined
+          qapiAudit: analysis.qapiAudit || undefined,
+          // ⚠️ IMPORTANT: Include functionalStatus and medications in extracted_data
+          // so the optimization API can find them
+          functionalStatus: analysis.functionalStatus || [],
+          medications: analysis.medications || [],
+          // ✅ NEW: Include ALL clinical status sections in extracted_data
+          painStatus: analysis.painStatus || [],
+          integumentaryStatus: analysis.integumentaryStatus || [],
+          respiratoryStatus: analysis.respiratoryStatus || [],
+          cardiacStatus: analysis.cardiacStatus || [],
+          eliminationStatus: analysis.eliminationStatus || [],
+          neuroEmotionalBehavioralStatus: analysis.neuroEmotionalBehavioralStatus || [],
+          // Include other analysis data for complete retrieval
+          primaryDiagnosis: analysis.primaryDiagnosis || null,
+          secondaryDiagnoses: analysis.secondaryDiagnoses || [],
+          missingInformation: analysis.missingInformation || [],
+          inconsistencies: analysis.inconsistencies || [],
+          suggestedCodes: analysis.suggestedCodes || [],
+          recommendations: analysis.recommendations || [],
+          flaggedIssues: analysis.flaggedIssues || [],
+          qualityScore: analysis.qualityScore || 0,
+          confidenceScore: analysis.confidenceScore || 0,
+          completenessScore: analysis.completenessScore || 0,
+          financialImpact: analysis.financialImpact || null
         },
         missing_information: analysis.missingInformation || [],
         inconsistencies: analysis.inconsistencies || [],
@@ -421,12 +575,39 @@ export async function POST(request: NextRequest) {
       
       // Track AI analysis start time
       const aiAnalysisStartTime = Date.now()
-      const analysis = await analyzePhysicianOrder(
-        fileText,
-        uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
-        notes || '',
-        priority as 'low' | 'medium' | 'high' | 'urgent'
-      )
+      let analysis: any
+      
+      try {
+        analysis = await analyzePhysicianOrder(
+          fileText,
+          uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
+          notes || '',
+          priority as 'low' | 'medium' | 'high' | 'urgent'
+        )
+      } catch (aiError) {
+        console.error("[PHYSICIAN ORDER] ⚠️ AI analysis failed, using basic extraction:", aiError)
+        // Extract basic info from text
+        const physicianMatch = fileText.match(/(?:Physician|Doctor|MD)[:\s]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i)
+        const npiMatch = fileText.match(/NPI[:\s]*(\d+)/i)
+        
+        // Provide a basic fallback analysis
+        analysis = {
+          presentInPdf: [],
+          missingInformation: [{ element: "AI Analysis", location: "N/A", impact: "Unable to analyze - timeout", recommendation: "Manual review required", severity: "high" }],
+          qaFindings: [{ finding: "AI analysis timed out", category: "system", severity: "medium", recommendation: "Retry analysis or review manually" }],
+          codingReview: [],
+          financialRisks: [],
+          qapiDeficiencies: [],
+          optimizedOrderTemplate: "",
+          qualityScore: 60,
+          confidenceScore: 50,
+          extractedData: {
+            physician: physicianMatch ? physicianMatch[1] : "Unknown",
+            npi: npiMatch ? npiMatch[1] : "N/A"
+          }
+        }
+      }
+      
       const aiAnalysisEndTime = Date.now()
       const aiAnalysisDuration = aiAnalysisEndTime - aiAnalysisStartTime
       
@@ -630,8 +811,7 @@ export async function POST(request: NextRequest) {
       const processingStartTime = Date.now()
       console.log("[PT VISIT] ⏱️ Processing started at:", new Date(processingStartTime).toISOString())
 
-      // Import clinical QA analyzer
-      const { analyzeClinicalDocument } = await import("@/lib/clinical-qa-analyzer")
+      // ✅ Using analyzeClinicalDocumentFast from top-level import (no dynamic import needed)
       
       console.log("[PT VISIT] Extracted text length:", fileText.length, "characters")
       console.log("[PT VISIT] Estimated pages:", Math.ceil(fileText.length / 2000))
@@ -649,8 +829,7 @@ export async function POST(request: NextRequest) {
       
       console.log("[PT VISIT] Direct MRN extraction from text:", extractedMRN)
 
-      console.log("[PT VISIT] Starting AI analysis with clinical-qa-analyzer...")
-      console.log("[PT VISIT] Using FULL extracted text for analysis (", fileText.length, "characters)")
+      console.log("[PT VISIT] Starting FAST AI analysis (same method as OASIS)...")
       console.log("[PT VISIT] 📋 Configuration:", {
         qaType: uploadType,
         priority: priority,
@@ -660,14 +839,32 @@ export async function POST(request: NextRequest) {
       
       // Track AI analysis start time
       const aiAnalysisStartTime = Date.now()
-      const analysis = await analyzeClinicalDocument(
-        fileText, 
-        "pt_note",
-        undefined,
-        uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
-        notes || '',
-        priority as 'low' | 'medium' | 'high' | 'urgent'
-      )
+      let analysis: any
+      
+      try {
+        // ✅ Use FAST analyzer first (same as OASIS) - faster and more reliable
+        analysis = await analyzeClinicalDocumentFast(fileText, "pt_note", uploadType)
+        console.log("[PT VISIT] ✅ FAST analysis completed successfully!")
+      } catch (aiError) {
+        console.error("[PT VISIT] ⚠️ FAST analyzer failed, using basic extraction:", aiError)
+        // Provide a basic fallback analysis
+        analysis = {
+          patientInfo: {
+            name: extractedMRN ? "Patient" : "Unknown Patient",
+            mrn: extractedMRN || "N/A",
+            dob: "N/A",
+            visitDate: new Date().toISOString().split('T')[0]
+          },
+          qualityScores: { overall: 70, documentation: 70, compliance: 70, completeness: 70 },
+          diagnoses: [],
+          flaggedIssues: [{ issue: "AI analysis timed out - manual review recommended", severity: "medium" }],
+          recommendations: ["Manual review of document recommended due to AI timeout"],
+          missingElements: [],
+          financialImpact: { estimatedImpact: 0, details: "Unable to calculate - AI timeout" },
+          extractedData: { rawText: fileText.substring(0, 5000) }
+        }
+      }
+      
       const aiAnalysisEndTime = Date.now()
       const aiAnalysisDuration = aiAnalysisEndTime - aiAnalysisStartTime
       
@@ -716,7 +913,17 @@ export async function POST(request: NextRequest) {
         file_size: file.size,
         file_url: fileUrl,
         extracted_text: sanitizeText(fileText.substring(0, 10000)),
-        document_date: analysis.patientInfo?.visitDate ? new Date(analysis.patientInfo.visitDate).toISOString() : new Date().toISOString(),
+        document_date: (() => {
+          try {
+            if (analysis.patientInfo?.visitDate && analysis.patientInfo.visitDate !== "N/A") {
+              const parsedDate = new Date(analysis.patientInfo.visitDate)
+              return isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString()
+            }
+            return new Date().toISOString()
+          } catch {
+            return new Date().toISOString()
+          }
+        })(),
         clinician_name: sanitizeText(analysis.patientInfo?.clinician || ""),
         discipline: "PT",
         upload_type: uploadType,
@@ -862,14 +1069,253 @@ export async function POST(request: NextRequest) {
       console.log("[POC] Physician:", directExtractions.physicianName)
       console.log("[POC] ========================================")
 
-      // Analyze Plan of Care using specialized analyzer
+      // Analyze Plan of Care using FAST analyzer first (60 sec timeout)
+      // Falls back to basic extraction if FAST fails
       const aiAnalysisStartTime = Date.now()
-      const pocAnalysis = await analyzePlanOfCare(
-        fileText,
-        uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
-        notes || '',
-        priority as 'low' | 'medium' | 'high' | 'urgent'
-      )
+      let pocAnalysis: any
+      
+      console.log("[POC] Starting FAST AI analysis (60 sec timeout)...")
+      try {
+        // Use FAST analyzer for quicker processing
+        const fastResult = await analyzeClinicalDocumentFast(fileText, "poc", uploadType)
+        const fastResultAny = fastResult as any
+        
+        // ✅ Convert FAST result to POC format - use AI-extracted data with fallbacks
+        const aiData = fastResultAny.pocExtractedData || fastResultAny.extractedData || fastResultAny
+        const aiPatient = (aiData.patientInfo || {}) as any
+        const structuredQA = aiData.structuredQA || fastResultAny.structuredQA || {}
+        const qaQAPI = aiData.qaQAPI || fastResultAny.qaQAPI || {}
+        const qaFinancialOptimization = aiData.qaFinancialOptimization || fastResultAny.qaFinancialOptimization || {}
+        const qaCodingReview = aiData.qaCodingReview || fastResultAny.qaCodingReview || {}
+        const aiMedications = (aiData.medications || fastResultAny.medications || []) as any[]
+        const aiDiagnoses = (aiData.diagnoses || fastResultAny.diagnoses || []) as any[]
+        
+        pocAnalysis = {
+          qaAnalysis: "Analysis completed with FAST analyzer",
+          structuredData: {
+            // ✅ Use AI-extracted QA issues, with fallbacks
+            missingInformation: structuredQA.missingInformation || 
+              (fastResult.missingElements || []).map((e: any) => ({ issue: e, whyItMatters: "Missing from document" })),
+            inconsistencies: structuredQA.inconsistencies || [],
+            medicationIssues: structuredQA.medicationIssues || [],
+            clinicalLogicGaps: structuredQA.clinicalLogicGaps || [],
+            complianceRisks: structuredQA.complianceRisks || 
+              (fastResult.flaggedIssues || []).map((i: any) => ({ issue: i.issue || i, reason: i.severity || "medium" })),
+            signatureDateProblems: structuredQA.signatureDateProblems || []
+          },
+          // ✅ QAPI Audit data (UI-compatible format)
+          qaQAPI: {
+            regulatoryDeficiencies: qaQAPI.regulatoryDeficiencies || [],
+            planOfCareReview: qaQAPI.planOfCareReview || { completeness: 'incomplete', issues: [], goals: [], riskMitigation: [] },
+            incompleteElements: qaQAPI.incompleteElements || [],
+            overallQualityScore: qaQAPI.overallQualityScore || 0,
+            riskLevel: qaQAPI.riskLevel || 'medium'
+          },
+          // ✅ Financial Optimization data (UI-compatible format)
+          qaFinancialOptimization: {
+            currentEstimatedReimbursement: qaFinancialOptimization.currentEstimatedReimbursement || 0,
+            optimizedReimbursement: qaFinancialOptimization.optimizedReimbursement || 0,
+            revenueDifference: qaFinancialOptimization.revenueDifference || 0,
+            documentationNeededToIncreaseReimbursement: qaFinancialOptimization.documentationNeededToIncreaseReimbursement || []
+          },
+          // ✅ Coding Review data (UI-compatible format)
+          qaCodingReview: {
+            validatedCodes: qaCodingReview.validatedCodes || [],
+            missingDiagnoses: qaCodingReview.missingDiagnoses || [],
+            codingAccuracy: qaCodingReview.codingAccuracy || 0,
+            specificityScore: qaCodingReview.specificityScore || 0
+          },
+          extractedData: {
+            // ✅ Patient Info - use AI data first, then direct extractions, then fallback
+            patientInfo: {
+              name: aiPatient?.name || fastResult.patientInfo?.name || directExtractions.patientName || "Unknown",
+              mrn: aiPatient?.mrn || fastResult.patientInfo?.mrn || directExtractions.mrn || "N/A",
+              dob: aiPatient?.dob || "N/A",
+              gender: aiPatient?.gender || "N/A",
+              address: aiPatient?.address || "N/A",
+              phone: aiPatient?.phone || "N/A"
+            },
+            // ✅ Order Info - use AI data first
+            orderInfo: {
+              orderNumber: aiData.orderInfo?.orderNumber || directExtractions.orderNumber || "N/A",
+              startOfCareDate: aiData.orderInfo?.startOfCareDate || directExtractions.startOfCare || "N/A",
+              certificationPeriod: {
+                start: aiData.orderInfo?.certificationPeriod?.start || directExtractions.certificationStart || "N/A",
+                end: aiData.orderInfo?.certificationPeriod?.end || directExtractions.certificationEnd || "N/A"
+              },
+              providerNumber: aiData.orderInfo?.providerNumber || "N/A",
+              patientHIClaimNo: aiData.orderInfo?.patientHIClaimNo || "N/A"
+            },
+            // ✅ Physician Info - use AI data first
+            physicianInfo: {
+              name: aiData.physicianInfo?.name || directExtractions.physicianName || "N/A",
+              npi: aiData.physicianInfo?.npi || directExtractions.physicianNPI || "N/A",
+              address: aiData.physicianInfo?.address || "N/A",
+              phone: aiData.physicianInfo?.phone || "N/A",
+              fax: aiData.physicianInfo?.fax || "N/A"
+            },
+            agencyInfo: { name: "N/A", address: "N/A", phone: "N/A", fax: "N/A" },
+            // ✅ Clinical Status - use AI data
+            clinicalStatus: { 
+              prognosis: aiData.clinicalStatus?.prognosis || "N/A", 
+              mentalCognitiveStatus: aiData.clinicalStatus?.mentalCognitiveStatus || "N/A", 
+              functionalLimitations: aiData.clinicalStatus?.functionalLimitations || [], 
+              safety: aiData.clinicalStatus?.safety || [], 
+              advanceDirectives: "N/A", 
+              psychosocialStatus: "N/A" 
+            },
+            emergencyPreparedness: { emergencyTriage: "N/A", evacuationZone: "N/A", additionalInfo: "N/A" },
+            // ✅ Medications - use AI data
+            medications: aiMedications,
+            // ✅ Diagnoses - use AI data
+            diagnoses: { 
+              primary: aiDiagnoses?.[0] || { code: "N/A", description: "N/A" }, 
+              other: aiDiagnoses.slice(1) 
+            },
+            // ✅ Goals - use AI data
+            goals: { 
+              patientGoals: aiData.goals?.patientGoals || [], 
+              ptGoals: aiData.goals?.ptGoals || [], 
+              measurableGoals: aiData.goals?.measurableGoals || [] 
+            },
+            // ✅ Treatment Plan - use AI data
+            treatmentPlan: { 
+              disciplines: aiData.treatmentPlan?.disciplines || [], 
+              frequencies: aiData.treatmentPlan?.frequencies || [], 
+              effectiveDate: "N/A", 
+              orders: aiData.treatmentPlan?.orders || [] 
+            },
+            // ✅ DME Info - use AI data
+            dmeInfo: {
+              dmeItems: aiData.dmeInfo?.dmeItems || [],
+              providerName: aiData.dmeInfo?.providerName || "N/A",
+              providerPhone: aiData.dmeInfo?.providerPhone || "N/A",
+              suppliesProvided: aiData.dmeInfo?.suppliesProvided || "N/A"
+            },
+            // ✅ Signatures - use AI data
+            signatures: { 
+              nurseTherapistSignature: aiData.signatures?.nurseTherapistSignature || "N/A", 
+              nurseTherapistDate: aiData.signatures?.nurseTherapistDate || "N/A", 
+              physicianSignature: aiData.signatures?.physicianSignature || "N/A", 
+              physicianSignatureDate: aiData.signatures?.physicianSignatureDate || "N/A", 
+              dateHHAReceivedSigned: aiData.signatures?.dateHHAReceivedSigned || "N/A", 
+              f2fDate: aiData.signatures?.f2fDate || "N/A" 
+            },
+            homeboundNarrative: "N/A",
+            medicalNecessity: "N/A",
+            rehabilitationPotential: "N/A",
+            dischargePlan: { dischargeTo: "N/A", dischargeWhen: "N/A" }
+          },
+          qualityScore: fastResult.qualityScores?.overall || 75,
+          confidenceScore: 70,
+          // ✅ 4-Section QA Analysis for different QA types (UI-compatible)
+          qaComprehensive: {
+            clinicalFindings: structuredQA.clinicalLogicGaps || [],
+            documentationIssues: structuredQA.missingInformation || [],
+            qualityMetrics: {
+              overall: fastResult.qualityScores?.overall || 75,
+            documentation: fastResult.qualityScores?.completeness || 70,
+              compliance: fastResult.qualityScores?.compliance || 75,
+              completeness: fastResult.qualityScores?.completeness || 70
+            }
+          },
+        safetyRisks: structuredQA.complianceRisks || [],
+        suggestedCodes: qaCodingReview.validatedCodes || [],
+        finalRecommendations: [
+          ...(structuredQA.missingInformation || []).map((m: any) => ({ category: 'Documentation', recommendation: m.issue, priority: 'high' })),
+          ...(structuredQA.inconsistencies || []).map((i: any) => ({ category: 'Consistency', recommendation: i.issue, priority: 'medium' }))
+        ]
+        }
+        console.log("[POC] ✅ FAST analysis completed successfully!")
+        console.log("[POC] 📊 Extracted Patient:", pocAnalysis.extractedData.patientInfo.name)
+        console.log("[POC] 📊 Extracted Physician:", pocAnalysis.extractedData.physicianInfo.name)
+        console.log("[POC] 📊 Extracted Diagnoses:", pocAnalysis.extractedData.diagnoses.other.length + 1)
+        console.log("[POC] 📊 Extracted Medications:", pocAnalysis.extractedData.medications.length)
+      } catch (aiError) {
+        console.error("[POC] ⚠️ FAST AI analysis failed, using basic extraction:", aiError)
+        // Provide a basic fallback analysis
+        pocAnalysis = {
+          qaAnalysis: "AI analysis timed out - manual review recommended",
+          structuredData: {
+            missingInformation: [{ issue: "AI timeout", whyItMatters: "Unable to analyze document" }],
+            inconsistencies: [],
+            medicationIssues: [],
+            clinicalLogicGaps: [],
+            complianceRisks: [],
+            signatureDateProblems: []
+          },
+          extractedData: {
+            patientInfo: {
+              name: directExtractions.patientName || "Unknown",
+              mrn: directExtractions.mrn || "N/A",
+              dob: "N/A",
+              gender: "N/A",
+              address: "N/A",
+              phone: "N/A"
+            },
+            orderInfo: {
+              orderNumber: directExtractions.orderNumber || "N/A",
+              startOfCareDate: directExtractions.startOfCare || "N/A",
+              certificationPeriod: {
+                start: directExtractions.certificationStart || "N/A",
+                end: directExtractions.certificationEnd || "N/A"
+              },
+              providerNumber: "N/A",
+              patientHIClaimNo: "N/A"
+            },
+            physicianInfo: {
+              name: directExtractions.physicianName || "N/A",
+              npi: directExtractions.physicianNPI || "N/A",
+              address: "N/A",
+              phone: "N/A",
+              fax: "N/A"
+            },
+            agencyInfo: { name: "N/A", address: "N/A", phone: "N/A", fax: "N/A" },
+            clinicalStatus: { prognosis: "N/A", mentalCognitiveStatus: "N/A", functionalLimitations: [], safety: [], advanceDirectives: "N/A", psychosocialStatus: "N/A" },
+            emergencyPreparedness: { emergencyTriage: "N/A", evacuationZone: "N/A", additionalInfo: "N/A" },
+            medications: [],
+            diagnoses: { primary: { code: "N/A", description: "N/A" }, other: [] },
+            goals: { patientGoals: [], ptGoals: [], measurableGoals: [] },
+            treatmentPlan: { disciplines: [], frequencies: [], effectiveDate: "N/A", orders: [] },
+            signatures: { nurseTherapistSignature: "N/A", nurseTherapistDate: "N/A", physicianSignature: "N/A", physicianSignatureDate: "N/A", dateHHAReceivedSigned: "N/A", f2fDate: "N/A" },
+            homeboundNarrative: "N/A",
+            medicalNecessity: "N/A",
+            rehabilitationPotential: "N/A",
+            dischargePlan: { dischargeTo: "N/A", dischargeWhen: "N/A" }
+          },
+          qualityScore: 60,
+          confidenceScore: 50,
+          // ✅ Fallback 4-Section QA Analysis (UI-compatible format)
+          qaQAPI: {
+            regulatoryDeficiencies: [{ deficiency: "AI Analysis Timeout", severity: "high", regulation: "N/A", description: "Unable to analyze document", impact: "Cannot verify compliance", recommendation: "Manual review required", correctiveAction: "Resubmit document or review manually" }],
+            planOfCareReview: { completeness: 'incomplete', issues: [{ issue: "AI timeout", location: "Full document", recommendation: "Manual review" }], goals: [], riskMitigation: [] },
+            incompleteElements: [{ element: "Full Analysis", location: "Entire document", missingInformation: "AI timeout", impact: "Unable to verify quality", recommendation: "Manual review required" }],
+            overallQualityScore: 50,
+            riskLevel: 'high'
+          },
+          qaFinancialOptimization: {
+            currentEstimatedReimbursement: 0,
+            optimizedReimbursement: 0,
+            revenueDifference: 0,
+            documentationNeededToIncreaseReimbursement: [{ documentation: "Full document analysis", impact: "Unable to calculate", revenueImpact: 0, recommendation: "Manual review required" }]
+          },
+          qaCodingReview: {
+            validatedCodes: [],
+            missingDiagnoses: [],
+            codingAccuracy: 0,
+            specificityScore: 0
+          },
+          qaComprehensive: {
+            clinicalFindings: [],
+            documentationIssues: [{ issue: "AI timeout", whyItMatters: "Unable to analyze document" }],
+            qualityMetrics: { overall: 50, documentation: 0, compliance: 0, completeness: 0 }
+          },
+          safetyRisks: [],
+          suggestedCodes: [],
+          finalRecommendations: [{ category: 'System', recommendation: 'AI analysis timeout - manual review required', priority: 'high' }]
+        }
+      }
+      
       const aiAnalysisEndTime = Date.now()
       const aiAnalysisDuration = aiAnalysisEndTime - aiAnalysisStartTime
 
@@ -940,14 +1386,58 @@ export async function POST(request: NextRequest) {
         hasNotes: !!notes
       })
       
-      const analysis = await analyzeClinicalDocument(
-        fileText, 
-        "poc",
-        undefined,
-        uploadType as 'comprehensive-qa' | 'coding-review' | 'financial-optimization' | 'qapi-audit',
-        notes || '',
-        priority as 'low' | 'medium' | 'high' | 'urgent'
-      )
+      // ✅ Use FAST analysis result directly - NO DOUBLE ANALYSIS!
+      // Convert pocAnalysis to standard ClinicalQAResult format
+      const analysis = {
+        documentType: "poc" as const,
+        patientInfo: {
+          name: pocAnalysis.extractedData?.patientInfo?.name || directExtractions.patientName || "Unknown",
+          mrn: pocAnalysis.extractedData?.patientInfo?.mrn || directExtractions.mrn || "N/A",
+          visitDate: pocAnalysis.extractedData?.orderInfo?.startOfCareDate || "N/A",
+          clinician: pocAnalysis.extractedData?.physicianInfo?.name || directExtractions.physicianName || "N/A",
+          clinicianType: "MD"
+        },
+        qualityScores: {
+          overall: pocAnalysis.qualityScore || 75,
+          completeness: pocAnalysis.confidenceScore || 70,
+          accuracy: pocAnalysis.qualityScore || 75,
+          compliance: pocAnalysis.qualityScore || 75,
+          confidence: pocAnalysis.confidenceScore || 70
+        },
+        diagnoses: pocAnalysis.extractedData?.diagnoses?.other?.map((d: any) => ({
+          code: d.code || "N/A",
+          description: d.description || "N/A",
+          type: "secondary"
+        })) || [],
+        flaggedIssues: pocAnalysis.structuredData?.complianceRisks?.map((r: any) => ({
+          issue: r.issue || r,
+          severity: r.reason || "medium",
+          location: "Plan of Care",
+          suggestion: "Review and address",
+          category: "compliance"
+        })) || [],
+        recommendations: pocAnalysis.structuredData?.missingInformation?.map((m: any) => ({
+          category: "documentation",
+          recommendation: m.issue || m,
+          priority: "medium",
+          expectedImpact: m.whyItMatters || "Complete for compliance"
+        })) || [],
+        missingElements: pocAnalysis.structuredData?.missingInformation?.map((m: any) => ({
+          element: m.issue || m,
+          category: "documentation",
+          severity: "medium",
+          recommendation: m.whyItMatters || "Review document"
+        })) || [],
+        financialImpact: {
+          currentRevenue: 0,
+          optimizedRevenue: 0,
+          increase: 0,
+          breakdown: []
+        },
+        suggestedCodes: [],
+        regulatoryIssues: pocAnalysis.structuredData?.complianceRisks || [],
+        documentationGaps: pocAnalysis.structuredData?.missingInformation || []
+      }
 
       // Use the same chartId for all documents in the same chart
       const finalChartId = chartId || `chart-${Date.now()}`
@@ -964,7 +1454,17 @@ export async function POST(request: NextRequest) {
         file_size: file.size,
         file_url: fileUrl,
         extracted_text: sanitizeText(fileText.substring(0, 10000)),
-        document_date: analysis.patientInfo?.visitDate ? new Date(analysis.patientInfo.visitDate).toISOString() : new Date().toISOString(),
+        document_date: (() => {
+          try {
+            if (analysis.patientInfo?.visitDate && analysis.patientInfo.visitDate !== "N/A") {
+              const parsedDate = new Date(analysis.patientInfo.visitDate)
+              return isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString()
+            }
+            return new Date().toISOString()
+          } catch {
+            return new Date().toISOString()
+          }
+        })(),
         clinician_name: sanitizeText(analysis.patientInfo?.clinician || ""),
         discipline: "N/A",
         upload_type: uploadType,

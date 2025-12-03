@@ -1,5 +1,10 @@
 import { generateText } from "ai"
 import { openai } from "@ai-sdk/openai"
+import { google } from "@ai-sdk/google"
+
+// ✅ Use Gemini as primary AI (faster, more reliable for long documents)
+// ✅ Use OpenAI as primary (more accurate for medical documents)
+const useGemini = false // OpenAI only - Gemini requires billing
 
 export type DocumentType = "oasis" | "poc" | "physician_order" | "rn_note" | "pt_note" | "ot_note" | "evaluation"
 export type QAType = "comprehensive-qa" | "coding-review" | "financial-optimization" | "qapi-audit"
@@ -1468,12 +1473,138 @@ Plan of Care QA analysis completed.`
   try {
     console.log(`[POC] Analyzing Plan of Care document with OpenAI...`)
 
-    const { text } = await generateText({
-      model: openai("gpt-4o-mini"),
-      prompt,
-      temperature: 0.1, // Lower temperature for more accurate extraction
-      maxTokens: 12000, // Increased for comprehensive data extraction
-    })
+    // Add retry logic with increased timeout (same as comprehensive-qa)
+    let lastError: Error | null = null
+    let attempt = 0
+    const maxAttempts = 4 // 4 attempts with increased timeout
+    let text = ''
+
+    while (attempt < maxAttempts) {
+      attempt++
+      try {
+        // ✅ Use Gemini (faster, better for long documents) with OpenAI fallback
+        const aiModel = useGemini 
+          ? google("gemini-2.0-flash") // Fast, 1M context, great for documents
+          : openai("gpt-4o-mini")
+        
+        console.log(`[POC] ${useGemini ? 'Gemini' : 'OpenAI'} call attempt ${attempt}/${maxAttempts}`)
+        
+        const response = await generateText({
+          model: aiModel,
+          prompt,
+          temperature: 0.1, // Lower temperature for more accurate extraction
+          maxRetries: 2,
+          abortSignal: AbortSignal.timeout(180000), // 3 minutes
+        })
+        
+        text = response.text
+        console.log(`[POC] ✅ OpenAI response received on attempt ${attempt}:`, text.length, 'chars')
+        lastError = null
+        break
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.error(`[POC] ⚠️ Attempt ${attempt} failed:`, lastError.message)
+        
+        // Check if retryable
+        const errorMsg = lastError.message.toLowerCase()
+        const isRetryable = 
+          errorMsg.includes('timeout') || 
+          errorMsg.includes('socket') ||
+          errorMsg.includes('aborted') ||
+          errorMsg.includes('connect') ||
+          errorMsg.includes('network') ||
+          errorMsg.includes('closed')
+        
+        if (attempt < maxAttempts && isRetryable) {
+          // Longer wait times: 8s → 16s → 32s → 45s max (give API time to recover)
+          const waitTime = Math.min(8000 * Math.pow(2, attempt - 1), 45000)
+          console.log(`[POC] ⏳ Waiting ${waitTime}ms before retry (attempt ${attempt + 1}/${maxAttempts})...`)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+        } else if (!isRetryable) {
+          // Non-retryable error - don't throw, use fallback
+          console.error(`[POC] Non-retryable error, will use fallback: ${lastError.message}`)
+          break
+        }
+      }
+    }
+
+    // ✅ GRACEFUL DEGRADATION: Return fallback instead of throwing when all retries fail
+    if (lastError && !text) {
+      console.error(`[POC] ⚠️ All ${maxAttempts} retries failed. Returning fallback analysis...`)
+      console.error(`[POC] Last error: ${lastError.message}`)
+      
+      // Extract basic info from text if possible
+      const mrnMatch = extractedText.match(/MRN[:\s]*([A-Z0-9]+)/i) || 
+                       extractedText.match(/Medical Record[:\s#]*([A-Z0-9]+)/i)
+      const nameMatch = extractedText.match(/Patient(?:\s+Name)?[:\s]*([A-Z][a-z]+(?:,?\s*[A-Z][a-z]+)?)/i)
+      const orderMatch = extractedText.match(/Order[:\s#]*(\d+)/i)
+      const socMatch = extractedText.match(/Start of Care[:\s]*(\d{1,2}\/\d{1,2}\/\d{4})/i)
+      const physicianMatch = extractedText.match(/(?:Physician|MD|Doctor)[:\s]*([A-Z][A-Za-z,\s]+(?:MD|DO)?)/i)
+      
+      // Return a meaningful fallback result instead of throwing
+      return {
+        qaAnalysis: `⚠️ AI Analysis Unavailable - API Connection Failed\n\nThe Plan of Care document was received but could not be fully analyzed due to API connectivity issues (${lastError.message}).\n\nBasic information extracted from document:\n- Patient: ${nameMatch?.[1] || 'See document'}\n- MRN: ${mrnMatch?.[1] || 'See document'}\n- Order #: ${orderMatch?.[1] || 'See document'}\n\nPlease retry the analysis or review the document manually.`,
+        structuredData: {
+          missingInformation: [{ issue: "Full AI analysis unavailable", whyItMatters: "API connection failed - retry recommended" }],
+          inconsistencies: [],
+          medicationIssues: [],
+          clinicalLogicGaps: [],
+          complianceRisks: [{ issue: "Document not fully analyzed", reason: "API timeout - manual review recommended" }],
+          signatureDateProblems: [],
+        },
+        qaComprehensive: {
+          qaSummary: "Analysis incomplete due to API connectivity issues",
+          qaMissingFields: [{ field: "All fields", location: "Document", impact: "Unable to analyze", recommendation: "Retry analysis or review manually" }],
+          qaScore: 50,
+        },
+        qaCodingReview: undefined,
+        qaFinancialOptimization: undefined,
+        qaQAPI: undefined,
+        safetyRisks: [],
+        suggestedCodes: [],
+        finalRecommendations: [{ category: "System", recommendation: "Retry analysis when API is available", priority: "high" }],
+        qualityScore: 50,
+        confidenceScore: 30,
+        extractedData: {
+          patientInfo: { 
+            name: nameMatch?.[1]?.trim() || "See document", 
+            mrn: mrnMatch?.[1] || "See document", 
+            dob: "N/A", 
+            gender: "N/A", 
+            address: "N/A", 
+            phone: "N/A" 
+          },
+          orderInfo: { 
+            orderNumber: orderMatch?.[1] || "See document", 
+            startOfCareDate: socMatch?.[1] || "See document", 
+            certificationPeriod: { start: "N/A", end: "N/A" }, 
+            providerNumber: "N/A", 
+            patientHIClaimNo: "N/A" 
+          },
+          physicianInfo: { 
+            name: physicianMatch?.[1]?.trim() || "See document", 
+            npi: "N/A", 
+            address: "N/A", 
+            phone: "N/A", 
+            fax: "N/A" 
+          },
+          agencyInfo: { name: "N/A", address: "N/A", phone: "N/A", fax: "N/A" },
+          clinicalStatus: { prognosis: "N/A", mentalCognitiveStatus: "N/A", functionalLimitations: [], safety: [], advanceDirectives: "N/A", psychosocialStatus: "N/A" },
+          emergencyPreparedness: { emergencyTriage: "N/A", evacuationZone: "N/A", additionalInfo: "N/A" },
+          medications: [],
+          diagnoses: { principal: { code: "See document", description: "Analysis pending" }, other: [] },
+          dmeInfo: { dmeItems: [], providerName: "N/A", providerPhone: "N/A", suppliesProvided: "N/A" },
+          caregiverInfo: { status: "N/A", details: "N/A" },
+          goals: { patientGoals: [], ptGoals: [], measurableGoals: [] },
+          treatmentPlan: { disciplines: [], frequencies: [], effectiveDate: "N/A", orders: [] },
+          signatures: { nurseTherapistSignature: "N/A", nurseTherapistDate: "N/A", physicianSignature: "N/A", physicianSignatureDate: "N/A", dateHHAReceivedSigned: "N/A", f2fDate: "N/A" },
+          homeboundNarrative: "N/A",
+          medicalNecessity: "N/A",
+          rehabilitationPotential: "N/A",
+          dischargePlan: { dischargeTo: "N/A", dischargeWhen: "N/A" },
+        },
+      }
+    }
 
     let jsonText = text.trim()
     if (jsonText.startsWith("```")) {
@@ -1546,8 +1677,47 @@ Plan of Care QA analysis completed.`
     console.log(`[POC] Plan of Care analysis completed successfully`)
     return validatedAnalysis
   } catch (error) {
-    console.error(`[POC] Plan of Care analysis error:`, error)
-    throw new Error(`Failed to analyze Plan of Care: ${error instanceof Error ? error.message : String(error)}`)
+    // ✅ GRACEFUL DEGRADATION: Return fallback instead of throwing
+    console.error(`[POC] Plan of Care analysis error (returning fallback):`, error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    
+    // Extract basic info from text if possible
+    const mrnMatch = extractedText.match(/MRN[:\s]*([A-Z0-9]+)/i)
+    const nameMatch = extractedText.match(/Patient(?:\s+Name)?[:\s]*([A-Z][a-z]+(?:,?\s*[A-Z][a-z]+)?)/i)
+    
+    return {
+      qaAnalysis: `⚠️ Analysis Error: ${errorMessage}\n\nThe document was received but analysis encountered an error. Please retry or review manually.`,
+      structuredData: {
+        missingInformation: [{ issue: "Analysis failed", whyItMatters: errorMessage }],
+        inconsistencies: [],
+        medicationIssues: [],
+        clinicalLogicGaps: [],
+        complianceRisks: [{ issue: "Document analysis incomplete", reason: errorMessage }],
+        signatureDateProblems: [],
+      },
+      qaComprehensive: { qaSummary: "Analysis error occurred", qaMissingFields: [], qaScore: 50 },
+      qualityScore: 50,
+      confidenceScore: 30,
+      extractedData: {
+        patientInfo: { name: nameMatch?.[1]?.trim() || "N/A", mrn: mrnMatch?.[1] || "N/A", dob: "N/A", gender: "N/A", address: "N/A", phone: "N/A" },
+        orderInfo: { orderNumber: "N/A", startOfCareDate: "N/A", certificationPeriod: { start: "N/A", end: "N/A" }, providerNumber: "N/A", patientHIClaimNo: "N/A" },
+        physicianInfo: { name: "N/A", npi: "N/A", address: "N/A", phone: "N/A", fax: "N/A" },
+        agencyInfo: { name: "N/A", address: "N/A", phone: "N/A", fax: "N/A" },
+        clinicalStatus: { prognosis: "N/A", mentalCognitiveStatus: "N/A", functionalLimitations: [], safety: [], advanceDirectives: "N/A", psychosocialStatus: "N/A" },
+        emergencyPreparedness: { emergencyTriage: "N/A", evacuationZone: "N/A", additionalInfo: "N/A" },
+        medications: [],
+        diagnoses: { principal: { code: "N/A", description: "N/A" }, other: [] },
+        dmeInfo: { dmeItems: [], providerName: "N/A", providerPhone: "N/A", suppliesProvided: "N/A" },
+        caregiverInfo: { status: "N/A", details: "N/A" },
+        goals: { patientGoals: [], ptGoals: [], measurableGoals: [] },
+        treatmentPlan: { disciplines: [], frequencies: [], effectiveDate: "N/A", orders: [] },
+        signatures: { nurseTherapistSignature: "N/A", nurseTherapistDate: "N/A", physicianSignature: "N/A", physicianSignatureDate: "N/A", dateHHAReceivedSigned: "N/A", f2fDate: "N/A" },
+        homeboundNarrative: "N/A",
+        medicalNecessity: "N/A",
+        rehabilitationPotential: "N/A",
+        dischargePlan: { dischargeTo: "N/A", dischargeWhen: "N/A" },
+      },
+    }
   }
 }
 
@@ -1823,21 +1993,25 @@ OUTPUT FORMAT (return as JSON only, no markdown):`
     // Add retry logic with exponential backoff for connection issues
     let text: string = ''
     let lastError: Error | null = null
-    const maxRetries = 3
+    const maxRetries = 3 // 3 attempts with 3-min timeout each
     let attempt = 0
     
     while (attempt < maxRetries) {
       try {
         attempt++
-        console.log(`[Physician Order] API call attempt ${attempt}/${maxRetries}`)
+        // ✅ Use Gemini (faster, better for long documents) with OpenAI fallback
+        const aiModel = useGemini 
+          ? google("gemini-2.0-flash")
+          : openai("gpt-4o-mini")
+        
+        console.log(`[Physician Order] ${useGemini ? 'Gemini' : 'OpenAI'} call attempt ${attempt}/${maxRetries}`)
         
         const result = await generateText({
-          model: openai("gpt-4o-mini"),
+          model: aiModel,
           prompt,
           temperature: 0.2,
-          maxTokens: 6000,
-          maxRetries: 2, // Internal retries within generateText
-          abortSignal: AbortSignal.timeout(120000), // 2 minute timeout (increased from default 10s)
+          maxRetries: 3, // Reduced for faster processing
+          abortSignal: AbortSignal.timeout(360000), // 6 minutes for complete extraction
         })
         
         text = result.text
@@ -1858,7 +2032,7 @@ OUTPUT FORMAT (return as JSON only, no markdown):`
           errorMsg.includes('network') ||
           errorMsg.includes('connection')
         )) {
-          const waitTime = Math.min(1000 * Math.pow(2, attempt - 1), 5000) // Exponential backoff, max 5s
+          const waitTime = Math.min(5000 * Math.pow(2, attempt - 1), 30000) // 5s → 10s → 20s → 30s max (for rate limits)
           console.log(`[Physician Order] ⏳ Waiting ${waitTime}ms before retry...`)
           await new Promise(resolve => setTimeout(resolve, waitTime))
           continue
@@ -1914,8 +2088,41 @@ OUTPUT FORMAT (return as JSON only, no markdown):`
       confidenceScore,
     }
   } catch (error) {
-    console.error(`[Physician Order] Analysis error:`, error)
-    throw new Error(`Failed to analyze Physician Order: ${error instanceof Error ? error.message : String(error)}`)
+    // ✅ GRACEFUL DEGRADATION: Return fallback instead of throwing
+    console.error(`[Physician Order] Analysis error (returning fallback):`, error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    
+    // Extract basic info from text if possible
+    const physicianMatch = extractedText.match(/(?:Physician|MD|Doctor)[:\s]*([A-Z][A-Za-z,\s]+(?:MD|DO)?)/i)
+    const npiMatch = extractedText.match(/NPI[:\s]*(\d+)/i)
+    const patientMatch = extractedText.match(/Patient(?:\s+Name)?[:\s]*([A-Z][a-z]+(?:,?\s*[A-Z][a-z]+)?)/i)
+    
+    return {
+      presentInPdf: [
+        { element: "Physician Name", content: physicianMatch?.[1]?.trim() || "See document" },
+        { element: "NPI", content: npiMatch?.[1] || "See document" },
+        { element: "Patient Name", content: patientMatch?.[1]?.trim() || "See document" },
+      ],
+      missingInformation: [{ 
+        element: "Full AI Analysis", 
+        location: "System", 
+        impact: "Document not fully analyzed", 
+        recommendation: "Retry analysis or review manually",
+        severity: 'high' as const
+      }],
+      qaFindings: [{ 
+        finding: `Analysis incomplete: ${errorMessage}`, 
+        category: "system", 
+        severity: 'medium' as const, 
+        recommendation: "Retry analysis when API is available" 
+      }],
+      codingReview: [],
+      financialRisks: [],
+      qapiDeficiencies: [],
+      optimizedOrderTemplate: "Analysis unavailable - please retry",
+      qualityScore: 50,
+      confidenceScore: 30,
+    }
   }
 }
 
@@ -2643,15 +2850,67 @@ Return ONLY a valid JSON object matching the ClinicalQAResult structure with all
   try {
     console.log(`[v0] Analyzing ${documentType} document with OpenAI...`)
 
-    // For PT notes, allow more tokens for detailed extraction
-    const maxTokens = documentType === "pt_note" ? 8000 : 4000
+    // Use conservative token limits for reliability
+    // PT notes: 5000 tokens, Others: 3000 tokens (smaller = faster = more reliable)
+    const maxTokens = documentType === "pt_note" ? 5000 : 3000
 
-    const { text } = await generateText({
-      model: openai("gpt-4o-mini"), // Using GPT-4o-mini - same as OASIS analyzer
-      prompt,
-      temperature: 0.2,
-      maxTokens: maxTokens,
-    })
+    // Add robust retry logic with longer timeout
+    let lastError: Error | null = null
+    let attempt = 0
+    const maxRetries = 3 // 3 attempts with 3-min timeout each
+    let text = ''
+
+    while (attempt < maxRetries) {
+      attempt++
+      try {
+        // ✅ Use Gemini (faster, better for long documents) with OpenAI fallback
+        const aiModel = useGemini 
+          ? google("gemini-2.0-flash")
+          : openai("gpt-4o-mini")
+        
+        console.log(`[v0] ${useGemini ? 'Gemini' : 'OpenAI'} call attempt ${attempt}/${maxRetries} for ${documentType}`)
+        
+        const response = await generateText({
+          model: aiModel,
+          prompt,
+          temperature: 0.2,
+          abortSignal: AbortSignal.timeout(360000), // 6 minutes for complete extraction
+          maxRetries: 3, // Reduced for faster processing
+        })
+        
+        text = response.text
+        console.log(`[v0] ✅ OpenAI call successful on attempt ${attempt}`)
+        lastError = null
+        break
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+        console.error(`[v0] ⚠️ Attempt ${attempt} failed:`, lastError.message)
+        
+        // Check if it's a retryable error
+        const errorMsg = lastError.message.toLowerCase()
+        const isRetryable = 
+          errorMsg.includes('timeout') || 
+          errorMsg.includes('socket') ||
+          errorMsg.includes('connect') ||
+          errorMsg.includes('aborted') ||
+          errorMsg.includes('econnreset') ||
+          errorMsg.includes('network')
+        
+        if (attempt < maxRetries && isRetryable) {
+          // Exponential backoff: 3s, 6s, 12s, 24s
+          const waitTime = Math.min(5000 * Math.pow(2, attempt - 1), 30000) // 5s → 10s → 20s → 30s max (for rate limits)
+          console.log(`[v0] Waiting ${waitTime}ms before retry...`)
+          await new Promise(resolve => setTimeout(resolve, waitTime))
+        } else if (!isRetryable) {
+          // If not retryable, throw immediately
+          throw lastError
+        }
+      }
+    }
+
+    if (lastError && !text) {
+      throw lastError
+    }
 
     let jsonText = text.trim()
     if (jsonText.startsWith("```")) {
@@ -2714,8 +2973,49 @@ Return ONLY a valid JSON object matching the ClinicalQAResult structure with all
     console.log(`[v0] ${documentType} analysis completed successfully`)
     return validatedAnalysis
   } catch (error) {
-    console.error(`[v0] Clinical QA analysis error for ${documentType}:`, error)
-    throw new Error(`Failed to analyze ${documentType}: ${error instanceof Error ? error.message : String(error)}`)
+    // ✅ GRACEFUL DEGRADATION: Return fallback instead of throwing
+    console.error(`[v0] Clinical QA analysis error for ${documentType} (returning fallback):`, error)
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    
+    // Extract basic info from text if possible
+    const mrnMatch = extractedText.match(/MRN[:\s]*([A-Z0-9]+)/i)
+    const nameMatch = extractedText.match(/Patient(?:\s+Name)?[:\s]*([A-Z][a-z]+(?:,?\s*[A-Z][a-z]+)?)/i)
+    const clinicianMatch = extractedText.match(/(?:Clinician|Therapist|Nurse|RN|PT|OT)[:\s]*([A-Z][A-Za-z,\s]+)/i)
+    
+    // Use intelligent scoring even for fallback
+    const scores = calculateIntelligentQualityScore(
+      [{ category: "system", severity: "high" }],
+      [{ severity: "high", category: "system" }],
+      { patientInfo: { name: nameMatch?.[1], mrn: mrnMatch?.[1] } },
+      documentType as DocumentType
+    )
+    
+    return {
+      patientInfo: {
+        name: nameMatch?.[1]?.trim() || "See document",
+        mrn: mrnMatch?.[1] || "See document",
+        visitDate: new Date().toISOString().split('T')[0],
+        clinician: clinicianMatch?.[1]?.trim() || "See document",
+        clinicianType: documentType === 'pt_note' ? 'PT' : documentType === 'rn_note' ? 'RN' : 'Unknown',
+      },
+      qualityScores: {
+        overall: scores.overall,
+        completeness: scores.completeness,
+        accuracy: scores.accuracy,
+        compliance: scores.compliance,
+        confidence: scores.confidence,
+      },
+      diagnoses: [],
+      suggestedCodes: [],
+      corrections: [],
+      missingElements: [{ element: "Full AI Analysis", category: "system", severity: "high", recommendation: `Retry analysis: ${errorMessage}` }],
+      flaggedIssues: [{ issue: `Analysis incomplete: ${errorMessage}`, severity: "high", location: "System", suggestion: "Retry analysis when API is available", category: "system" }],
+      riskFactors: [],
+      recommendations: [{ category: "System", recommendation: "Retry analysis when API connection is stable", priority: "high", expectedImpact: "Complete analysis" }],
+      regulatoryIssues: [],
+      documentationGaps: [{ gap: "Full analysis unavailable", impact: errorMessage, recommendation: "Retry or review manually" }],
+      financialImpact: { currentRevenue: 0, optimizedRevenue: 0, increase: 0, breakdown: [] },
+    }
   }
 }
 
@@ -2755,5 +3055,308 @@ export function aggregateChartAnalysis(analyses: ClinicalQAResult[]): {
     totalIssues,
     criticalIssues,
     totalRevenueOpportunity: Math.round(totalRevenueOpportunity * 100) / 100,
+  }
+}
+
+/**
+ * FAST Clinical Document Analyzer
+ * Use this for batch uploads when speed is critical
+ * Completes in 30-60 seconds instead of 2-3 minutes
+ */
+export async function analyzeClinicalDocumentFast(
+  extractedText: string,
+  documentType: string,
+  qaType: string = 'comprehensive-qa'
+): Promise<ClinicalQAResult> {
+  console.log(`[CLINICAL-FAST] 🚀 Starting FAST analysis for ${documentType}...`)
+  console.log(`[CLINICAL-FAST] Text length: ${extractedText.length} characters`)
+  
+  // Truncate text for faster processing - POC needs more context
+  const maxTextLength = documentType === 'poc' ? 25000 : 12000
+  const truncatedText = extractedText.length > maxTextLength 
+    ? extractedText.substring(0, maxTextLength) + '\n\n[... Document truncated for fast processing ...]'
+    : extractedText
+
+  const docTypeLabel = documentType === 'pt_note' ? 'PT Visit Note' 
+    : documentType === 'poc' ? 'Plan of Care (CMS-485)'
+    : documentType === 'physician_order' ? 'Physician Order'
+    : documentType === 'rn_note' ? 'RN Note'
+    : 'Clinical Document'
+
+  // ✅ POC-specific prompt - STREAMLINED for faster processing
+  const fastPrompt = documentType === 'poc' ? `Analyze this Plan of Care (CMS-485). Extract data and identify issues.
+
+DOCUMENT:
+${truncatedText}
+
+Return JSON only:
+{
+  "patientInfo": {"name": "string", "mrn": "string", "dob": "MM/DD/YYYY", "gender": "M/F", "address": "string", "phone": "string"},
+  "orderInfo": {"orderNumber": "string", "startOfCareDate": "MM/DD/YYYY", "certificationPeriod": {"start": "MM/DD/YYYY", "end": "MM/DD/YYYY"}, "providerNumber": "string", "patientHIClaimNo": "string"},
+  "physicianInfo": {"name": "string", "npi": "string", "address": "string", "phone": "string", "fax": "string"},
+  "clinicalStatus": {"prognosis": "Good/Fair/Poor", "mentalCognitiveStatus": "string", "functionalLimitations": ["string"], "safety": ["string"]},
+  "diagnoses": [{"code": "ICD-10", "description": "string", "type": "primary/secondary"}],
+  "medications": [{"name": "string", "dosage": "string", "frequency": "string", "route": "string"}],
+  "goals": {"patientGoals": ["string"], "ptGoals": ["string"], "measurableGoals": ["string"]},
+  "treatmentPlan": {"disciplines": ["RN","PT","OT"], "frequencies": ["string"], "orders": ["string"]},
+  "dmeInfo": {"dmeItems": ["string"], "providerName": "string", "providerPhone": "string", "suppliesProvided": "string"},
+  "signatures": {"nurseTherapistSignature": "string", "nurseTherapistDate": "MM/DD/YYYY", "physicianSignature": "string", "physicianSignatureDate": "MM/DD/YYYY", "dateHHAReceivedSigned": "MM/DD/YYYY", "f2fDate": "MM/DD/YYYY"},
+  "qualityScores": {"overall": 75, "documentation": 70, "compliance": 75, "completeness": 70},
+  "flaggedIssues": [{"issue": "string", "severity": "high/medium/low", "recommendation": "string"}],
+  "missingElements": ["string"],
+  "financialImpact": {"estimatedImpact": 0, "increase": 0, "details": "string"},
+  "structuredQA": {
+    "missingInformation": [{"issue": "string", "whyItMatters": "string"}],
+    "inconsistencies": [{"issue": "string", "conflictsWith": "string"}],
+    "medicationIssues": [{"issue": "string", "problemType": "string"}],
+    "clinicalLogicGaps": [{"issue": "string", "explanation": "string"}],
+    "complianceRisks": [{"issue": "string", "reason": "string"}],
+    "signatureDateProblems": [{"issue": "string", "conflict": "string"}]
+  },
+  "qaQAPI": {
+    "regulatoryDeficiencies": [{"deficiency": "string", "severity": "high/medium/low", "regulation": "string", "description": "string", "impact": "string", "recommendation": "string", "correctiveAction": "string"}],
+    "planOfCareReview": {"completeness": "complete/incomplete", "issues": [{"issue": "string", "location": "string", "recommendation": "string"}], "goals": [{"goal": "string", "status": "string", "issues": ["string"], "recommendation": "string"}], "riskMitigation": [{"risk": "string", "mitigationStrategy": "string", "status": "string"}]},
+    "incompleteElements": [{"element": "string", "location": "string", "missingInformation": "string", "impact": "string", "recommendation": "string"}],
+    "overallQualityScore": 80,
+    "riskLevel": "low/medium/high"
+  },
+  "qaFinancialOptimization": {
+    "currentEstimatedReimbursement": 0,
+    "optimizedReimbursement": 0,
+    "revenueDifference": 0,
+    "documentationNeededToIncreaseReimbursement": [{"documentation": "string", "impact": "string", "revenueImpact": 0, "recommendation": "string"}]
+  },
+  "qaCodingReview": {
+    "validatedCodes": [{"code": "string", "description": "string", "validationStatus": "valid/invalid", "issues": ["string"], "recommendation": "string"}],
+    "missingDiagnoses": [{"condition": "string", "suggestedCode": "string", "codeDescription": "string", "medicalNecessity": "string", "documentationSupport": "string", "revenueImpact": 0}],
+    "codingAccuracy": 85,
+    "specificityScore": 80
+  }
+}
+
+CRITICAL - ALWAYS CHECK:
+1. Missing Info: physician signature/date, certification dates, patient demographics, diagnoses, orders, F2F date
+2. Inconsistencies: diagnosis vs treatment, medication vs diagnosis, dates out of sequence
+3. Compliance: unsigned forms, missing CMS fields, F2F documentation
+4. Extract REAL data only - use "N/A" if not found`
+  : `You are a home health clinical document analyzer. Analyze this ${docTypeLabel} QUICKLY and return JSON.
+
+DOCUMENT TEXT:
+${truncatedText}
+
+Return ONLY valid JSON (no markdown):
+{
+  "patientInfo": {
+    "name": "extracted name or Unknown",
+    "mrn": "extracted MRN or N/A",
+    "dob": "MM/DD/YYYY or N/A",
+    "visitDate": "MM/DD/YYYY or N/A"
+  },
+  "qualityScores": {
+    "overall": 75,
+    "documentation": 70,
+    "compliance": 75,
+    "completeness": 70
+  },
+  "diagnoses": [
+    {"code": "ICD-10", "description": "diagnosis", "type": "primary/secondary"}
+  ],
+  "flaggedIssues": [
+    {"issue": "description", "severity": "high/medium/low", "recommendation": "action"}
+  ],
+  "recommendations": [
+    {"recommendation": "action item", "priority": "high/medium/low", "category": "documentation/compliance/coding"}
+  ],
+  "missingElements": ["element1", "element2"],
+  "financialImpact": {
+    "estimatedImpact": 0,
+    "increase": 0,
+    "details": "summary"
+  },
+  "extractedData": {
+    "clinician": "name or N/A",
+    "visitType": "type or N/A",
+    "summary": "brief summary of document content"
+  }
+}
+
+RULES:
+1. Extract REAL data from document - do NOT invent
+2. If data not found, use "N/A" or empty arrays
+3. Be concise - this is fast analysis
+4. Focus on: patient info, quality issues, missing elements`
+
+  // ✅ Enhanced retry logic with exponential backoff for API connection issues
+  const maxRetries = 4  // ✅ Increased to 4 retries
+  let lastError: Error | null = null
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      // ✅ Use OpenAI (more reliable for complex JSON) - Gemini had timeout issues
+      const aiModel = openai("gpt-4o-mini")
+      
+      console.log(`[CLINICAL-FAST] OpenAI gpt-4o-mini call attempt ${attempt}/${maxRetries}`)
+      
+      const response = await generateText({
+        model: aiModel,
+        prompt: fastPrompt,
+        temperature: 0.1,
+        maxRetries: 1,  // ✅ Reduced internal retries since we handle it externally
+        abortSignal: AbortSignal.timeout(300000), // ✅ 5 minutes per attempt (increased from 2min for large documents)
+      })
+
+      console.log(`[CLINICAL-FAST] ✅ AI response received: ${response.text.length} chars`)
+
+    // Parse JSON response
+    let jsonText = response.text.trim()
+    if (jsonText.startsWith('```')) {
+      jsonText = jsonText.replace(/```json\n?/g, '').replace(/```\n?/g, '')
+    }
+    
+    const jsonStart = jsonText.indexOf('{')
+    const jsonEnd = jsonText.lastIndexOf('}') + 1
+    if (jsonStart !== -1 && jsonEnd > jsonStart) {
+      jsonText = jsonText.substring(jsonStart, jsonEnd)
+    }
+
+    // Sanitize control characters
+    jsonText = jsonText.replace(/[\x00-\x1F\x7F]/g, ' ')
+
+    const analysis = JSON.parse(jsonText)
+    
+    console.log(`[CLINICAL-FAST] ✅ Analysis complete!`)
+    console.log(`[CLINICAL-FAST] Quality Score: ${analysis.qualityScores?.overall}`)
+    console.log(`[CLINICAL-FAST] Document Type: ${documentType}`)
+    if (documentType === 'poc') {
+      console.log(`[CLINICAL-FAST] POC Patient: ${analysis.patientInfo?.name}`)
+      console.log(`[CLINICAL-FAST] POC Physician: ${analysis.physicianInfo?.name}`)
+      console.log(`[CLINICAL-FAST] POC Diagnoses: ${analysis.diagnoses?.length || 0}`)
+      console.log(`[CLINICAL-FAST] POC Medications: ${analysis.medications?.length || 0}`)
+    }
+
+    // Return in ClinicalQAResult format - include all POC-specific data
+    const result: ClinicalQAResult & { pocExtractedData?: any } = {
+      patientInfo: {
+        name: analysis.patientInfo?.name || 'Unknown',
+        mrn: analysis.patientInfo?.mrn || 'N/A',
+        visitDate: analysis.patientInfo?.visitDate || new Date().toISOString().split('T')[0],
+        clinician: analysis.patientInfo?.clinician || 'N/A',
+        clinicianType: documentType === 'pt_note' ? 'PT' : documentType === 'rn_note' ? 'RN' : 'Unknown'
+      },
+      qualityScores: {
+        overall: analysis.qualityScores?.overall || 70,
+        completeness: analysis.qualityScores?.completeness || 70,
+        accuracy: analysis.qualityScores?.accuracy || 70,
+        compliance: analysis.qualityScores?.compliance || 70,
+        confidence: analysis.qualityScores?.confidence || 70
+      },
+      diagnoses: (analysis.diagnoses || []).map((d: any) => ({
+        code: d.code || 'N/A',
+        description: d.description || 'N/A',
+        confidence: d.confidence || 80,
+        source: d.source || 'document'
+      })),
+      suggestedCodes: [],
+      corrections: [],
+      missingElements: (analysis.missingElements || []).map((e: any) => 
+        typeof e === 'string' ? { element: e, category: 'documentation', severity: 'medium', recommendation: 'Review required' } : e
+      ),
+      flaggedIssues: (analysis.flaggedIssues || []).map((i: any) => ({
+        issue: i.issue || 'Unknown issue',
+        severity: i.severity || 'medium',
+        location: i.location || 'document',
+        suggestion: i.recommendation || i.suggestion || 'Review required',
+        category: i.category || 'documentation'
+      })),
+      riskFactors: [],
+      recommendations: (analysis.recommendations || []).map((r: any) => ({
+        category: r.category || 'documentation',
+        recommendation: r.recommendation || 'Review document',
+        priority: r.priority || 'medium',
+        expectedImpact: r.expectedImpact || 'Improved documentation'
+      })),
+      regulatoryIssues: [],
+      documentationGaps: (analysis.structuredQA?.missingInformation || []).map((m: any) => ({
+        gap: m.issue || 'Missing information',
+        impact: m.whyItMatters || 'Documentation completeness',
+        recommendation: 'Add missing information'
+      })),
+      financialImpact: {
+        currentRevenue: 0,
+        optimizedRevenue: 0,
+        increase: analysis.financialImpact?.increase || 0,
+        breakdown: []
+      },
+      // ✅ Include PT-specific data for PT notes
+      extractedPTData: documentType === 'pt_note' ? {
+        homeboundReasons: [],
+        functionalLimitations: [],
+        vitalSigns: {},
+        ...(analysis.extractedPTData || {})
+      } : undefined
+    }
+    
+    // ✅ Add POC-specific data if this is a POC document
+    if (documentType === 'poc') {
+      result.pocExtractedData = {
+        patientInfo: analysis.patientInfo,
+        orderInfo: analysis.orderInfo,
+        physicianInfo: analysis.physicianInfo,
+        clinicalStatus: analysis.clinicalStatus,
+        medications: analysis.medications,
+        diagnoses: analysis.diagnoses,
+        goals: analysis.goals,
+        treatmentPlan: analysis.treatmentPlan,
+        dmeInfo: analysis.dmeInfo,
+        signatures: analysis.signatures,
+        structuredQA: analysis.structuredQA,
+        qaQAPI: analysis.qaQAPI,
+        qaFinancialOptimization: analysis.qaFinancialOptimization,
+        qaCodingReview: analysis.qaCodingReview
+      }
+    }
+    
+    return result
+
+    } catch (attemptError) {
+      lastError = attemptError instanceof Error ? attemptError : new Error(String(attemptError))
+      console.error(`[CLINICAL-FAST] ⚠️ Attempt ${attempt} failed:`, lastError.message)
+      
+      if (attempt < maxRetries) {
+        // ✅ Longer wait times: 10s → 20s → 30s → 40s for better API recovery
+        const waitTime = Math.min(10000 * attempt, 40000)
+        console.log(`[CLINICAL-FAST] ⏳ Waiting ${waitTime}ms before retry (attempt ${attempt + 1}/${maxRetries})...`)
+        await new Promise(resolve => setTimeout(resolve, waitTime))
+      }
+    }
+  }
+    
+  // All retries failed
+  console.error(`[CLINICAL-FAST] ❌ All ${maxRetries} retries failed:`, lastError?.message)
+  
+  // Extract basic info from text as fallback
+  const mrnMatch = extractedText.match(/MRN[:\s]*([A-Z0-9]+)/i)
+  const nameMatch = extractedText.match(/Patient(?:\s+Name)?[:\s]*([A-Z][a-z]+(?:,?\s*[A-Z][a-z]+)?)/i)
+  
+  return {
+    patientInfo: {
+      name: nameMatch ? nameMatch[1].trim() : 'Unknown Patient',
+      mrn: mrnMatch ? mrnMatch[1] : 'N/A',
+      visitDate: new Date().toISOString().split('T')[0],
+      clinician: 'N/A',
+      clinicianType: documentType === 'pt_note' ? 'PT' : documentType === 'rn_note' ? 'RN' : 'Unknown'
+    },
+    qualityScores: { overall: 60, completeness: 60, accuracy: 60, compliance: 60, confidence: 50 },
+    diagnoses: [],
+    flaggedIssues: [{ issue: 'Fast analysis failed - manual review recommended', severity: 'high', location: 'System', suggestion: 'Retry or review manually', category: 'system' }],
+    recommendations: [{ category: 'documentation', recommendation: 'Manual review required due to AI timeout', priority: 'high', expectedImpact: 'Ensure accurate documentation' }],
+    missingElements: [{ element: 'Full analysis', category: 'system', severity: 'high', recommendation: 'Retry analysis or review manually' }],
+    suggestedCodes: [],
+    regulatoryIssues: [],
+    documentationGaps: [{ gap: 'Unable to analyze', impact: 'AI timeout', recommendation: 'Retry or review manually' }],
+    financialImpact: { currentRevenue: 0, optimizedRevenue: 0, increase: 0, breakdown: [] },
+    extractedPTData: documentType === 'pt_note' ? { homeboundReasons: [], functionalLimitations: [], vitalSigns: {} } : undefined,
+    corrections: [],
+    riskFactors: []
   }
 }

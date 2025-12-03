@@ -153,6 +153,22 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       ? extractedInconsistencies
       : safeJsonParse(assessment.inconsistencies)
 
+    // ✅ NEW: Get all clinical status sections from extracted_data
+    const extractedPainStatus = extractedData?.painStatus || []
+    const extractedIntegumentaryStatus = extractedData?.integumentaryStatus || []
+    const extractedRespiratoryStatus = extractedData?.respiratoryStatus || []
+    const extractedCardiacStatus = extractedData?.cardiacStatus || []
+    const extractedEliminationStatus = extractedData?.eliminationStatus || []
+    const extractedNeuroEmotionalBehavioralStatus = extractedData?.neuroEmotionalBehavioralStatus || []
+    
+    console.log("[OASIS] 📊 Clinical Status Sections from extracted_data:")
+    console.log("[OASIS]   - Pain Status:", extractedPainStatus?.length || 0, "items")
+    console.log("[OASIS]   - Integumentary Status:", extractedIntegumentaryStatus?.length || 0, "items")
+    console.log("[OASIS]   - Respiratory Status:", extractedRespiratoryStatus?.length || 0, "items")
+    console.log("[OASIS]   - Cardiac Status:", extractedCardiacStatus?.length || 0, "items")
+    console.log("[OASIS]   - Elimination Status:", extractedEliminationStatus?.length || 0, "items")
+    console.log("[OASIS]   - Neuro/Emotional/Behavioral Status:", extractedNeuroEmotionalBehavioralStatus?.length || 0, "items")
+
     console.log("[OASIS] ✅ Using extracted_data as primary source for all analysis results")
     console.log("[OASIS] 💊 Medications from extracted_data:", finalMedications?.length || 0)
     console.log("[OASIS] 🎯 Functional Status from extracted_data:", finalFunctionalStatus?.length || 0)
@@ -186,6 +202,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
           missingInformation: finalMissingInfo,
           // ⚠️ PRIORITIZE: Use extracted_data inconsistencies (freshly analyzed)
           inconsistencies: finalInconsistencies,
+          // ✅ NEW: Include all clinical status sections
+          painStatus: extractedPainStatus,
+          integumentaryStatus: extractedIntegumentaryStatus,
+          respiratoryStatus: extractedRespiratoryStatus,
+          cardiacStatus: extractedCardiacStatus,
+          eliminationStatus: extractedEliminationStatus,
+          neuroEmotionalBehavioralStatus: extractedNeuroEmotionalBehavioralStatus,
           // Debug Info
           debugInfo: extractedData?.debugInfo || safeJsonParse(assessment.debug_info),
           // Additional AI suggestions - prioritize extracted_data

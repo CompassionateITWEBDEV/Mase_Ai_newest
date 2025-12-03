@@ -1262,6 +1262,11 @@ function AvailabilityManager() {
   const [availabilityData, setAvailabilityData] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [currentUserDepartment, setCurrentUserDepartment] = useState<string | null>(null)
+  const [showCoverageDialog, setShowCoverageDialog] = useState(false)
+  const [showAvailabilityDialog, setShowAvailabilityDialog] = useState(false)
+  const [userAvailability, setUserAvailability] = useState<any[]>([])
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
   // Days mapping
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -1387,7 +1392,7 @@ function AvailabilityManager() {
       try {
         setIsLoading(true)
         
-        // Get current user's department
+        // Get current user's department and ID
         let userDepartment: string | null = null
         try {
           const storedUser = localStorage.getItem('currentUser')
@@ -1395,15 +1400,19 @@ function AvailabilityManager() {
             const user = JSON.parse(storedUser)
             if (user.staffId || user.id) {
               const staffId = user.staffId || user.id
+              setCurrentUserId(staffId)
               const userStaffRes = await fetch(`/api/staff/list`, { cache: 'no-store' })
               const userStaffData = await userStaffRes.json()
               if (userStaffData.success && userStaffData.staff) {
                 const currentUserStaff = userStaffData.staff.find((s: any) => 
                   s.id === staffId || s.email === user.email
                 )
-                if (currentUserStaff && currentUserStaff.department) {
-                  userDepartment = currentUserStaff.department
-                  setCurrentUserDepartment(currentUserStaff.department)
+                if (currentUserStaff) {
+                  setCurrentUserId(currentUserStaff.id)
+                  if (currentUserStaff.department) {
+                    userDepartment = currentUserStaff.department
+                    setCurrentUserDepartment(currentUserStaff.department)
+                  }
                 }
               }
             }
@@ -1507,6 +1516,68 @@ function AvailabilityManager() {
     return person.status === selectedStaff
   })
 
+  // Calculate coverage statistics
+  const coverageStats = {
+    total: availabilityData.length,
+    available: availabilityData.filter(p => p.status === 'available').length,
+    busy: availabilityData.filter(p => p.status === 'busy').length,
+    off: availabilityData.filter(p => p.status === 'off').length,
+    coveragePercent: availabilityData.length > 0 
+      ? Math.round(((availabilityData.filter(p => p.status === 'available' || p.status === 'busy').length) / availabilityData.length) * 100)
+      : 0
+  }
+
+  // Get current user's shifts for availability dialog
+  const fetchUserShifts = async () => {
+    if (!currentUserId) return
+    try {
+      const res = await fetch(`/api/staff/shifts?staff_id=${encodeURIComponent(currentUserId)}`, { cache: 'no-store' })
+      const data = await res.json()
+      if (data.success) {
+        setUserAvailability(data.shifts || [])
+      }
+    } catch (e) {
+      console.error('Error fetching user shifts:', e)
+    }
+  }
+
+  // Save user availability
+  const saveUserShift = async (shiftData: any) => {
+    if (!currentUserId) return
+    setIsSaving(true)
+    try {
+      const res = await fetch('/api/staff/shifts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...shiftData, staff_id: currentUserId })
+      })
+      const data = await res.json()
+      if (data.success) {
+        await fetchUserShifts()
+      }
+    } catch (e) {
+      console.error('Error saving shift:', e)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Delete user shift
+  const deleteUserShift = async (shiftId: string) => {
+    setIsSaving(true)
+    try {
+      const res = await fetch(`/api/staff/shifts?id=${encodeURIComponent(shiftId)}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (data.success) {
+        await fetchUserShifts()
+      }
+    } catch (e) {
+      console.error('Error deleting shift:', e)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "available":
@@ -1597,41 +1668,256 @@ function AvailabilityManager() {
         </CardContent>
       </Card>
 
+      {/* Coverage Summary Bar */}
+      <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-6">
+              <div className="text-center">
+                <p className="text-2xl font-bold text-blue-600">{coverageStats.coveragePercent}%</p>
+                <p className="text-xs text-gray-600">Coverage</p>
+              </div>
+              <div className="h-10 w-px bg-gray-300" />
+              <div className="flex items-center space-x-4 text-sm">
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-green-500 mr-2" />
+                  <span>{coverageStats.available} Available</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-yellow-500 mr-2" />
+                  <span>{coverageStats.busy} Busy</span>
+                </div>
+                <div className="flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-gray-400 mr-2" />
+                  <span>{coverageStats.off} Off</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-sm text-gray-600">
+              <span className="font-medium">{coverageStats.total}</span> total staff
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-6 text-center">
             <Users className="h-8 w-8 text-blue-500 mx-auto mb-3" />
             <h3 className="font-medium mb-2">Schedule Coverage</h3>
-            <p className="text-sm text-gray-600 mb-4">Ensure adequate staff coverage</p>
-            <Button variant="outline" className="w-full bg-transparent">
+            <p className="text-sm text-gray-600 mb-4">View detailed coverage by department</p>
+            <Button 
+              variant="outline" 
+              className="w-full bg-transparent"
+              onClick={() => setShowCoverageDialog(true)}
+            >
               View Coverage
             </Button>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-6 text-center">
             <Bell className="h-8 w-8 text-green-500 mx-auto mb-3" />
             <h3 className="font-medium mb-2">Set Availability</h3>
-            <p className="text-sm text-gray-600 mb-4">Update your availability status</p>
-            <Button variant="outline" className="w-full bg-transparent">
-              Update Status
+            <p className="text-sm text-gray-600 mb-4">Manage your weekly schedule</p>
+            <Button 
+              variant="outline" 
+              className="w-full bg-transparent"
+              onClick={() => {
+                fetchUserShifts()
+                setShowAvailabilityDialog(true)
+              }}
+            >
+              Update Schedule
             </Button>
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="hover:shadow-md transition-shadow">
           <CardContent className="p-6 text-center">
             <Calendar className="h-8 w-8 text-purple-500 mx-auto mb-3" />
             <h3 className="font-medium mb-2">Request Time Off</h3>
             <p className="text-sm text-gray-600 mb-4">Submit time off requests</p>
-            <Button variant="outline" className="w-full bg-transparent">
-              Request Leave
-            </Button>
+            <Link href="/leave-requests">
+              <Button 
+                variant="outline" 
+                className="w-full bg-transparent"
+              >
+                Request Leave
+              </Button>
+            </Link>
           </CardContent>
         </Card>
       </div>
+
+      {/* Schedule Coverage Dialog */}
+      <Dialog open={showCoverageDialog} onOpenChange={setShowCoverageDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Schedule Coverage Details</DialogTitle>
+            <DialogDescription>Staff availability breakdown by status and department</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            {/* Overall Coverage */}
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-medium">Overall Coverage</span>
+                <span className="text-2xl font-bold text-blue-600">{coverageStats.coveragePercent}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div 
+                  className="bg-blue-600 h-3 rounded-full transition-all"
+                  style={{ width: `${coverageStats.coveragePercent}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                {coverageStats.available + coverageStats.busy} of {coverageStats.total} staff members are currently working
+              </p>
+            </div>
+
+            {/* By Department */}
+            <div>
+              <h4 className="font-medium mb-3">Coverage by Department</h4>
+              <div className="space-y-3">
+                {Object.entries(
+                  availabilityData.reduce((acc: any, person) => {
+                    const dept = person.department || 'Other'
+                    if (!acc[dept]) acc[dept] = { total: 0, available: 0, busy: 0, off: 0 }
+                    acc[dept].total++
+                    acc[dept][person.status]++
+                    return acc
+                  }, {})
+                ).map(([dept, stats]: [string, any]) => (
+                  <div key={dept} className="flex items-center justify-between p-3 border rounded-lg">
+                    <span className="font-medium">{dept}</span>
+                    <div className="flex items-center space-x-3 text-sm">
+                      <Badge className="bg-green-100 text-green-800">{stats.available} avail</Badge>
+                      <Badge className="bg-yellow-100 text-yellow-800">{stats.busy} busy</Badge>
+                      <Badge className="bg-gray-100 text-gray-800">{stats.off} off</Badge>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Available Staff List */}
+            <div>
+              <h4 className="font-medium mb-3">Currently Available Staff</h4>
+              <div className="max-h-48 overflow-y-auto space-y-2">
+                {availabilityData.filter(p => p.status === 'available').length === 0 ? (
+                  <p className="text-sm text-gray-500 text-center py-4">No staff currently available</p>
+                ) : (
+                  availabilityData.filter(p => p.status === 'available').map((person) => (
+                    <div key={person.id} className="flex items-center justify-between p-2 bg-green-50 rounded">
+                      <div>
+                        <p className="font-medium text-sm">{person.name}</p>
+                        <p className="text-xs text-gray-600">{person.department}</p>
+                      </div>
+                      <p className="text-xs text-gray-500">{person.workingHours}</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Set Availability Dialog */}
+      <Dialog open={showAvailabilityDialog} onOpenChange={setShowAvailabilityDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Manage Your Availability</DialogTitle>
+            <DialogDescription>Set your weekly working schedule</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {!currentUserId ? (
+              <div className="p-4 text-center text-gray-500">
+                Please log in to manage your availability
+              </div>
+            ) : (
+              <>
+                {/* Current Schedule */}
+                <div>
+                  <h4 className="font-medium mb-3">Your Current Schedule</h4>
+                  {userAvailability.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-4">No shifts scheduled. Add your availability below.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {userAvailability.map((shift: any) => (
+                        <div key={shift.id} className="flex items-center justify-between p-3 border rounded-lg">
+                          <div>
+                            <p className="font-medium">{days[shift.day_of_week]}</p>
+                            <p className="text-sm text-gray-600">
+                              {formatTime(shift.start_time)} - {formatTime(shift.end_time)}
+                            </p>
+                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="text-red-600"
+                            onClick={() => deleteUserShift(shift.id)}
+                            disabled={isSaving}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Add New Shift */}
+                <div className="border-t pt-4">
+                  <h4 className="font-medium mb-3">Add Availability</h4>
+                  <form onSubmit={(e) => {
+                    e.preventDefault()
+                    const formData = new FormData(e.currentTarget)
+                    saveUserShift({
+                      day_of_week: Number(formData.get('day')),
+                      start_time: formData.get('start'),
+                      end_time: formData.get('end'),
+                      shift_type: 'field'
+                    })
+                    e.currentTarget.reset()
+                  }} className="grid grid-cols-4 gap-3">
+                    <Select name="day" defaultValue="0">
+                      <SelectTrigger>
+                        <SelectValue placeholder="Day" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {days.map((day, index) => (
+                          <SelectItem key={day} value={String(index)}>{day}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <input 
+                      type="time" 
+                      name="start" 
+                      defaultValue="09:00"
+                      className="border rounded px-3 py-2 text-sm"
+                      required
+                    />
+                    <input 
+                      type="time" 
+                      name="end" 
+                      defaultValue="17:00"
+                      className="border rounded px-3 py-2 text-sm"
+                      required
+                    />
+                    <Button type="submit" disabled={isSaving}>
+                      {isSaving ? 'Saving...' : 'Add'}
+                    </Button>
+                  </form>
+                </div>
+              </>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   )
 }

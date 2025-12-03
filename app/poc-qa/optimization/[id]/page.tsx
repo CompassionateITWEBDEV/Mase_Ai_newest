@@ -50,6 +50,7 @@ interface POCData {
     findings: any[]
     recommendations: any[]
     missingElements: any[]
+    missingElementDetails?: Array<{ element: string; category: string; severity: string; recommendation: string }>
     regulatoryIssues: any[]
     documentationGaps: any[]
     analyzedAt: string
@@ -113,8 +114,10 @@ interface POCData {
         prnRationale?: string
       }>
       diagnoses: {
-        principal: { code: string; description: string }
-        other: Array<{ code: string; description: string }>
+        principal?: { code: string; description: string }
+        primary?: { code: string; description: string }
+        other?: Array<{ code: string; description: string }>
+        secondary?: Array<{ code: string; description: string }>
       }
       dmeInfo: {
         dmeItems: string[]
@@ -197,8 +200,6 @@ interface POCData {
     safetyRisks?: Array<{ risk: string; category: string; severity: string; mitigation: string }> | null
     suggestedCodes?: Array<{ code: string; description: string; reason: string; revenueImpact: number }> | null
     finalRecommendations?: Array<{ category: string; recommendation: string; priority: string }> | null
-    qualityScore?: number | null
-    confidenceScore?: number | null
   } | null
 }
 
@@ -498,27 +499,27 @@ export default function POCOptimizationPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-200 hover:shadow-md transition-shadow">
                     <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Patient Name</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.patientInfo.name}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.patientInfo?.name || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100/50 border border-purple-200 hover:shadow-md transition-shadow">
                     <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2">Medical Record Number</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.patientInfo.mrn}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.patientInfo?.mrn || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100/50 border border-green-200 hover:shadow-md transition-shadow">
                     <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Date of Birth</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.patientInfo.dob}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.patientInfo?.dob || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-orange-50 to-orange-100/50 border border-orange-200 hover:shadow-md transition-shadow">
                     <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-2">Gender</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.patientInfo.gender}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.patientInfo?.gender || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-teal-50 to-teal-100/50 border border-teal-200 hover:shadow-md transition-shadow">
                     <p className="text-xs font-semibold text-teal-700 uppercase tracking-wide mb-2">Address</p>
-                    <p className="text-sm font-bold text-gray-900">{analysis.pocExtractedData.patientInfo.address}</p>
+                    <p className="text-sm font-bold text-gray-900">{analysis.pocExtractedData?.patientInfo?.address || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-pink-50 to-pink-100/50 border border-pink-200 hover:shadow-md transition-shadow">
                     <p className="text-xs font-semibold text-pink-700 uppercase tracking-wide mb-2">Phone</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.patientInfo.phone}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.patientInfo?.phone || "N/A"}</p>
                   </div>
                 </div>
               </CardContent>
@@ -538,25 +539,25 @@ export default function POCOptimizationPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   <div className="p-4 rounded-xl bg-gradient-to-br from-indigo-50 to-indigo-100/50 border border-indigo-200">
                     <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">Order Number</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.orderInfo.orderNumber}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.orderInfo?.orderNumber || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-purple-100/50 border border-purple-200">
                     <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2">Start of Care Date</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.orderInfo.startOfCareDate}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.orderInfo?.startOfCareDate || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-blue-100/50 border border-blue-200">
                     <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Certification Period</p>
                     <p className="text-lg font-bold text-gray-900">
-                      {analysis.pocExtractedData.orderInfo.certificationPeriod.start} to {analysis.pocExtractedData.orderInfo.certificationPeriod.end}
+                      {analysis.pocExtractedData?.orderInfo?.certificationPeriod?.start || "N/A"} to {analysis.pocExtractedData?.orderInfo?.certificationPeriod?.end || "N/A"}
                     </p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-green-50 to-green-100/50 border border-green-200">
                     <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Provider Number</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.orderInfo.providerNumber}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.orderInfo?.providerNumber || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-orange-50 to-orange-100/50 border border-orange-200">
                     <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-2">Patient HI Claim No.</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.orderInfo.patientHIClaimNo}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.orderInfo?.patientHIClaimNo || "N/A"}</p>
                   </div>
                 </div>
               </CardContent>
@@ -576,21 +577,21 @@ export default function POCOptimizationPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="p-4 rounded-xl bg-gradient-to-br from-red-50 to-red-100/50 border border-red-200">
                     <p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">Physician Name</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.physicianInfo.name}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.physicianInfo?.name || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-pink-50 to-pink-100/50 border border-pink-200">
                     <p className="text-xs font-semibold text-pink-700 uppercase tracking-wide mb-2">NPI Number</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.physicianInfo.npi}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.physicianInfo?.npi || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-rose-50 to-rose-100/50 border border-rose-200">
                     <p className="text-xs font-semibold text-rose-700 uppercase tracking-wide mb-2">Address</p>
-                    <p className="text-sm font-bold text-gray-900">{analysis.pocExtractedData.physicianInfo.address}</p>
+                    <p className="text-sm font-bold text-gray-900">{analysis.pocExtractedData?.physicianInfo?.address || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-gradient-to-br from-red-50 to-red-100/50 border border-red-200">
                     <p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">Contact</p>
                     <p className="text-sm font-bold text-gray-900">
-                      Phone: {analysis.pocExtractedData.physicianInfo.phone}<br />
-                      Fax: {analysis.pocExtractedData.physicianInfo.fax}
+                      Phone: {analysis.pocExtractedData?.physicianInfo?.phone || "N/A"}<br />
+                      Fax: {analysis.pocExtractedData?.physicianInfo?.fax || "N/A"}
                     </p>
                   </div>
                 </div>
@@ -598,19 +599,19 @@ export default function POCOptimizationPage() {
             </Card>
 
             {/* Medications */}
-            {analysis.pocExtractedData.medications.length > 0 && (
+            {analysis.pocExtractedData?.medications?.length > 0 && (
               <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
                 <CardHeader className="bg-gradient-to-r from-yellow-50 to-amber-50 border-b">
                   <CardTitle className="flex items-center gap-3 text-xl">
                     <div className="h-10 w-10 rounded-lg bg-yellow-600 flex items-center justify-center text-white shadow-md">
                       <Pill className="h-5 w-5" />
                     </div>
-                    Medications ({analysis.pocExtractedData.medications.length})
+                    Medications ({analysis.pocExtractedData?.medications?.length || 0})
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="space-y-3">
-                    {analysis.pocExtractedData.medications.map((med, idx) => (
+                    {(analysis.pocExtractedData?.medications || []).map((med: any, idx: number) => (
                       <div key={idx} className="p-4 rounded-lg bg-white border-2 border-yellow-200 hover:shadow-md transition-shadow">
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
@@ -670,20 +671,24 @@ export default function POCOptimizationPage() {
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="space-y-4">
-                    <div className="p-4 rounded-lg bg-green-50 border-2 border-green-300">
-                      <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Principal Diagnosis</p>
-                      <p className="font-bold text-gray-900 mb-1">
-                        {analysis.pocExtractedData.diagnoses.principal.code} - {analysis.pocExtractedData.diagnoses.principal.description}
-                      </p>
-                    </div>
-                    {analysis.pocExtractedData.diagnoses.other.length > 0 && (
+                    {/* Principal/Primary Diagnosis */}
+                    {(analysis.pocExtractedData?.diagnoses?.principal || analysis.pocExtractedData?.diagnoses?.primary) && (
+                      <div className="p-4 rounded-lg bg-green-50 border-2 border-green-300">
+                        <p className="text-xs font-semibold text-green-700 uppercase tracking-wide mb-2">Principal Diagnosis</p>
+                        <p className="font-bold text-gray-900 mb-1">
+                          {(analysis.pocExtractedData.diagnoses.principal?.code || analysis.pocExtractedData.diagnoses.primary?.code || "N/A")} - {(analysis.pocExtractedData.diagnoses.principal?.description || analysis.pocExtractedData.diagnoses.primary?.description || "Not specified")}
+                        </p>
+                      </div>
+                    )}
+                    {/* Other/Secondary Diagnoses */}
+                    {((analysis.pocExtractedData?.diagnoses?.other?.length || 0) > 0 || (analysis.pocExtractedData?.diagnoses?.secondary?.length || 0) > 0) && (
                       <div>
-                        <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Other Diagnoses ({analysis.pocExtractedData.diagnoses.other.length})</p>
+                        <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">Other Diagnoses ({(analysis.pocExtractedData.diagnoses?.other?.length || analysis.pocExtractedData.diagnoses?.secondary?.length || 0)})</p>
                         <div className="space-y-2">
-                          {analysis.pocExtractedData.diagnoses.other.map((diag, idx) => (
+                          {(analysis.pocExtractedData.diagnoses.other || analysis.pocExtractedData.diagnoses.secondary || []).map((diag: any, idx: number) => (
                             <div key={idx} className="p-3 rounded-lg bg-white border border-gray-200">
                               <p className="font-medium text-gray-900">
-                                {diag.code} - {diag.description}
+                                {diag?.code || "N/A"} - {diag?.description || "Not specified"}
                               </p>
                             </div>
                           ))}
@@ -709,27 +714,27 @@ export default function POCOptimizationPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
                     <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Prognosis</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.clinicalStatus.prognosis}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.clinicalStatus?.prognosis || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-cyan-50 border border-cyan-200">
                     <p className="text-xs font-semibold text-cyan-700 uppercase tracking-wide mb-2">Mental/Cognitive Status</p>
-                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData.clinicalStatus.mentalCognitiveStatus}</p>
+                    <p className="text-lg font-bold text-gray-900">{analysis.pocExtractedData?.clinicalStatus?.mentalCognitiveStatus || "N/A"}</p>
                   </div>
-                  {analysis.pocExtractedData.clinicalStatus.functionalLimitations.length > 0 && (
+                  {analysis.pocExtractedData?.clinicalStatus?.functionalLimitations?.length > 0 && (
                     <div className="p-4 rounded-xl bg-purple-50 border border-purple-200">
                       <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2">Functional Limitations</p>
                       <div className="space-y-1">
-                        {analysis.pocExtractedData.clinicalStatus.functionalLimitations.map((limitation, idx) => (
+                        {analysis.pocExtractedData.clinicalStatus.functionalLimitations.map((limitation: string, idx: number) => (
                           <p key={idx} className="text-sm text-gray-800">• {limitation}</p>
                         ))}
                       </div>
                     </div>
                   )}
-                  {analysis.pocExtractedData.clinicalStatus.safety.length > 0 && (
+                  {analysis.pocExtractedData?.clinicalStatus?.safety?.length > 0 && (
                     <div className="p-4 rounded-xl bg-orange-50 border border-orange-200">
                       <p className="text-xs font-semibold text-orange-700 uppercase tracking-wide mb-2">Safety Measures</p>
                       <div className="space-y-1">
-                        {analysis.pocExtractedData.clinicalStatus.safety.map((safety, idx) => (
+                        {analysis.pocExtractedData.clinicalStatus.safety.map((safety: string, idx: number) => (
                           <p key={idx} className="text-sm text-gray-800">• {safety}</p>
                         ))}
                       </div>
@@ -751,11 +756,11 @@ export default function POCOptimizationPage() {
               </CardHeader>
               <CardContent className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {analysis.pocExtractedData.dmeInfo.dmeItems.length > 0 && (
+                  {analysis.pocExtractedData?.dmeInfo?.dmeItems?.length > 0 && (
                     <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
                       <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">DME Items</p>
                       <div className="space-y-1">
-                        {analysis.pocExtractedData.dmeInfo.dmeItems.map((item, idx) => (
+                        {analysis.pocExtractedData.dmeInfo.dmeItems.map((item: string, idx: number) => (
                           <p key={idx} className="text-sm font-medium text-gray-900">• {item}</p>
                         ))}
                       </div>
@@ -763,16 +768,16 @@ export default function POCOptimizationPage() {
                   )}
                   <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
                     <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-2">DME Provider</p>
-                    <p className="text-sm font-bold text-gray-900 mb-1">Name: {analysis.pocExtractedData.dmeInfo.providerName}</p>
-                    <p className="text-sm font-bold text-gray-900 mb-1">Phone: {analysis.pocExtractedData.dmeInfo.providerPhone}</p>
-                    <p className="text-sm font-bold text-gray-900">Supplies: {analysis.pocExtractedData.dmeInfo.suppliesProvided}</p>
+                    <p className="text-sm font-bold text-gray-900 mb-1">Name: {analysis.pocExtractedData?.dmeInfo?.providerName || "N/A"}</p>
+                    <p className="text-sm font-bold text-gray-900 mb-1">Phone: {analysis.pocExtractedData?.dmeInfo?.providerPhone || "N/A"}</p>
+                    <p className="text-sm font-bold text-gray-900">Supplies: {analysis.pocExtractedData?.dmeInfo?.suppliesProvided || "N/A"}</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Goals */}
-            {(analysis.pocExtractedData.goals.patientGoals.length > 0 || analysis.pocExtractedData.goals.ptGoals.length > 0) && (
+            {(analysis.pocExtractedData?.goals?.patientGoals?.length > 0 || analysis.pocExtractedData?.goals?.ptGoals?.length > 0) && (
               <Card className="border-2 shadow-lg hover:shadow-xl transition-shadow">
                 <CardHeader className="bg-gradient-to-r from-emerald-50 to-green-50 border-b">
                   <CardTitle className="flex items-center gap-3 text-xl">
@@ -784,11 +789,11 @@ export default function POCOptimizationPage() {
                 </CardHeader>
                 <CardContent className="p-6">
                   <div className="space-y-4">
-                    {analysis.pocExtractedData.goals.patientGoals.length > 0 && (
+                    {analysis.pocExtractedData?.goals?.patientGoals?.length > 0 && (
                       <div>
                         <p className="text-sm font-semibold text-emerald-700 uppercase tracking-wide mb-2">Patient's Personal Healthcare Goals</p>
                         <div className="space-y-2">
-                          {analysis.pocExtractedData.goals.patientGoals.map((goal, idx) => (
+                          {analysis.pocExtractedData.goals.patientGoals.map((goal: string, idx: number) => (
                             <div key={idx} className="p-3 rounded-lg bg-emerald-50 border border-emerald-200">
                               <p className="text-sm text-gray-800">• {goal}</p>
                             </div>
@@ -796,11 +801,11 @@ export default function POCOptimizationPage() {
                         </div>
                       </div>
                     )}
-                    {analysis.pocExtractedData.goals.ptGoals.length > 0 && (
+                    {analysis.pocExtractedData?.goals?.ptGoals?.length > 0 && (
                       <div>
                         <p className="text-sm font-semibold text-green-700 uppercase tracking-wide mb-2">PT Goals</p>
                         <div className="space-y-2">
-                          {analysis.pocExtractedData.goals.ptGoals.map((goal, idx) => (
+                          {analysis.pocExtractedData.goals.ptGoals.map((goal: string, idx: number) => (
                             <div key={idx} className="p-3 rounded-lg bg-green-50 border border-green-200">
                               <p className="text-sm text-gray-800">• {goal}</p>
                             </div>
@@ -827,21 +832,21 @@ export default function POCOptimizationPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="p-4 rounded-xl bg-violet-50 border border-violet-200">
                     <p className="text-xs font-semibold text-violet-700 uppercase tracking-wide mb-2">Nurse/Therapist</p>
-                    <p className="text-sm font-bold text-gray-900 mb-1">{analysis.pocExtractedData.signatures.nurseTherapistSignature}</p>
-                    <p className="text-xs text-gray-600">Date: {analysis.pocExtractedData.signatures.nurseTherapistDate}</p>
+                    <p className="text-sm font-bold text-gray-900 mb-1">{analysis.pocExtractedData?.signatures?.nurseTherapistSignature || "N/A"}</p>
+                    <p className="text-xs text-gray-600">Date: {analysis.pocExtractedData?.signatures?.nurseTherapistDate || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-purple-50 border border-purple-200">
                     <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide mb-2">Physician</p>
-                    <p className="text-sm font-bold text-gray-900 mb-1">{analysis.pocExtractedData.signatures.physicianSignature}</p>
-                    <p className="text-xs text-gray-600">Signature Date: {analysis.pocExtractedData.signatures.physicianSignatureDate}</p>
+                    <p className="text-sm font-bold text-gray-900 mb-1">{analysis.pocExtractedData?.signatures?.physicianSignature || "N/A"}</p>
+                    <p className="text-xs text-gray-600">Signature Date: {analysis.pocExtractedData?.signatures?.physicianSignatureDate || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-indigo-50 border border-indigo-200">
                     <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide mb-2">Date HHA Received Signed</p>
-                    <p className="text-sm font-bold text-gray-900">{analysis.pocExtractedData.signatures.dateHHAReceivedSigned}</p>
+                    <p className="text-sm font-bold text-gray-900">{analysis.pocExtractedData?.signatures?.dateHHAReceivedSigned || "N/A"}</p>
                   </div>
                   <div className="p-4 rounded-xl bg-blue-50 border border-blue-200">
                     <p className="text-xs font-semibold text-blue-700 uppercase tracking-wide mb-2">Face-to-Face Date</p>
-                    <p className="text-sm font-bold text-gray-900">{analysis.pocExtractedData.signatures.f2fDate}</p>
+                    <p className="text-sm font-bold text-gray-900">{analysis.pocExtractedData?.signatures?.f2fDate || "N/A"}</p>
                   </div>
                 </div>
               </CardContent>
@@ -974,7 +979,7 @@ export default function POCOptimizationPage() {
         {analysis?.pocStructuredData && (
           <>
             {/* Missing Information */}
-            {analysis.pocStructuredData.missingInformation.length > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').missingInformation && (
+            {(analysis.pocStructuredData?.missingInformation?.length || 0) > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').missingInformation && (
               <Card className={`border-2 border-red-200 shadow-lg ${
                 poc.uploadType === 'qapi-audit' ? 'ring-4 ring-red-400 ring-offset-2' : ''
               }`}>
@@ -1012,7 +1017,7 @@ export default function POCOptimizationPage() {
             )}
 
             {/* Inconsistencies */}
-            {analysis.pocStructuredData.inconsistencies.length > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').inconsistencies && (
+            {(analysis.pocStructuredData?.inconsistencies?.length || 0) > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').inconsistencies && (
               <Card className={`border-2 border-orange-200 shadow-lg ${
                 poc.uploadType === 'qapi-audit' ? 'ring-4 ring-orange-400 ring-offset-2' : ''
               }`}>
@@ -1050,7 +1055,7 @@ export default function POCOptimizationPage() {
             )}
 
             {/* Medication Issues */}
-            {analysis.pocStructuredData.medicationIssues.length > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').medicationIssues && (
+            {(analysis.pocStructuredData?.medicationIssues?.length || 0) > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').medicationIssues && (
               <Card className={`border-2 border-yellow-200 shadow-lg ${
                 poc.uploadType === 'qapi-audit' ? 'ring-4 ring-yellow-400 ring-offset-2' : ''
               }`}>
@@ -1076,7 +1081,7 @@ export default function POCOptimizationPage() {
             )}
 
             {/* Clinical Logic Gaps */}
-            {analysis.pocStructuredData.clinicalLogicGaps.length > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').clinicalLogicGaps && (
+            {(analysis.pocStructuredData?.clinicalLogicGaps?.length || 0) > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').clinicalLogicGaps && (
               <Card className={`border-2 border-purple-200 shadow-lg ${
                 poc.uploadType === 'qapi-audit' ? 'ring-4 ring-purple-400 ring-offset-2' : ''
               }`}>
@@ -1102,7 +1107,7 @@ export default function POCOptimizationPage() {
             )}
 
             {/* Compliance Risks */}
-            {analysis.pocStructuredData.complianceRisks.length > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').complianceRisks && (
+            {(analysis.pocStructuredData?.complianceRisks?.length || 0) > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').complianceRisks && (
               <Card className={`border-2 border-red-200 shadow-lg ${
                 poc.uploadType === 'qapi-audit' ? 'ring-4 ring-red-400 ring-offset-2' : ''
               }`}>
@@ -1140,7 +1145,7 @@ export default function POCOptimizationPage() {
             )}
 
             {/* Signature/Date Problems */}
-            {analysis.pocStructuredData.signatureDateProblems.length > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').signatureDateProblems && (
+            {(analysis.pocStructuredData?.signatureDateProblems?.length || 0) > 0 && getPOCSectionVisibility(poc.uploadType || 'comprehensive-qa').signatureDateProblems && (
               <Card className={`border-2 border-orange-200 shadow-lg ${
                 poc.uploadType === 'qapi-audit' ? 'ring-4 ring-orange-400 ring-offset-2' : ''
               }`}>
@@ -1284,24 +1289,24 @@ export default function POCOptimizationPage() {
                       <div>
                         <p className="font-semibold text-gray-900 mb-2">Validated ICD-10 Codes ({analysis.qaCodingReview.validatedCodes.length}):</p>
                         <div className="space-y-2">
-                          {analysis.qaCodingReview.validatedCodes.map((code, idx) => (
+                          {analysis.qaCodingReview.validatedCodes.map((code: any, idx: number) => (
                             <div key={idx} className={`p-3 rounded-lg border-l-4 ${
-                              code.validationStatus === 'valid' ? 'bg-green-50 border-green-600' :
-                              code.validationStatus === 'needs-review' ? 'bg-yellow-50 border-yellow-600' :
+                              code?.validationStatus === 'valid' ? 'bg-green-50 border-green-600' :
+                              code?.validationStatus === 'needs-review' ? 'bg-yellow-50 border-yellow-600' :
                               'bg-red-50 border-red-600'
                             }`}>
                               <div className="flex items-start justify-between mb-1">
                                 <div>
-                                  <p className="font-semibold text-gray-900">{code.code} - {code.description}</p>
-                                  <Badge variant={code.validationStatus === 'valid' ? 'default' : code.validationStatus === 'needs-review' ? 'secondary' : 'destructive'}>
-                                    {code.validationStatus}
+                                  <p className="font-semibold text-gray-900">{code?.code || "N/A"} - {code?.description || "Not specified"}</p>
+                                  <Badge variant={code?.validationStatus === 'valid' ? 'default' : code?.validationStatus === 'needs-review' ? 'secondary' : 'destructive'}>
+                                    {code?.validationStatus || "unknown"}
                                   </Badge>
                                 </div>
                               </div>
-                              {code.issues && code.issues.length > 0 && (
+                              {code?.issues && code.issues.length > 0 && (
                                 <p className="text-xs text-gray-700 mt-1">Issues: {code.issues.join(', ')}</p>
                               )}
-                              {code.recommendation && (
+                              {code?.recommendation && (
                                 <p className="text-xs text-gray-700 mt-1">Recommendation: {code.recommendation}</p>
                               )}
                             </div>
@@ -1313,11 +1318,11 @@ export default function POCOptimizationPage() {
                       <div>
                         <p className="font-semibold text-gray-900 mb-2">Optimized Code Recommendations ({analysis.qaCodingReview.suggestedCodes.length}):</p>
                         <div className="space-y-2">
-                          {analysis.qaCodingReview.suggestedCodes.map((code, idx) => (
+                          {analysis.qaCodingReview.suggestedCodes.map((code: any, idx: number) => (
                             <div key={idx} className="p-3 rounded-lg bg-blue-50 border-l-4 border-blue-600">
-                              <p className="font-semibold text-blue-900 mb-1">{code.code} - {code.description}</p>
-                              <p className="text-xs text-blue-700 mb-1">Reason: {code.reason}</p>
-                              <p className="text-xs text-blue-700">Revenue Impact: ${code.revenueImpact.toLocaleString()}</p>
+                              <p className="font-semibold text-blue-900 mb-1">{code?.code || "N/A"} - {code?.description || "Not specified"}</p>
+                              <p className="text-xs text-blue-700 mb-1">Reason: {code?.reason || "See documentation"}</p>
+                              <p className="text-xs text-blue-700">Revenue Impact: ${(code?.revenueImpact || 0).toLocaleString()}</p>
                             </div>
                           ))}
                         </div>
@@ -1327,14 +1332,14 @@ export default function POCOptimizationPage() {
                       <div>
                         <p className="font-semibold text-gray-900 mb-2">Missing Medically-Necessary Diagnoses ({analysis.qaCodingReview.missingDiagnoses.length}):</p>
                         <div className="space-y-2">
-                          {analysis.qaCodingReview.missingDiagnoses.map((diag, idx) => (
+                          {analysis.qaCodingReview.missingDiagnoses.map((diag: any, idx: number) => (
                             <div key={idx} className="p-3 rounded-lg bg-yellow-50 border-l-4 border-yellow-600">
-                              <p className="font-semibold text-yellow-900 mb-1">• {diag.condition}</p>
-                              <p className="text-xs text-yellow-700 mb-1">Suggested Code: {diag.suggestedCode} - {diag.codeDescription}</p>
-                              <p className="text-xs text-yellow-700 mb-1">Medical Necessity: {diag.medicalNecessity}</p>
-                              <p className="text-xs text-yellow-700 mb-1">Documentation Support: {diag.documentationSupport}</p>
-                              {diag.revenueImpact && (
-                                <p className="text-xs text-yellow-700">Revenue Impact: ${diag.revenueImpact.toLocaleString()}</p>
+                              <p className="font-semibold text-yellow-900 mb-1">• {diag?.condition || "Unspecified condition"}</p>
+                              <p className="text-xs text-yellow-700 mb-1">Suggested Code: {diag?.suggestedCode || "N/A"} - {diag?.codeDescription || "Not specified"}</p>
+                              <p className="text-xs text-yellow-700 mb-1">Medical Necessity: {diag?.medicalNecessity || "Review required"}</p>
+                              <p className="text-xs text-yellow-700 mb-1">Documentation Support: {diag?.documentationSupport || "See document"}</p>
+                              {diag?.revenueImpact && (
+                                <p className="text-xs text-yellow-700">Revenue Impact: ${(diag.revenueImpact || 0).toLocaleString()}</p>
                               )}
                             </div>
                           ))}

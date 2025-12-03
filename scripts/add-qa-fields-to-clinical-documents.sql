@@ -25,3 +25,5 @@ CREATE INDEX IF NOT EXISTS idx_clinical_documents_upload_type ON clinical_docume
 CREATE INDEX IF NOT EXISTS idx_clinical_documents_priority ON clinical_documents(priority);
 
 
+
+

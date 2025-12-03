@@ -46,6 +46,23 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }
 
     // Build response with all extracted and analyzed data
+    // Normalize missing elements once so UI can render details and legacy views still get strings
+    const missingElementDetails = (qaAnalysis?.missing_elements || []).map((e: any) =>
+      typeof e === "string"
+        ? {
+            element: e,
+            category: "documentation",
+            severity: "medium",
+            recommendation: "Review required",
+          }
+        : {
+            element: e?.element || e?.gap || e,
+            category: e?.category || "documentation",
+            severity: e?.severity || "medium",
+            recommendation: e?.recommendation || "Review required",
+          },
+    )
+
     const responseData = {
       success: true,
       poc: {
@@ -72,13 +89,39 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         completenessScore: qaAnalysis.completeness_score,
         accuracyScore: qaAnalysis.accuracy_score,
         confidenceScore: qaAnalysis.confidence_score,
-        findings: Array.isArray(qaAnalysis.findings) ? qaAnalysis.findings : (qaAnalysis.findings?.flaggedIssues || []),
-        recommendations: qaAnalysis.recommendations,
-        missingElements: qaAnalysis.missing_elements,
-        codingSuggestions: qaAnalysis.coding_suggestions,
+        findings: Array.isArray(qaAnalysis.findings)
+          ? qaAnalysis.findings.map((f: any) =>
+              typeof f === "string" ? f : f?.issue || f?.element || "Finding",
+            )
+          : qaAnalysis.findings?.flaggedIssues || [],
+        recommendations: (qaAnalysis.recommendations || []).map((r: any) => 
+          typeof r === "string"
+            ? {
+                recommendation: r,
+                category: "documentation",
+                priority: "medium",
+                expectedImpact: "Improved documentation",
+              }
+            : r,
+        ),
+        missingElements: missingElementDetails.map((item: { element: string }) => item.element),
+        missingElementDetails,
+        codingSuggestions: (qaAnalysis.coding_suggestions || []).map((c: any) =>
+          typeof c === "string"
+            ? { code: c, description: "Review document", reason: "Coding review needed" }
+            : c,
+        ),
         revenueImpact: qaAnalysis.revenue_impact,
-        regulatoryIssues: qaAnalysis.regulatory_issues,
-        documentationGaps: qaAnalysis.documentation_gaps,
+        regulatoryIssues: (qaAnalysis.regulatory_issues || []).map((r: any) =>
+          typeof r === "string"
+            ? { regulation: r, issue: "Review needed", severity: "medium", remediation: "Manual review" }
+            : r,
+        ),
+        documentationGaps: (qaAnalysis.documentation_gaps || []).map((d: any) =>
+          typeof d === "string"
+            ? { gap: d, impact: "Documentation incomplete", recommendation: "Complete documentation" }
+            : d,
+        ),
         pocQAAnalysis: qaAnalysis.findings?.pocQAAnalysis || null,
         pocStructuredData: qaAnalysis.findings?.pocStructuredData || null,
         pocExtractedData: qaAnalysis.findings?.pocExtractedData || null,
@@ -90,8 +133,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         safetyRisks: qaAnalysis.findings?.safetyRisks || null,
         suggestedCodes: qaAnalysis.findings?.suggestedCodes || null,
         finalRecommendations: qaAnalysis.findings?.finalRecommendations || null,
-        qualityScore: qaAnalysis.findings?.qualityScore || null,
-        confidenceScore: qaAnalysis.findings?.confidenceScore || null,
         processingTime: qaAnalysis.findings?.processingTime || null,
         analyzedAt: qaAnalysis.analyzed_at,
       } : null,

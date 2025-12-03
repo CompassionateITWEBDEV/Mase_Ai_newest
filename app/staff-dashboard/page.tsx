@@ -692,29 +692,73 @@ export default function StaffDashboard() {
       try {
         setIsLoadingCerts(true)
         setCertsFromDocs([])
+        
+        // Try to load from staff_documents table (Documents page)
+        const staffId = selectedStaff?.id
         const email = selectedStaff?.email
-        if (!email) return
-        const res = await fetch(`/api/applicants/documents/by-email?email=${encodeURIComponent(email)}`)
+        
+        if (!staffId && !email) return
+
+        // Use the new API that fetches from staff_documents
+        const queryParam = staffId 
+          ? `staffId=${encodeURIComponent(staffId)}&type=certifications`
+          : `email=${encodeURIComponent(email!)}&type=certifications`
+        
+        const res = await fetch(`/api/staff-documents/by-staff?${queryParam}`)
         const data = await res.json()
-        if (data.success && Array.isArray(data.documents)) {
-          const mapped = data.documents
-            .filter((d: any) => d.document_type === 'license' || d.document_type === 'certification')
-            .map((d: any) => {
-              const baseName = (d.file_name || d.document_type || '').replace(/\.[^/.]+$/, '')
-              const name = d.document_type === 'license' ? (baseName || 'License') : (baseName || 'Certification')
-              const status = d.status === 'verified' ? 'Active' : (d.status === 'pending' ? 'Pending' : 'Needs Review')
-              const expires = d.expiration_date ? (() => {
-                try {
-                  const date = new Date(d.expiration_date)
-                  if (isNaN(date.getTime())) return '—'
-                  return date.toISOString().split('T')[0]
-                } catch {
-                  return '—'
-                }
-              })() : '—'
-              return { name, status, expires }
-            })
+        
+        if (data.success && Array.isArray(data.documents) && data.documents.length > 0) {
+          const mapped = data.documents.map((d: any) => {
+            const name = d.documentName || d.documentType || d.name || 'Document'
+            const status = d.status === 'verified' ? 'Active' 
+              : d.status === 'expired' ? 'Expired'
+              : d.status === 'pending' ? 'Pending' 
+              : 'Needs Review'
+            const expires = d.expirationDate || d.expires ? (() => {
+              try {
+                const dateStr = d.expirationDate || d.expires
+                const date = new Date(dateStr)
+                if (isNaN(date.getTime())) return '—'
+                return date.toISOString().split('T')[0]
+              } catch {
+                return '—'
+              }
+            })() : '—'
+            return { name, status, expires }
+          })
           setCertsFromDocs(mapped)
+        } else {
+          // Fallback: try the old applicant_documents API
+          if (email) {
+            const fallbackRes = await fetch(`/api/applicants/documents/by-email?email=${encodeURIComponent(email)}`)
+            const fallbackData = await fallbackRes.json()
+            if (fallbackData.success && Array.isArray(fallbackData.documents)) {
+              const mapped = fallbackData.documents
+                .filter((d: any) => 
+                  d.document_type?.toLowerCase().includes('license') || 
+                  d.document_type?.toLowerCase().includes('cert') ||
+                  d.document_type?.toLowerCase().includes('rn') ||
+                  d.document_type?.toLowerCase().includes('bls') ||
+                  d.document_type?.toLowerCase().includes('acls')
+                )
+                .map((d: any) => {
+                  const baseName = (d.file_name || d.document_type || '').replace(/\.[^/.]+$/, '')
+                  const name = baseName || d.document_type || 'Document'
+                  const status = d.status === 'verified' ? 'Active' : (d.status === 'pending' ? 'Pending' : 'Needs Review')
+                  const expires = d.expiration_date ? (() => {
+                    try {
+                      const date = new Date(d.expiration_date)
+                      if (isNaN(date.getTime())) return '—'
+                      return date.toISOString().split('T')[0]
+                    } catch {
+                      return '—'
+                    }
+                  })() : '—'
+                  return { name, status, expires }
+                })
+              setCertsFromDocs(mapped)
+            }
+          }
         }
       } catch (e) {
         console.error('Failed to load certificates/licenses from documents', e)
@@ -723,7 +767,8 @@ export default function StaffDashboard() {
       }
     }
     loadCerts()
-  }, [selectedStaff?.email])
+    // Using a stable key to prevent dependency array size changes
+  }, [selectedStaff?.id ?? '', selectedStaff?.email ?? ''])
 
   // Load GPS miles from actual tracking
   useEffect(() => {

@@ -52,6 +52,7 @@ interface PTVisitData {
     riskFactors?: any[]
     recommendations: any[]
     missingElements: any[]
+    missingElementDetails?: Array<{ element: string; category: string; severity: string; recommendation: string }>
     codingSuggestions?: any[]
     regulatoryIssues: any[]
     documentationGaps: any[]
@@ -205,6 +206,19 @@ export default function PTVisitOptimizationPage() {
   }
 
   const { ptVisit, analysis } = data
+
+  const missingElementDetails =
+    analysis?.missingElementDetails ||
+    (analysis?.missingElements || []).map((element: any) =>
+      typeof element === "string"
+        ? { element, category: "documentation", severity: "medium", recommendation: "Review required" }
+        : {
+            element: element?.element || element?.gap || "Unknown",
+            category: element?.category || "documentation",
+            severity: element?.severity || "medium",
+            recommendation: element?.recommendation || "Review required",
+          },
+    )
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-purple-50/20">
@@ -944,7 +958,7 @@ export default function PTVisitOptimizationPage() {
       )}
 
         {/* 🔎 Missing Information Detection - Enhanced */}
-        {analysis?.missingElements && analysis.missingElements.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').missingInformation && (
+        {missingElementDetails.length > 0 && getPTVisitSectionVisibility(ptVisit.uploadType || 'comprehensive-qa').missingInformation && (
           <Card className={`border-2 border-red-200 shadow-lg hover:shadow-xl transition-shadow ${
             ptVisit.uploadType === 'qapi-audit' ? 'ring-4 ring-red-400 ring-offset-2' : ''
           }`}>
@@ -954,7 +968,7 @@ export default function PTVisitOptimizationPage() {
                   <div className="h-10 w-10 rounded-lg bg-gradient-to-br from-red-600 to-orange-600 flex items-center justify-center text-white shadow-md">
                     <AlertCircle className="h-5 w-5" />
                   </div>
-                  Missing Information Detection ({analysis.missingElements.length})
+                  Missing Information Detection ({missingElementDetails.length})
                 </CardTitle>
                 {ptVisit.uploadType === 'qapi-audit' && (
                   <Badge className="bg-red-500 text-white font-bold px-3 py-1.5 shadow-lg animate-pulse">
@@ -970,28 +984,39 @@ export default function PTVisitOptimizationPage() {
             </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {/* Group by section */}
-              {["Header Information", "Vital Signs", "Therapeutic Exercises", "Bed Mobility", "Transfer Training", "Gait Training", "Pain Section", "Assessment", "Plan of Care", "Progress Toward Goals"].map((section) => {
-                const sectionItems = analysis.missingElements.filter((item: any) => item.section === section)
+              {/* Group by section/category */}
+              {["Header Information", "Vital Signs", "Therapeutic Exercises", "Bed Mobility", "Transfer Training", "Gait Training", "Pain Section", "Assessment", "Plan of Care", "Progress Toward Goals", "documentation", "system"].map((section) => {
+                // Support both old `section` field and new `category` field
+                const sectionItems = missingElementDetails.filter((item: any) => 
+                  (item.section === section) || (item.category === section) || 
+                  // If item has no section/category, group under "documentation"
+                  (section === "documentation" && !item.section && !item.category)
+                )
                 if (sectionItems.length === 0) return null
                 return (
                   <div key={section} className="p-4 border rounded-lg">
-                    <p className="font-semibold mb-2 text-blue-900">{section}</p>
+                    <p className="font-semibold mb-2 text-blue-900">{section === "documentation" ? "Documentation Issues" : section}</p>
                     <div className="space-y-2">
-                      {sectionItems.map((item: any, idx: number) => (
-                        <div key={idx} className="flex items-start gap-2">
-                          <span className="text-red-600">•</span>
-                          <div className="flex-1">
-                            <p className="text-sm font-medium">{item.element}</p>
-                            {item.recommendation && (
-                              <p className="text-xs text-muted-foreground mt-1">→ {item.recommendation}</p>
-                            )}
+                      {sectionItems.map((item: any, idx: number) => {
+                        // Handle both string format (legacy) and object format (new)
+                        const elementText = typeof item === 'string' ? item : (item.element || item.gap || 'Unknown')
+                        const recommendation = typeof item === 'string' ? null : item.recommendation
+                        const severity = typeof item === 'string' ? 'medium' : (item.severity || 'medium')
+                        return (
+                          <div key={idx} className="flex items-start gap-2">
+                            <span className="text-red-600">•</span>
+                            <div className="flex-1">
+                              <p className="text-sm font-medium">{elementText}</p>
+                              {recommendation && (
+                                <p className="text-xs text-muted-foreground mt-1">→ {recommendation}</p>
+                              )}
+                            </div>
+                            <Badge variant={severity === "high" ? "destructive" : "secondary"} className="text-xs">
+                              {severity}
+                            </Badge>
                           </div>
-                          <Badge variant={item.severity === "high" ? "destructive" : "secondary"} className="text-xs">
-                            {item.severity}
-                          </Badge>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )
@@ -1030,7 +1055,7 @@ export default function PTVisitOptimizationPage() {
             <div className="space-y-4">
               {/* Group by category */}
               {["inconsistency", "clinical", "documentation", "treatment"].map((category) => {
-                const categoryItems = analysis.flaggedIssues.filter((f: any) => f.category === category)
+                const categoryItems = (analysis.flaggedIssues || []).filter((f: any) => f.category === category)
                 if (categoryItems.length === 0) return null
                 return (
                   <div key={category} className="p-4 border rounded-lg bg-orange-50">
@@ -1321,24 +1346,28 @@ export default function PTVisitOptimizationPage() {
       )}
 
       {/* Missing Elements */}
-      {analysis?.missingElements && analysis.missingElements.length > 0 && (
+      {missingElementDetails.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Info className="h-5 w-5 text-yellow-600" />
-              Missing Elements ({analysis.missingElements.length})
+              Missing Elements ({missingElementDetails.length})
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {analysis.missingElements.map((element: any, idx: number) => (
-                <div key={idx} className="p-3 border border-yellow-200 bg-yellow-50 rounded-lg">
-                  <p className="font-medium">{element.element || element.gap}</p>
-                  {element.recommendation && (
-                    <p className="text-sm text-muted-foreground mt-1">{element.recommendation}</p>
-                  )}
-                </div>
-              ))}
+              {missingElementDetails.map((element: any, idx: number) => {
+                const elementText = element.element || element.gap || 'Unknown'
+                const recommendation = element.recommendation
+                return (
+                  <div key={idx} className="p-3 border border-yellow-200 bg-yellow-50 rounded-lg">
+                    <p className="font-medium">{elementText}</p>
+                    {recommendation && (
+                      <p className="text-sm text-muted-foreground mt-1">{recommendation}</p>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </CardContent>
         </Card>

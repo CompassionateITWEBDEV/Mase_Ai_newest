@@ -12,3 +12,5 @@ CREATE INDEX IF NOT EXISTS idx_oasis_assessments_chart_id ON oasis_assessments(c
 COMMENT ON COLUMN oasis_assessments.chart_id IS 'Groups OASIS assessments with other documents in the same patient chart/episode';
 
 
+
+

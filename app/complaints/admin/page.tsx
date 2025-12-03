@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -8,106 +8,48 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ArrowLeft, Shield, AlertTriangle, Eye, Users, Lock, Clock, CheckCircle, UserCheck } from "lucide-react"
+import { Textarea } from "@/components/ui/textarea"
+import { ArrowLeft, Shield, AlertTriangle, Eye, Users, Lock, Clock, CheckCircle, UserCheck, Loader2, RefreshCw } from "lucide-react"
 import Link from "next/link"
 
-export default function ComplaintsAdmin() {
-  const [selectedComplaint, setSelectedComplaint] = useState<any>(null)
-  const [activeTab, setActiveTab] = useState("pending")
-  const [assignmentDialog, setAssignmentDialog] = useState<any>(null)
+interface Complaint {
+  id: string
+  dbId: number
+  type: string
+  subject: string
+  description: string
+  location?: string
+  dateOfIncident?: string
+  urgency: string
+  anonymous: boolean
+  submittedBy: string
+  submittedByRole?: string
+  status: string
+  assignedTo: string
+  assignedToRole?: string
+  submittedDate: string
+  lastUpdated: string
+  resolution?: string
+  resolutionDate?: string
+  trackingNumber: string
+  investigationNotes: Array<{
+    date: string
+    note: string
+    investigator: string
+    actionType?: string
+  }>
+}
 
-  // Mock data for complaints with routing information
-  const complaints = [
-    {
-      id: "HR-001",
-      type: "Harassment",
-      subject: "Inappropriate workplace behavior",
-      status: "under-investigation",
-      submittedDate: "2024-01-15",
-      lastUpdated: "2024-01-20",
-      assignedTo: "Sarah Mitchell",
-      assignedToRole: "HR Director",
-      urgency: "high",
-      anonymous: false,
-      submittedBy: "Jane Smith",
-      submittedByRole: "RN",
-      description: "Experiencing inappropriate comments and behavior from supervisor during team meetings.",
-      location: "Conference Room B",
-      routingHistory: [
-        {
-          date: "2024-01-15",
-          action: "Complaint received",
-          user: "System",
-          note: "Auto-routed to HR Director due to harassment type",
-        },
-        {
-          date: "2024-01-16",
-          action: "Case assigned",
-          user: "Sarah Mitchell",
-          note: "Assigned to HR Director for investigation",
-        },
-        {
-          date: "2024-01-18",
-          action: "Investigation started",
-          user: "Sarah Mitchell",
-          note: "Initial interviews scheduled",
-        },
-      ],
-    },
-    {
-      id: "HR-002",
-      type: "Safety Concern",
-      subject: "Inadequate PPE supplies",
-      status: "pending",
-      submittedDate: "2024-01-22",
-      lastUpdated: "2024-01-22",
-      assignedTo: "Pending Assignment",
-      urgency: "medium",
-      anonymous: true,
-      submittedBy: "Anonymous",
-      description: "Consistent shortage of N95 masks and gloves in patient care areas.",
-      location: "Medical/Surgical Unit",
-      routingHistory: [
-        {
-          date: "2024-01-22",
-          action: "Anonymous complaint received",
-          user: "System",
-          note: "Awaiting assignment to Safety Officer",
-        },
-      ],
-    },
-    {
-      id: "HR-003",
-      type: "Discrimination",
-      subject: "Unfair scheduling practices",
-      status: "resolved",
-      submittedDate: "2024-01-08",
-      lastUpdated: "2024-01-20",
-      assignedTo: "Michael Rodriguez",
-      assignedToRole: "HR Manager",
-      urgency: "medium",
-      anonymous: false,
-      submittedBy: "Robert Johnson",
-      submittedByRole: "LPN",
-      resolution: "Scheduling policy reviewed and updated. Training provided to supervisors.",
-      resolutionDate: "2024-01-20",
-      routingHistory: [
-        { date: "2024-01-08", action: "Complaint received", user: "System", note: "Auto-routed to HR Manager" },
-        {
-          date: "2024-01-09",
-          action: "Investigation started",
-          user: "Michael Rodriguez",
-          note: "Reviewing scheduling records",
-        },
-        {
-          date: "2024-01-20",
-          action: "Case resolved",
-          user: "Michael Rodriguez",
-          note: "Policy updated and training completed",
-        },
-      ],
-    },
-  ]
+export default function ComplaintsAdmin() {
+  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null)
+  const [activeTab, setActiveTab] = useState("pending")
+  const [assignmentDialog, setAssignmentDialog] = useState<Complaint | null>(null)
+  const [resolveDialog, setResolveDialog] = useState<Complaint | null>(null)
+  const [complaints, setComplaints] = useState<Complaint[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [resolutionText, setResolutionText] = useState("")
+  const [noteText, setNoteText] = useState("")
 
   // Authorized personnel who can handle complaints
   const authorizedPersonnel = [
@@ -141,6 +83,29 @@ export default function ComplaintsAdmin() {
     },
   ]
 
+  // Fetch complaints on mount
+  useEffect(() => {
+    fetchComplaints()
+  }, [])
+
+  const fetchComplaints = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch("/api/complaints")
+      const data = await response.json()
+      
+      if (data.success) {
+        setComplaints(data.complaints || [])
+      } else {
+        console.error("Failed to fetch complaints:", data.message)
+      }
+    } catch (error) {
+      console.error("Error fetching complaints:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "resolved":
@@ -169,12 +134,112 @@ export default function ComplaintsAdmin() {
     }
   }
 
-  const assignComplaint = (complaintId: string, assigneeId: string) => {
+  const assignComplaint = async (complaintId: number, assigneeId: string) => {
     const assignee = authorizedPersonnel.find((p) => p.id === assigneeId)
-    if (assignee) {
-      // In real app, this would update the database and send notifications
-      alert(`Complaint ${complaintId} assigned to ${assignee.name}`)
-      setAssignmentDialog(null)
+    if (!assignee) return
+
+    setIsUpdating(true)
+    try {
+      const response = await fetch("/api/complaints", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: complaintId,
+          action: "assign",
+          assignedToName: assignee.name,
+          assignedToRole: assignee.role,
+          authorName: "Admin",
+          authorRole: "HR Admin",
+        }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert(`Complaint assigned to ${assignee.name}`)
+        setAssignmentDialog(null)
+        fetchComplaints()
+      } else {
+        alert(`Failed to assign complaint: ${data.message}`)
+      }
+    } catch (error) {
+      console.error("Error assigning complaint:", error)
+      alert("Failed to assign complaint")
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  const resolveComplaint = async (complaint: Complaint, resolution: string) => {
+    if (!resolution.trim()) {
+      alert("Please enter a resolution")
+      return
+    }
+
+    setIsUpdating(true)
+    try {
+      const response = await fetch("/api/complaints", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: complaint.dbId,
+          action: "resolve",
+          resolution: resolution,
+          authorName: "Admin",
+          authorRole: "HR Admin",
+        }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert("Complaint resolved successfully")
+        setResolveDialog(null)
+        setResolutionText("")
+        fetchComplaints()
+      } else {
+        alert(`Failed to resolve complaint: ${data.message}`)
+      }
+    } catch (error) {
+      console.error("Error resolving complaint:", error)
+      alert("Failed to resolve complaint")
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  const addNote = async (complaintId: number, note: string) => {
+    if (!note.trim()) {
+      alert("Please enter a note")
+      return
+    }
+
+    setIsUpdating(true)
+    try {
+      const response = await fetch("/api/complaints", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: complaintId,
+          action: "add-note",
+          note: note,
+          noteType: "investigation",
+          authorName: "Admin",
+          authorRole: "HR Admin",
+        }),
+      })
+
+      const data = await response.json()
+      if (data.success) {
+        alert("Note added successfully")
+        setNoteText("")
+        fetchComplaints()
+      } else {
+        alert(`Failed to add note: ${data.message}`)
+      }
+    } catch (error) {
+      console.error("Error adding note:", error)
+      alert("Failed to add note")
+    } finally {
+      setIsUpdating(false)
     }
   }
 
@@ -221,131 +286,190 @@ export default function ComplaintsAdmin() {
         </Card>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5">
-            <TabsTrigger value="pending">
-              Pending ({complaints.filter((c) => c.status === "pending").length})
-            </TabsTrigger>
-            <TabsTrigger value="active">
-              Active ({complaints.filter((c) => c.status === "under-investigation").length})
-            </TabsTrigger>
-            <TabsTrigger value="resolved">
-              Resolved ({complaints.filter((c) => c.status === "resolved").length})
-            </TabsTrigger>
-            <TabsTrigger value="routing">Routing Rules</TabsTrigger>
-            <TabsTrigger value="personnel">Authorized Personnel</TabsTrigger>
-          </TabsList>
+          {/* Refresh Button */}
+          <div className="flex justify-between items-center">
+            <TabsList className="grid w-full grid-cols-5">
+              <TabsTrigger value="pending">
+                Pending ({complaints.filter((c) => c.status === "pending").length})
+              </TabsTrigger>
+              <TabsTrigger value="active">
+                Active ({complaints.filter((c) => c.status === "under-investigation").length})
+              </TabsTrigger>
+              <TabsTrigger value="resolved">
+                Resolved ({complaints.filter((c) => c.status === "resolved").length})
+              </TabsTrigger>
+              <TabsTrigger value="routing">Routing Rules</TabsTrigger>
+              <TabsTrigger value="personnel">Authorized Personnel</TabsTrigger>
+            </TabsList>
+          </div>
+          
+          <div className="flex justify-end">
+            <Button variant="outline" size="sm" onClick={fetchComplaints} disabled={isLoading}>
+              <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+          </div>
 
           <TabsContent value="pending" className="space-y-6">
-            <div className="space-y-4">
-              {complaints
-                .filter((c) => c.status === "pending")
-                .map((complaint) => (
-                  <Card key={complaint.id} className="hover:shadow-md transition-shadow border-l-4 border-l-yellow-500">
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
-                            <Clock className="h-6 w-6 text-yellow-600" />
-                          </div>
-                          <div>
-                            <h3 className="font-medium">{complaint.subject}</h3>
-                            <p className="text-sm text-gray-600">{complaint.type}</p>
-                            <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
-                              <span>Case #{complaint.id}</span>
-                              <span>Filed: {complaint.submittedDate}</span>
-                              <span>By: {complaint.anonymous ? "Anonymous" : complaint.submittedBy}</span>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-500">Loading complaints...</span>
+              </div>
+            ) : complaints.filter((c) => c.status === "pending").length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <CheckCircle className="h-12 w-12 mx-auto text-green-300 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-600">No Pending Complaints</h3>
+                  <p className="text-gray-500 mt-2">All complaints have been assigned.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {complaints
+                  .filter((c) => c.status === "pending")
+                  .map((complaint) => (
+                    <Card key={complaint.id} className="hover:shadow-md transition-shadow border-l-4 border-l-yellow-500">
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center">
+                              <Clock className="h-6 w-6 text-yellow-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-medium">{complaint.subject}</h3>
+                              <p className="text-sm text-gray-600 capitalize">{complaint.type}</p>
+                              <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
+                                <span>Case #{complaint.id}</span>
+                                <span>Filed: {new Date(complaint.submittedDate).toLocaleDateString()}</span>
+                                <span>By: {complaint.anonymous ? "Anonymous" : complaint.submittedBy}</span>
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center space-x-3">
+                            {getUrgencyBadge(complaint.urgency)}
+                            <Button variant="outline" size="sm" onClick={() => setAssignmentDialog(complaint)} disabled={isUpdating}>
+                              <UserCheck className="h-4 w-4 mr-2" />
+                              Assign
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => setSelectedComplaint(complaint)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Review
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-3">
-                          {getUrgencyBadge(complaint.urgency)}
-                          <Button variant="outline" size="sm" onClick={() => setAssignmentDialog(complaint)}>
-                            <UserCheck className="h-4 w-4 mr-2" />
-                            Assign
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={() => setSelectedComplaint(complaint)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            Review
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-            </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="active" className="space-y-6">
-            <div className="space-y-4">
-              {complaints
-                .filter((c) => c.status === "under-investigation")
-                .map((complaint) => (
-                  <Card key={complaint.id} className="hover:shadow-md transition-shadow border-l-4 border-l-blue-500">
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                            <AlertTriangle className="h-6 w-6 text-blue-600" />
-                          </div>
-                          <div>
-                            <h3 className="font-medium">{complaint.subject}</h3>
-                            <p className="text-sm text-gray-600">{complaint.type}</p>
-                            <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
-                              <span>Case #{complaint.id}</span>
-                              <span>Assigned to: {complaint.assignedTo}</span>
-                              <span>Updated: {complaint.lastUpdated}</span>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-500">Loading complaints...</span>
+              </div>
+            ) : complaints.filter((c) => c.status === "under-investigation").length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Clock className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-600">No Active Investigations</h3>
+                  <p className="text-gray-500 mt-2">There are no complaints under investigation.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {complaints
+                  .filter((c) => c.status === "under-investigation")
+                  .map((complaint) => (
+                    <Card key={complaint.id} className="hover:shadow-md transition-shadow border-l-4 border-l-blue-500">
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                              <AlertTriangle className="h-6 w-6 text-blue-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-medium">{complaint.subject}</h3>
+                              <p className="text-sm text-gray-600 capitalize">{complaint.type}</p>
+                              <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
+                                <span>Case #{complaint.id}</span>
+                                <span>Assigned to: {complaint.assignedTo}</span>
+                                <span>Updated: {new Date(complaint.lastUpdated).toLocaleDateString()}</span>
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center space-x-3">
+                            {getStatusBadge(complaint.status)}
+                            {getUrgencyBadge(complaint.urgency)}
+                            <Button variant="outline" size="sm" onClick={() => setResolveDialog(complaint)} disabled={isUpdating}>
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Resolve
+                            </Button>
+                            <Button variant="outline" size="sm" onClick={() => setSelectedComplaint(complaint)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-3">
-                          {getStatusBadge(complaint.status)}
-                          {getUrgencyBadge(complaint.urgency)}
-                          <Button variant="outline" size="sm" onClick={() => setSelectedComplaint(complaint)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Details
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-            </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="resolved" className="space-y-6">
-            <div className="space-y-4">
-              {complaints
-                .filter((c) => c.status === "resolved")
-                .map((complaint) => (
-                  <Card key={complaint.id} className="hover:shadow-md transition-shadow border-l-4 border-l-green-500">
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
-                            <CheckCircle className="h-6 w-6 text-green-600" />
-                          </div>
-                          <div>
-                            <h3 className="font-medium">{complaint.subject}</h3>
-                            <p className="text-sm text-gray-600">{complaint.type}</p>
-                            <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
-                              <span>Case #{complaint.id}</span>
-                              <span>Resolved: {complaint.resolutionDate}</span>
-                              <span>By: {complaint.assignedTo}</span>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-500">Loading complaints...</span>
+              </div>
+            ) : complaints.filter((c) => c.status === "resolved").length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <CheckCircle className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-600">No Resolved Complaints</h3>
+                  <p className="text-gray-500 mt-2">There are no resolved complaints yet.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {complaints
+                  .filter((c) => c.status === "resolved")
+                  .map((complaint) => (
+                    <Card key={complaint.id} className="hover:shadow-md transition-shadow border-l-4 border-l-green-500">
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                              <CheckCircle className="h-6 w-6 text-green-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-medium">{complaint.subject}</h3>
+                              <p className="text-sm text-gray-600 capitalize">{complaint.type}</p>
+                              <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
+                                <span>Case #{complaint.id}</span>
+                                <span>Resolved: {complaint.resolutionDate ? new Date(complaint.resolutionDate).toLocaleDateString() : 'N/A'}</span>
+                                <span>By: {complaint.assignedTo}</span>
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center space-x-3">
+                            {getStatusBadge(complaint.status)}
+                            <Button variant="outline" size="sm" onClick={() => setSelectedComplaint(complaint)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Resolution
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-3">
-                          {getStatusBadge(complaint.status)}
-                          <Button variant="outline" size="sm" onClick={() => setSelectedComplaint(complaint)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Resolution
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-            </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="routing" className="space-y-6">
@@ -508,19 +632,19 @@ export default function ComplaintsAdmin() {
               <div className="space-y-4">
                 <div className="p-3 bg-gray-50 rounded">
                   <p className="text-sm">
-                    <strong>Type:</strong> {assignmentDialog.type}
+                    <strong>Type:</strong> <span className="capitalize">{assignmentDialog.type}</span>
                   </p>
                   <p className="text-sm">
                     <strong>Subject:</strong> {assignmentDialog.subject}
                   </p>
                   <p className="text-sm">
-                    <strong>Urgency:</strong> {assignmentDialog.urgency}
+                    <strong>Urgency:</strong> <span className="capitalize">{assignmentDialog.urgency}</span>
                   </p>
                 </div>
 
                 <div>
                   <Label>Assign to:</Label>
-                  <Select onValueChange={(value) => assignComplaint(assignmentDialog.id, value)}>
+                  <Select onValueChange={(value) => assignComplaint(assignmentDialog.dbId, value)} disabled={isUpdating}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select authorized personnel" />
                     </SelectTrigger>
@@ -537,6 +661,68 @@ export default function ComplaintsAdmin() {
                         ))}
                     </SelectContent>
                   </Select>
+                </div>
+                
+                {isUpdating && (
+                  <div className="flex items-center justify-center py-2">
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    <span className="text-sm">Assigning...</span>
+                  </div>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
+        )}
+
+        {/* Resolve Dialog */}
+        {resolveDialog && (
+          <Dialog open={!!resolveDialog} onOpenChange={() => { setResolveDialog(null); setResolutionText(""); }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Resolve Complaint</DialogTitle>
+                <DialogDescription>Enter the resolution for complaint {resolveDialog.id}</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="p-3 bg-gray-50 rounded">
+                  <p className="text-sm">
+                    <strong>Type:</strong> <span className="capitalize">{resolveDialog.type}</span>
+                  </p>
+                  <p className="text-sm">
+                    <strong>Subject:</strong> {resolveDialog.subject}
+                  </p>
+                </div>
+
+                <div>
+                  <Label htmlFor="resolution">Resolution Details *</Label>
+                  <Textarea
+                    id="resolution"
+                    placeholder="Describe how the complaint was resolved..."
+                    value={resolutionText}
+                    onChange={(e) => setResolutionText(e.target.value)}
+                    rows={4}
+                  />
+                </div>
+                
+                <div className="flex justify-end space-x-2">
+                  <Button variant="outline" onClick={() => { setResolveDialog(null); setResolutionText(""); }}>
+                    Cancel
+                  </Button>
+                  <Button 
+                    onClick={() => resolveComplaint(resolveDialog, resolutionText)} 
+                    disabled={isUpdating || !resolutionText.trim()}
+                  >
+                    {isUpdating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Resolving...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        Mark as Resolved
+                      </>
+                    )}
+                  </Button>
                 </div>
               </div>
             </DialogContent>
@@ -556,30 +742,31 @@ export default function ComplaintsAdmin() {
                   </div>
                 </DialogTitle>
                 <DialogDescription>
-                  {selectedComplaint.type} - Filed on {selectedComplaint.submittedDate}
+                  <span className="capitalize">{selectedComplaint.type}</span> - Filed on {new Date(selectedComplaint.submittedDate).toLocaleDateString()}
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-6">
-                {/* Routing History */}
-                <div>
-                  <h4 className="font-medium mb-3">Routing & Action History</h4>
-                  <div className="space-y-3">
-                    {selectedComplaint.routingHistory.map((entry: any, index: number) => (
-                      <div key={index} className="flex space-x-3 p-3 bg-gray-50 rounded border">
-                        <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
-                        <div className="flex-1">
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-sm font-medium">{entry.action}</p>
-                            <p className="text-xs text-gray-500">{entry.date}</p>
+                {/* Investigation Notes / History */}
+                {selectedComplaint.investigationNotes && selectedComplaint.investigationNotes.length > 0 && (
+                  <div>
+                    <h4 className="font-medium mb-3">Investigation Timeline</h4>
+                    <div className="space-y-3">
+                      {selectedComplaint.investigationNotes.map((entry, index: number) => (
+                        <div key={index} className="flex space-x-3 p-3 bg-gray-50 rounded border">
+                          <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="text-sm font-medium">{entry.investigator}</p>
+                              <p className="text-xs text-gray-500">{entry.date}</p>
+                            </div>
+                            <p className="text-sm text-gray-700">{entry.note}</p>
                           </div>
-                          <p className="text-sm text-gray-700">{entry.note}</p>
-                          <p className="text-xs text-gray-500">By: {entry.user}</p>
                         </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Complaint Details */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
@@ -614,7 +801,46 @@ export default function ComplaintsAdmin() {
                   <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                     <h4 className="font-medium text-green-900 mb-2">Resolution</h4>
                     <p className="text-sm text-green-800">{selectedComplaint.resolution}</p>
-                    <p className="text-xs text-green-700 mt-2">Resolved on: {selectedComplaint.resolutionDate}</p>
+                    <p className="text-xs text-green-700 mt-2">Resolved on: {selectedComplaint.resolutionDate ? new Date(selectedComplaint.resolutionDate).toLocaleDateString() : 'N/A'}</p>
+                  </div>
+                )}
+
+                {/* Add Note Section */}
+                {selectedComplaint.status === "under-investigation" && (
+                  <div className="border-t pt-4">
+                    <h4 className="font-medium mb-3">Add Investigation Note</h4>
+                    <div className="space-y-3">
+                      <Textarea
+                        placeholder="Enter investigation note..."
+                        value={noteText}
+                        onChange={(e) => setNoteText(e.target.value)}
+                        rows={3}
+                      />
+                      <div className="flex justify-end space-x-2">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => addNote(selectedComplaint.dbId, noteText)}
+                          disabled={isUpdating || !noteText.trim()}
+                        >
+                          {isUpdating ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                              Adding...
+                            </>
+                          ) : (
+                            "Add Note"
+                          )}
+                        </Button>
+                        <Button 
+                          size="sm"
+                          onClick={() => setResolveDialog(selectedComplaint)}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Resolve Complaint
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

@@ -593,7 +593,13 @@ export default function OasisOptimizationReport() {
       ? secondaryDxSource 
       : []
     
-    const secondaryDiagnoses = secondaryDxArray
+    const secondaryDiagnoses: Array<{
+      code: string;
+      description: string;
+      clinicalGroup: string;
+      hccScore: string;
+      riskAdjustment: number;
+    }> = secondaryDxArray
       .map((dx: any) => {
         const parsed = parseDiagnosisIfNeeded(dx)
         if (!parsed) return null
@@ -605,7 +611,7 @@ export default function OasisOptimizationReport() {
           riskAdjustment: parsed?.riskAdjustment || parsed?.reimbursement || 0,
         }
       })
-      .filter(Boolean)
+      .filter((dx): dx is NonNullable<typeof dx> => dx !== null) // Type-safe filter
 
     console.log('[OASIS] RAW primaryDiagnosis from API:', JSON.stringify(analysisResults?.primaryDiagnosis, null, 2))
     console.log('[OASIS] RAW secondaryDiagnoses from API:', JSON.stringify(analysisResults?.secondaryDiagnoses, null, 2))
@@ -1191,7 +1197,7 @@ export default function OasisOptimizationReport() {
           field: section.name,
           location: section.location,
           impact: "MEDIUM - This section contains important clinical assessment data.",
-          recommendation: `Locate the ${section.location.toUpperCase()} and extract all relevant information.`,
+          recommendation: `Locate the ${(section.location || 'document').toUpperCase()} and extract all relevant information.`, 
           required: false,
         })
       }
@@ -1817,10 +1823,10 @@ export default function OasisOptimizationReport() {
                         </div>
                       </div>
                       <ul className="space-y-1">
-                        {area.recommendations.map((rec, recIndex) => (
+                        {area.recommendations.map((rec: any, recIndex: number) => (
                           <li key={recIndex} className="text-sm text-slate-700 flex items-start gap-2">
                             <span className="text-blue-500">✓</span>
-                            <span>{rec}</span>
+                            <span>{typeof rec === 'string' ? rec : (rec.recommendation || rec.category || 'Review recommended')}</span>
                           </li>
                         ))}
                       </ul>
@@ -1850,7 +1856,7 @@ export default function OasisOptimizationReport() {
                     data.lupaRiskAnalysis.riskLevel === 'High Risk' ? 'bg-red-600 text-white' :
                     'bg-orange-500 text-white'
                   }`}>
-                    {data.lupaRiskAnalysis.riskLevel.toUpperCase()}
+                    {(data.lupaRiskAnalysis.riskLevel || 'Unknown').toUpperCase()}
                   </Badge>
                 </div>
                 <CardDescription className="text-red-700 text-base">
@@ -2140,10 +2146,10 @@ export default function OasisOptimizationReport() {
             <div>
               <h4 className="font-semibold mb-2">Recommendations</h4>
               <ul className="space-y-2">
-                {data.aiAnalysis.recommendations.map((rec, index) => (
+                {data.aiAnalysis.recommendations.map((rec: any, index: number) => (
                   <li key={index} className="flex items-start gap-2">
                     <span className="text-green-600 mt-1">✓</span>
-                    <span className="text-sm">{rec}</span>
+                    <span className="text-sm">{typeof rec === 'string' ? rec : (rec.recommendation || rec.category || JSON.stringify(rec))}</span>
                   </li>
                 ))}
               </ul>
@@ -2815,10 +2821,10 @@ export default function OasisOptimizationReport() {
                               impact.impact === 'case-mix' ? 'bg-purple-600 text-white' :
                               impact.impact === 'lupa' ? 'bg-red-600 text-white' :
                               impact.impact === 'reimbursement' ? 'bg-green-600 text-white' :
-                              'bg-blue-600 text-white'
-                            }>
-                              {impact.impact.toUpperCase()}
-                            </Badge>
+                            'bg-blue-600 text-white'
+                          }>
+                            {(impact.impact || 'medium').toUpperCase()}
+                          </Badge>
                             {impact.revenueImpact > 0 && (
                               <Badge className="bg-green-600 text-white">
                                 +${impact.revenueImpact.toLocaleString()}
@@ -2910,17 +2916,17 @@ export default function OasisOptimizationReport() {
                               improvement.category === 'functional-status' ? 'bg-purple-600 text-white' :
                               improvement.category === 'lupa-reduction' ? 'bg-red-600 text-white' :
                               improvement.category === 'therapy' ? 'bg-orange-600 text-white' :
-                              'bg-green-600 text-white'
-                            }>
-                              {improvement.category.replace('-', ' ').toUpperCase()}
-                            </Badge>
+                            'bg-green-600 text-white'
+                          }>
+                            {(improvement.category || 'general').replace('-', ' ').toUpperCase()}
+                          </Badge>
                             <Badge className={
                               improvement.priority === 'high' ? 'bg-red-600 text-white' :
                               improvement.priority === 'medium' ? 'bg-yellow-600 text-white' :
-                              'bg-blue-600 text-white'
-                            }>
-                              {improvement.priority.toUpperCase()} PRIORITY
-                            </Badge>
+                            'bg-blue-600 text-white'
+                          }>
+                            {(improvement.priority || 'medium').toUpperCase()} PRIORITY
+                          </Badge>
                             {improvement.revenueImpact > 0 && (
                               <Badge className="bg-green-600 text-white">
                                 +${improvement.revenueImpact.toLocaleString()}
@@ -3020,10 +3026,10 @@ export default function OasisOptimizationReport() {
                               reg.severity === 'critical' ? 'bg-red-700 text-white' :
                               reg.severity === 'high' ? 'bg-red-600 text-white' :
                               reg.severity === 'medium' ? 'bg-orange-600 text-white' :
-                              'bg-yellow-600 text-white'
-                            }>
-                              {reg.severity.toUpperCase()}
-                            </Badge>
+                            'bg-yellow-600 text-white'
+                          }>
+                            {(reg.severity || 'medium').toUpperCase()}
+                          </Badge>
                             <Badge className="bg-purple-600 text-white">{reg.regulation}</Badge>
                           </div>
                           <p className="text-sm text-red-800 mb-2">{reg.description}</p>
@@ -3071,10 +3077,10 @@ export default function OasisOptimizationReport() {
                       <Badge className={
                         data.qapiAudit.planOfCareReview.completeness === 'complete' ? 'bg-green-600 text-white' :
                         data.qapiAudit.planOfCareReview.completeness === 'incomplete' ? 'bg-yellow-600 text-white' :
-                        'bg-red-600 text-white'
-                      }>
-                        {data.qapiAudit.planOfCareReview.completeness.toUpperCase()}
-                      </Badge>
+                      'bg-red-600 text-white'
+                    }>
+                      {(data.qapiAudit.planOfCareReview.completeness || 'incomplete').toUpperCase()}
+                    </Badge>
                     </div>
                     {data.qapiAudit.planOfCareReview.issues && data.qapiAudit.planOfCareReview.issues.length > 0 && (
                       <div className="mt-3 space-y-2">
@@ -3105,10 +3111,10 @@ export default function OasisOptimizationReport() {
                                 goal.status === 'met' ? 'bg-green-600 text-white' :
                                 goal.status === 'in-progress' ? 'bg-yellow-600 text-white' :
                                 goal.status === 'not-met' ? 'bg-orange-600 text-white' :
-                                'bg-red-600 text-white'
-                              }>
-                                {goal.status.toUpperCase()}
-                              </Badge>
+                              'bg-red-600 text-white'
+                            }>
+                              {(goal.status || 'pending').toUpperCase()}
+                            </Badge>
                             </div>
                             {goal.issues && goal.issues.length > 0 && (
                               <div className="mt-2">
@@ -3141,10 +3147,10 @@ export default function OasisOptimizationReport() {
                               <Badge className={
                                 risk.status === 'documented' ? 'bg-green-600 text-white' :
                                 risk.status === 'inadequate' ? 'bg-yellow-600 text-white' :
-                                'bg-red-600 text-white'
-                              }>
-                                {risk.status.toUpperCase()}
-                              </Badge>
+                              'bg-red-600 text-white'
+                            }>
+                              {(risk.status || 'unknown').toUpperCase()}
+                            </Badge>
                             </div>
                             {risk.recommendation && (
                               <p className="text-sm text-green-700 mt-2">💡 {risk.recommendation}</p>
@@ -3170,10 +3176,10 @@ export default function OasisOptimizationReport() {
                               <Badge className={
                                 instruction.status === 'present' ? 'bg-green-600 text-white' :
                                 instruction.status === 'unclear' ? 'bg-yellow-600 text-white' :
-                                'bg-red-600 text-white'
-                              }>
-                                {instruction.status.toUpperCase()}
-                              </Badge>
+                              'bg-red-600 text-white'
+                            }>
+                              {(instruction.status || 'pending').toUpperCase()}
+                            </Badge>
                             </div>
                             {instruction.recommendation && (
                               <p className="text-sm text-green-700 mt-2">💡 {instruction.recommendation}</p>
@@ -3204,10 +3210,10 @@ export default function OasisOptimizationReport() {
                             <Badge className={
                               element.priority === 'high' ? 'bg-red-600 text-white' :
                               element.priority === 'medium' ? 'bg-yellow-600 text-white' :
-                              'bg-blue-600 text-white'
-                            }>
-                              {element.priority.toUpperCase()} PRIORITY
-                            </Badge>
+                            'bg-blue-600 text-white'
+                          }>
+                            {(element.priority || 'medium').toUpperCase()} PRIORITY
+                          </Badge>
                           </div>
                           <div className="space-y-1 text-sm mb-2">
                             <p className="text-amber-800">
@@ -3253,10 +3259,10 @@ export default function OasisOptimizationReport() {
                               contradiction.severity === 'critical' ? 'bg-red-700 text-white' :
                               contradiction.severity === 'high' ? 'bg-red-600 text-white' :
                               contradiction.severity === 'medium' ? 'bg-orange-600 text-white' :
-                              'bg-yellow-600 text-white'
-                            }>
-                              {contradiction.severity.toUpperCase()}
-                            </Badge>
+                            'bg-yellow-600 text-white'
+                          }>
+                            {(contradiction.severity || 'medium').toUpperCase()}
+                          </Badge>
                           </div>
                           <div className="space-y-1 text-sm mb-2">
                             <p className="text-red-800">

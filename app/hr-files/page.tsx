@@ -35,30 +35,41 @@ export default function HRFiles() {
   const [statusFilter, setStatusFilter] = useState("all")
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null)
 
-  // Mock data for completed applications/employee files
+  // Employee files from database
   const [employeeFiles, setEmployeeFiles] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [stats, setStats] = useState({
+    total: 0,
+    active: 0,
+    inactive: 0,
+    fullTime: 0,
+    partTime: 0,
+    compliant: 0,
+    expiringSoon: 0,
+  })
 
-  // In a real app, you would fetch employee data here
-  // useEffect(() => {
-  //   const loadEmployeeFiles = async () => {
-  //     try {
-  //       const response = await fetch('/api/hr/employees')
-  //       const data = await response.json()
-  //       setEmployeeFiles(data.employees || [])
-  //     } catch (error) {
-  //       console.error('Failed to load employee files:', error)
-  //       setEmployeeFiles([])
-  //     } finally {
-  //       setIsLoading(false)
-  //     }
-  //   }
-  //   loadEmployeeFiles()
-  // }, [])
-
-  // For now, just show empty state
+  // Fetch employee data from API
   useEffect(() => {
-    setIsLoading(false)
+    const loadEmployeeFiles = async () => {
+      try {
+        setIsLoading(true)
+        const response = await fetch('/api/hr/employees')
+        const data = await response.json()
+        if (data.success) {
+          setEmployeeFiles(data.employees || [])
+          setStats(data.stats || stats)
+        } else {
+          console.error('Failed to load employee files:', data.error)
+          setEmployeeFiles([])
+        }
+      } catch (error) {
+        console.error('Failed to load employee files:', error)
+        setEmployeeFiles([])
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadEmployeeFiles()
   }, [])
 
   const filteredEmployees = employeeFiles.filter((emp) => {
@@ -72,7 +83,7 @@ export default function HRFiles() {
   })
 
   const exportStateReport = () => {
-    // Generate state compliance report
+    // Generate state compliance report as CSV
     const reportData = employeeFiles.map((emp) => ({
       employeeId: emp.employeeId,
       name: `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`,
@@ -84,8 +95,33 @@ export default function HRFiles() {
       status: emp.status,
     }))
 
-    console.log("Exporting state report:", reportData)
-    // In real app, this would generate and download a CSV/PDF
+    // Create CSV content
+    const headers = ["Employee ID", "Name", "Position", "Employment Type", "Email", "Phone", "Hire Date", "Status"]
+    const csvRows = [
+      headers.join(","),
+      ...reportData.map(row => [
+        row.employeeId,
+        `"${row.name}"`,
+        `"${row.position}"`,
+        row.employmentType,
+        row.email,
+        row.phone,
+        row.hireDate,
+        row.status
+      ].join(","))
+    ]
+    const csvContent = csvRows.join("\n")
+
+    // Download CSV
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    const url = URL.createObjectURL(blob)
+    link.setAttribute("href", url)
+    link.setAttribute("download", `state_employee_report_${new Date().toISOString().split("T")[0]}.csv`)
+    link.style.visibility = "hidden"
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   const getDocumentStatusBadge = (status: string) => {
@@ -150,7 +186,73 @@ export default function HRFiles() {
                 <Download className="h-4 w-4 mr-2" />
                 State Report
               </Button>
-              <Button variant="outline">
+              <Button 
+                variant="outline"
+                onClick={() => {
+                  // Create printable view
+                  const printContent = `
+                    <html>
+                      <head>
+                        <title>HR Employee Files</title>
+                        <style>
+                          body { font-family: Arial, sans-serif; padding: 20px; }
+                          table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                          th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                          th { background-color: #f5f5f5; }
+                          h1 { color: #333; }
+                          .header { margin-bottom: 20px; }
+                          .stats { display: flex; gap: 20px; margin-bottom: 20px; }
+                          .stat { padding: 10px; border: 1px solid #ddd; border-radius: 4px; }
+                        </style>
+                      </head>
+                      <body>
+                        <div class="header">
+                          <h1>HR Employee Files Report</h1>
+                          <p>Generated: ${new Date().toLocaleString()}</p>
+                        </div>
+                        <div class="stats">
+                          <div class="stat"><strong>Total:</strong> ${stats.total}</div>
+                          <div class="stat"><strong>Active:</strong> ${stats.active}</div>
+                          <div class="stat"><strong>Full-time:</strong> ${stats.fullTime}</div>
+                          <div class="stat"><strong>Compliant:</strong> ${stats.compliant}</div>
+                        </div>
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Employee ID</th>
+                              <th>Name</th>
+                              <th>Position</th>
+                              <th>Department</th>
+                              <th>Email</th>
+                              <th>Phone</th>
+                              <th>Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            ${employeeFiles.map(emp => `
+                              <tr>
+                                <td>${emp.employeeId}</td>
+                                <td>${emp.personalInfo.firstName} ${emp.personalInfo.lastName}</td>
+                                <td>${emp.position}</td>
+                                <td>${emp.department}</td>
+                                <td>${emp.personalInfo.email}</td>
+                                <td>${emp.personalInfo.phone}</td>
+                                <td>${emp.status}</td>
+                              </tr>
+                            `).join('')}
+                          </tbody>
+                        </table>
+                      </body>
+                    </html>
+                  `
+                  const printWindow = window.open('', '_blank')
+                  if (printWindow) {
+                    printWindow.document.write(printContent)
+                    printWindow.document.close()
+                    printWindow.print()
+                  }
+                }}
+              >
                 <Printer className="h-4 w-4 mr-2" />
                 Print Files
               </Button>
@@ -207,7 +309,29 @@ export default function HRFiles() {
 
             {/* Employee Files List */}
             <div className="space-y-4">
-              {filteredEmployees.map((employee) => (
+              {isLoading ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4" />
+                    <p className="text-gray-600">Loading employee files...</p>
+                  </CardContent>
+                </Card>
+              ) : filteredEmployees.length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <User className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="font-medium text-gray-900 mb-2">No Employee Files Found</h3>
+                    <p className="text-gray-600 mb-4">
+                      {searchTerm || statusFilter !== "all" 
+                        ? "No employees match your search criteria. Try adjusting your filters."
+                        : "Employee files will appear here once staff members are added to the system."}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Employee data is pulled from the staff table and their documents from the Documents page.
+                    </p>
+                  </CardContent>
+                </Card>
+              ) : filteredEmployees.map((employee) => (
                 <Card key={employee.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-6">
                     <div className="flex items-center justify-between">
@@ -281,36 +405,47 @@ export default function HRFiles() {
                   </div>
 
                   <div className="border rounded-lg overflow-hidden">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                            Employee ID
-                          </th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Position</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {employeeFiles.map((employee) => (
-                          <tr key={employee.id}>
-                            <td className="px-4 py-4 text-sm font-medium">{employee.employeeId}</td>
-                            <td className="px-4 py-4 text-sm">
-                              {employee.personalInfo.firstName} {employee.personalInfo.lastName}
-                            </td>
-                            <td className="px-4 py-4 text-sm">{employee.position}</td>
-                            <td className="px-4 py-4 text-sm">
-                              <Badge variant="outline">{employee.employmentType}</Badge>
-                            </td>
-                            <td className="px-4 py-4 text-sm">{employee.personalInfo.email}</td>
-                            <td className="px-4 py-4 text-sm">{employee.personalInfo.phone}</td>
+                    {isLoading ? (
+                      <div className="p-8 text-center">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4" />
+                        <p className="text-gray-600">Loading employee data...</p>
+                      </div>
+                    ) : employeeFiles.length === 0 ? (
+                      <div className="p-8 text-center text-gray-500">
+                        No employee data available. Add staff members to see them here.
+                      </div>
+                    ) : (
+                      <table className="w-full">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                              Employee ID
+                            </th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Position</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {employeeFiles.map((employee) => (
+                            <tr key={employee.id}>
+                              <td className="px-4 py-4 text-sm font-medium">{employee.employeeId}</td>
+                              <td className="px-4 py-4 text-sm">
+                                {employee.personalInfo.firstName} {employee.personalInfo.lastName}
+                              </td>
+                              <td className="px-4 py-4 text-sm">{employee.position}</td>
+                              <td className="px-4 py-4 text-sm">
+                                <Badge variant="outline">{employee.employmentType}</Badge>
+                              </td>
+                              <td className="px-4 py-4 text-sm">{employee.personalInfo.email}</td>
+                              <td className="px-4 py-4 text-sm">{employee.personalInfo.phone}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 </div>
               </CardContent>
@@ -325,7 +460,9 @@ export default function HRFiles() {
                   <div className="flex items-center">
                     <Shield className="h-8 w-8 text-green-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">98%</p>
+                      <p className="text-2xl font-bold">
+                        {stats.total > 0 ? Math.round((stats.compliant / stats.total) * 100) : 0}%
+                      </p>
                       <p className="text-gray-600 text-sm">Compliance Rate</p>
                     </div>
                   </div>
@@ -337,8 +474,8 @@ export default function HRFiles() {
                   <div className="flex items-center">
                     <FileText className="h-8 w-8 text-blue-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">156</p>
-                      <p className="text-gray-600 text-sm">Complete Files</p>
+                      <p className="text-2xl font-bold">{stats.total}</p>
+                      <p className="text-gray-600 text-sm">Total Files</p>
                     </div>
                   </div>
                 </CardContent>
@@ -349,7 +486,7 @@ export default function HRFiles() {
                   <div className="flex items-center">
                     <Calendar className="h-8 w-8 text-orange-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">3</p>
+                      <p className="text-2xl font-bold">{stats.expiringSoon}</p>
                       <p className="text-gray-600 text-sm">Expiring Soon</p>
                     </div>
                   </div>
@@ -361,13 +498,61 @@ export default function HRFiles() {
                   <div className="flex items-center">
                     <User className="h-8 w-8 text-purple-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">124</p>
+                      <p className="text-2xl font-bold">{stats.fullTime}</p>
                       <p className="text-gray-600 text-sm">Full-time</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             </div>
+
+            {/* Compliance Breakdown */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Compliance Breakdown</CardTitle>
+                <CardDescription>Document compliance status across all employees</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="p-4 bg-green-50 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Active Employees</span>
+                      <Badge className="bg-green-100 text-green-800">{stats.active}</Badge>
+                    </div>
+                    <div className="mt-2 h-2 bg-gray-200 rounded-full">
+                      <div 
+                        className="h-2 bg-green-500 rounded-full" 
+                        style={{ width: `${stats.total > 0 ? (stats.active / stats.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Compliant Files</span>
+                      <Badge className="bg-blue-100 text-blue-800">{stats.compliant}</Badge>
+                    </div>
+                    <div className="mt-2 h-2 bg-gray-200 rounded-full">
+                      <div 
+                        className="h-2 bg-blue-500 rounded-full" 
+                        style={{ width: `${stats.total > 0 ? (stats.compliant / stats.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="p-4 bg-orange-50 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Expiring Documents</span>
+                      <Badge className="bg-orange-100 text-orange-800">{stats.expiringSoon}</Badge>
+                    </div>
+                    <div className="mt-2 h-2 bg-gray-200 rounded-full">
+                      <div 
+                        className="h-2 bg-orange-500 rounded-full" 
+                        style={{ width: `${stats.total > 0 ? (stats.expiringSoon / stats.total) * 100 : 0}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
 
           <TabsContent value="reports" className="space-y-6">
@@ -379,19 +564,118 @@ export default function HRFiles() {
                   <CardDescription>Generate various HR and compliance reports</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <Button variant="outline" className="w-full justify-start bg-transparent">
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start bg-transparent"
+                    onClick={exportStateReport}
+                  >
                     <FileText className="h-4 w-4 mr-2" />
                     Employee Directory Report
                   </Button>
-                  <Button variant="outline" className="w-full justify-start bg-transparent">
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start bg-transparent"
+                    onClick={() => {
+                      // Export compliance report
+                      const complianceData = employeeFiles.map((emp) => ({
+                        name: `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`,
+                        i9Status: emp.documents.i9Form.status,
+                        w4Status: emp.documents.w4Form.status,
+                        hipaaStatus: emp.documents.hipaaAgreement.status,
+                        backgroundStatus: emp.documents.backgroundCheck.status,
+                      }))
+                      const headers = ["Name", "I-9 Status", "W-4 Status", "HIPAA Status", "Background Check"]
+                      const csvRows = [
+                        headers.join(","),
+                        ...complianceData.map(row => [
+                          `"${row.name}"`,
+                          row.i9Status,
+                          row.w4Status,
+                          row.hipaaStatus,
+                          row.backgroundStatus
+                        ].join(","))
+                      ]
+                      const csvContent = csvRows.join("\n")
+                      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+                      const link = document.createElement("a")
+                      link.href = URL.createObjectURL(blob)
+                      link.download = `compliance_report_${new Date().toISOString().split("T")[0]}.csv`
+                      link.click()
+                    }}
+                  >
                     <Shield className="h-4 w-4 mr-2" />
                     Compliance Status Report
                   </Button>
-                  <Button variant="outline" className="w-full justify-start bg-transparent">
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start bg-transparent"
+                    onClick={() => {
+                      // Export license expiration report
+                      const licenseData = employeeFiles
+                        .filter(emp => emp.documents.professionalLicense.expiry)
+                        .map((emp) => ({
+                          name: `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`,
+                          licenseNumber: emp.documents.professionalLicense.number || "N/A",
+                          expiry: emp.documents.professionalLicense.expiry,
+                          status: emp.documents.professionalLicense.status,
+                        }))
+                      const headers = ["Name", "License Number", "Expiration Date", "Status"]
+                      const csvRows = [
+                        headers.join(","),
+                        ...licenseData.map(row => [
+                          `"${row.name}"`,
+                          row.licenseNumber,
+                          row.expiry,
+                          row.status
+                        ].join(","))
+                      ]
+                      const csvContent = csvRows.join("\n")
+                      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+                      const link = document.createElement("a")
+                      link.href = URL.createObjectURL(blob)
+                      link.download = `license_expiration_report_${new Date().toISOString().split("T")[0]}.csv`
+                      link.click()
+                    }}
+                  >
                     <Calendar className="h-4 w-4 mr-2" />
                     License Expiration Report
                   </Button>
-                  <Button variant="outline" className="w-full justify-start bg-transparent">
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-start bg-transparent"
+                    onClick={() => {
+                      // Export new hire report (employees hired in last 90 days)
+                      const ninetyDaysAgo = new Date()
+                      ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
+                      const newHires = employeeFiles.filter(emp => {
+                        const hireDate = new Date(emp.hireDate)
+                        return hireDate >= ninetyDaysAgo
+                      }).map((emp) => ({
+                        name: `${emp.personalInfo.firstName} ${emp.personalInfo.lastName}`,
+                        position: emp.position,
+                        department: emp.department,
+                        hireDate: emp.hireDate,
+                        email: emp.personalInfo.email,
+                      }))
+                      const headers = ["Name", "Position", "Department", "Hire Date", "Email"]
+                      const csvRows = [
+                        headers.join(","),
+                        ...newHires.map(row => [
+                          `"${row.name}"`,
+                          `"${row.position}"`,
+                          row.department,
+                          row.hireDate,
+                          row.email
+                        ].join(","))
+                      ]
+                      const csvContent = csvRows.join("\n")
+                      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
+                      const link = document.createElement("a")
+                      link.href = URL.createObjectURL(blob)
+                      link.download = `new_hire_report_${new Date().toISOString().split("T")[0]}.csv`
+                      link.click()
+                    }}
+                  >
                     <User className="h-4 w-4 mr-2" />
                     New Hire Report
                   </Button>
@@ -406,23 +690,23 @@ export default function HRFiles() {
                 <CardContent className="space-y-4">
                   <div className="flex justify-between">
                     <span>Total Employees:</span>
-                    <span className="font-medium">156</span>
+                    <span className="font-medium">{stats.total}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Full-time:</span>
-                    <span className="font-medium">124</span>
+                    <span className="font-medium">{stats.fullTime}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Part-time:</span>
-                    <span className="font-medium">32</span>
+                    <span className="font-medium">{stats.partTime}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Active:</span>
-                    <span className="font-medium">152</span>
+                    <span className="font-medium">{stats.active}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>On Leave:</span>
-                    <span className="font-medium">4</span>
+                    <span>Inactive:</span>
+                    <span className="font-medium">{stats.inactive}</span>
                   </div>
                 </CardContent>
               </Card>

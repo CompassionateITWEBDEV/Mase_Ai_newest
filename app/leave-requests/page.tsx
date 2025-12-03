@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useToast } from "@/hooks/use-toast"
 import {
   ArrowLeft,
   CalendarIcon,
@@ -25,13 +26,28 @@ import {
   Briefcase,
   AlertTriangle,
   CheckCircle,
+  Loader2,
+  RefreshCw,
 } from "lucide-react"
 import Link from "next/link"
 
 export default function LeaveRequests() {
+  const { toast } = useToast()
   const [selectedRequest, setSelectedRequest] = useState<any>(null)
   const [showNewRequestForm, setShowNewRequestForm] = useState(false)
   const [activeTab, setActiveTab] = useState("my-requests")
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [leaveRequests, setLeaveRequests] = useState<any[]>([])
+  const [leaveBalance, setLeaveBalance] = useState<any>({
+    vacation_days: 15,
+    sick_days: 8,
+    personal_days: 3,
+    fmla_weeks: 12,
+    available: { vacation: 15, sick: 8, personal: 3, fmla_weeks: 12 },
+    used: { vacation: 0, sick: 0, personal: 0, fmla: 0 },
+  })
+  const [currentUser, setCurrentUser] = useState<any>(null)
   const [formData, setFormData] = useState({
     type: "",
     startDate: "",
@@ -45,12 +61,70 @@ export default function LeaveRequests() {
     medicalCertification: false,
   })
 
-  // Mock staff performance data
+  // Get current user from localStorage
+  useEffect(() => {
+    const storedUser = localStorage.getItem("currentUser")
+    if (storedUser) {
+      try {
+        const user = JSON.parse(storedUser)
+        setCurrentUser(user)
+      } catch (e) {
+        console.error("Error parsing current user:", e)
+      }
+    }
+  }, [])
+
+  // Fetch leave requests
+  const fetchLeaveRequests = async () => {
+    try {
+      setIsLoading(true)
+      const staffId = currentUser?.staffId || currentUser?.id
+      const url = staffId 
+        ? `/api/leave-requests?staffId=${encodeURIComponent(staffId)}`
+        : `/api/leave-requests?all=true`
+      
+      const res = await fetch(url, { cache: "no-store" })
+      const data = await res.json()
+      
+      if (data.success) {
+        setLeaveRequests(data.requests || [])
+      }
+    } catch (error) {
+      console.error("Error fetching leave requests:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  // Fetch leave balance
+  const fetchLeaveBalance = async () => {
+    try {
+      const staffId = currentUser?.staffId || currentUser?.id
+      if (!staffId) return
+
+      const res = await fetch(`/api/leave-requests/balance?staffId=${encodeURIComponent(staffId)}`, { cache: "no-store" })
+      const data = await res.json()
+      
+      if (data.success && data.balance) {
+        setLeaveBalance(data.balance)
+      }
+    } catch (error) {
+      console.error("Error fetching leave balance:", error)
+    }
+  }
+
+  // Load data when user is available
+  useEffect(() => {
+    fetchLeaveRequests()
+    fetchLeaveBalance()
+  }, [currentUser])
+
+  // Staff profile based on current user
   const staffProfile = {
-    name: "Sarah Johnson",
-    position: "Registered Nurse",
-    department: "Medical/Surgical",
-    hireDate: "2022-03-15",
+    name: currentUser?.name || currentUser?.email?.split("@")[0] || "Staff Member",
+    position: currentUser?.role || "Healthcare Professional",
+    department: currentUser?.department || "General",
+    hireDate: currentUser?.hireDate || "2022-01-01",
     evaluationScore: 4.2,
     trainingScore: 95,
     complianceScore: 98,
@@ -68,79 +142,6 @@ export default function LeaveRequests() {
       "Strong compliance record supports leave approval",
     ],
   }
-
-  // Mock data for leave requests
-  const leaveRequests = [
-    {
-      id: "LR-001",
-      type: "Vacation",
-      startDate: "2024-02-15",
-      endDate: "2024-02-22",
-      totalDays: 6,
-      status: "approved",
-      submittedDate: "2024-01-20",
-      approvedBy: "Dr. Wilson",
-      approvedDate: "2024-01-22",
-      reason: "Family vacation to Florida",
-      emergencyContact: "Spouse - (248) 555-0123",
-      workCoverage: "Michael Chen will cover patient assignments",
-      returnDate: "2024-02-23",
-      performanceImpact: "Low - High performance score allows extended leave",
-      remainingBalance: {
-        vacation: 12,
-        sick: 8,
-        personal: 3,
-      },
-    },
-    {
-      id: "LR-002",
-      type: "Sick Leave",
-      startDate: "2024-01-25",
-      endDate: "2024-01-26",
-      totalDays: 2,
-      status: "approved",
-      submittedDate: "2024-01-25",
-      approvedBy: "HR Manager",
-      approvedDate: "2024-01-25",
-      reason: "Flu symptoms",
-      emergencyContact: "Emergency contact on file",
-      workCoverage: "Temporary coverage arranged",
-      returnDate: "2024-01-27",
-      medicalNote: "Doctor's note provided",
-      performanceImpact: "None - Medical leave approved",
-    },
-    {
-      id: "LR-003",
-      type: "FMLA",
-      startDate: "2024-03-01",
-      endDate: "2024-05-01",
-      totalDays: 60,
-      status: "pending",
-      submittedDate: "2024-01-18",
-      reason: "Maternity leave",
-      emergencyContact: "Husband - (248) 555-0456",
-      workCoverage: "Temporary replacement being hired",
-      returnDate: "2024-05-02",
-      medicalCertification: "Required - submitted",
-      fmlaEligible: true,
-      performanceImpact: "Positive - Excellent performance supports extended leave",
-    },
-    {
-      id: "LR-004",
-      type: "Personal",
-      startDate: "2024-02-05",
-      endDate: "2024-02-05",
-      totalDays: 1,
-      status: "denied",
-      submittedDate: "2024-02-01",
-      deniedBy: "Department Manager",
-      deniedDate: "2024-02-02",
-      denialReason: "Insufficient staffing on requested date - recommend alternative dates",
-      reason: "Personal appointment",
-      emergencyContact: "Emergency contact on file",
-      performanceImpact: "None - Scheduling conflict only",
-    },
-  ]
 
   const leaveTypes = [
     {
@@ -205,25 +206,128 @@ export default function LeaveRequests() {
     return diffDays
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log("Submitting leave request:", formData)
-    // In real app, this would submit to API
-    alert("Leave request submitted successfully. You will receive a confirmation email.")
-    // Reset form and close modal
-    setFormData({
-      type: "",
-      startDate: "",
-      endDate: "",
-      totalDays: 0,
-      reason: "",
-      emergencyContact: "",
-      workCoverage: "",
-      returnDate: "",
-      partialDays: false,
-      medicalCertification: false,
-    })
-    setShowNewRequestForm(false)
+    
+    if (!formData.type) {
+      toast({
+        title: "Error",
+        description: "Please select a leave type",
+        variant: "destructive",
+      })
+      return
+    }
+
+    if (!formData.startDate || !formData.endDate) {
+      toast({
+        title: "Error",
+        description: "Please select start and end dates",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    
+    try {
+      const staffId = currentUser?.staffId || currentUser?.id
+      
+      const res = await fetch("/api/leave-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          staffId,
+          staffName: staffProfile.name,
+          staffEmail: currentUser?.email,
+          staffPosition: staffProfile.position,
+          staffDepartment: staffProfile.department,
+          leaveType: formData.type,
+          startDate: formData.startDate,
+          endDate: formData.endDate,
+          totalDays: formData.totalDays,
+          returnDate: formData.returnDate,
+          partialDays: formData.partialDays,
+          reason: formData.reason,
+          emergencyContact: formData.emergencyContact,
+          workCoverage: formData.workCoverage,
+          medicalCertification: formData.medicalCertification,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: "✓ Request Submitted",
+          description: "Your leave request has been submitted for approval.",
+        })
+        
+        // Reset form
+        setFormData({
+          type: "",
+          startDate: "",
+          endDate: "",
+          totalDays: 0,
+          reason: "",
+          emergencyContact: "",
+          workCoverage: "",
+          returnDate: "",
+          partialDays: false,
+          medicalCertification: false,
+        })
+        setShowNewRequestForm(false)
+        setActiveTab("my-requests")
+        
+        // Refresh requests
+        await fetchLeaveRequests()
+      } else {
+        throw new Error(data.error || "Failed to submit request")
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to submit leave request",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  // Cancel a pending request
+  const handleCancelRequest = async (requestId: string) => {
+    if (!confirm("Are you sure you want to cancel this leave request?")) return
+
+    try {
+      const res = await fetch("/api/leave-requests", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: requestId,
+          status: "cancelled",
+          reviewedBy: staffProfile.name,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (data.success) {
+        toast({
+          title: "Request Cancelled",
+          description: "Your leave request has been cancelled.",
+        })
+        setSelectedRequest(null)
+        await fetchLeaveRequests()
+      } else {
+        throw new Error(data.error)
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to cancel leave request",
+        variant: "destructive",
+      })
+    }
   }
 
   const getStatusBadge = (status: string) => {
@@ -543,10 +647,19 @@ export default function LeaveRequests() {
                   </div>
 
                   <div className="flex justify-end space-x-3">
-                    <Button type="button" variant="outline">
-                      Save Draft
+                    <Button type="button" variant="outline" onClick={() => setActiveTab("my-requests")}>
+                      Cancel
                     </Button>
-                    <Button type="submit">Submit Request</Button>
+                    <Button type="submit" disabled={isSubmitting || !formData.type}>
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        "Submit Request"
+                      )}
+                    </Button>
                   </div>
                 </form>
               </CardContent>
@@ -554,44 +667,75 @@ export default function LeaveRequests() {
           </TabsContent>
 
           <TabsContent value="my-requests" className="space-y-6">
+            {/* Refresh Button */}
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={fetchLeaveRequests} disabled={isLoading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+
             {/* My Leave Requests */}
             <div className="space-y-4">
-              {leaveRequests.map((request) => (
-                <Card key={request.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
-                        <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
-                          {getTypeIcon(request.type)}
-                        </div>
-                        <div>
-                          <h3 className="font-medium">
-                            {request.type} - {request.totalDays} day{request.totalDays !== 1 ? "s" : ""}
-                          </h3>
-                          <p className="text-sm text-gray-600">
-                            {request.startDate} to {request.endDate}
-                          </p>
-                          <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
-                            <span>Request #{request.id}</span>
-                            <span>Submitted: {request.submittedDate}</span>
-                            {request.approvedDate && <span>Approved: {request.approvedDate}</span>}
-                          </div>
-                          {request.performanceImpact && (
-                            <p className="text-xs text-blue-600 mt-1">{request.performanceImpact}</p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-3">
-                        {getStatusBadge(request.status)}
-                        <Button variant="outline" size="sm" onClick={() => setSelectedRequest(request)}>
-                          <Eye className="h-4 w-4 mr-2" />
-                          View Details
-                        </Button>
-                      </div>
-                    </div>
+              {isLoading ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+                    <p className="text-gray-600">Loading leave requests...</p>
                   </CardContent>
                 </Card>
-              ))}
+              ) : leaveRequests.length === 0 ? (
+                <Card>
+                  <CardContent className="p-8 text-center">
+                    <CalendarIcon className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="font-medium text-gray-900 mb-2">No Leave Requests</h3>
+                    <p className="text-gray-600 mb-4">
+                      You haven't submitted any leave requests yet.
+                    </p>
+                    <Button onClick={() => setActiveTab("request-leave")}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Request Leave
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                leaveRequests.map((request) => (
+                  <Card key={request.id} className="hover:shadow-md transition-shadow">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-4">
+                          <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center">
+                            {getTypeIcon(request.leave_type || request.type)}
+                          </div>
+                          <div>
+                            <h3 className="font-medium">
+                              {(request.leave_type || request.type || "Leave").charAt(0).toUpperCase() + (request.leave_type || request.type || "leave").slice(1)} - {request.total_days || request.totalDays} day{(request.total_days || request.totalDays) !== 1 ? "s" : ""}
+                            </h3>
+                            <p className="text-sm text-gray-600">
+                              {request.start_date || request.startDate} to {request.end_date || request.endDate}
+                            </p>
+                            <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
+                              <span>Request #{request.id?.substring(0, 8) || request.id}</span>
+                              <span>Submitted: {(request.created_at || request.submittedDate)?.split("T")[0]}</span>
+                              {request.reviewed_at && <span>Reviewed: {request.reviewed_at?.split("T")[0]}</span>}
+                            </div>
+                            {request.performance_impact && (
+                              <p className="text-xs text-blue-600 mt-1">{request.performance_impact}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-3">
+                          {getStatusBadge(request.status)}
+                          <Button variant="outline" size="sm" onClick={() => setSelectedRequest(request)}>
+                            <Eye className="h-4 w-4 mr-2" />
+                            View Details
+                          </Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))
+              )}
             </div>
           </TabsContent>
 
@@ -603,9 +747,11 @@ export default function LeaveRequests() {
                   <div className="flex items-center">
                     <Plane className="h-8 w-8 text-blue-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">15</p>
+                      <p className="text-2xl font-bold">{leaveBalance.available?.vacation || leaveBalance.vacation_days || 15}</p>
                       <p className="text-gray-600 text-sm">Vacation Days</p>
-                      <p className="text-xs text-gray-500">Accrued: 2.5/month</p>
+                      <p className="text-xs text-gray-500">
+                        Used: {leaveBalance.used?.vacation || 0} | Total: {leaveBalance.vacation_days || 15}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -616,9 +762,11 @@ export default function LeaveRequests() {
                   <div className="flex items-center">
                     <Heart className="h-8 w-8 text-red-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">8</p>
+                      <p className="text-2xl font-bold">{leaveBalance.available?.sick || leaveBalance.sick_days || 8}</p>
                       <p className="text-gray-600 text-sm">Sick Days</p>
-                      <p className="text-xs text-gray-500">Accrued: 1/month</p>
+                      <p className="text-xs text-gray-500">
+                        Used: {leaveBalance.used?.sick || 0} | Total: {leaveBalance.sick_days || 8}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -629,9 +777,11 @@ export default function LeaveRequests() {
                   <div className="flex items-center">
                     <User className="h-8 w-8 text-green-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">3</p>
+                      <p className="text-2xl font-bold">{leaveBalance.available?.personal || leaveBalance.personal_days || 3}</p>
                       <p className="text-gray-600 text-sm">Personal Days</p>
-                      <p className="text-xs text-gray-500">Annual allocation</p>
+                      <p className="text-xs text-gray-500">
+                        Used: {leaveBalance.used?.personal || 0} | Total: {leaveBalance.personal_days || 3}
+                      </p>
                     </div>
                   </div>
                 </CardContent>
@@ -642,7 +792,7 @@ export default function LeaveRequests() {
                   <div className="flex items-center">
                     <Baby className="h-8 w-8 text-purple-500 mr-3" />
                     <div>
-                      <p className="text-2xl font-bold">12</p>
+                      <p className="text-2xl font-bold">{leaveBalance.available?.fmla_weeks || leaveBalance.fmla_weeks || 12}</p>
                       <p className="text-gray-600 text-sm">FMLA Weeks</p>
                       <p className="text-xs text-gray-500">Available per year</p>
                     </div>
@@ -655,31 +805,33 @@ export default function LeaveRequests() {
             <Card>
               <CardHeader>
                 <CardTitle>Leave Usage History</CardTitle>
-                <CardDescription>Your leave usage for the current year</CardDescription>
+                <CardDescription>Your approved leave requests for the current year</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                    <div>
-                      <p className="font-medium">Vacation - Florida Trip</p>
-                      <p className="text-sm text-gray-600">Feb 15-22, 2024</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium">6 days</p>
-                      <Badge className="bg-green-100 text-green-800">Approved</Badge>
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded">
-                    <div>
-                      <p className="font-medium">Sick Leave - Flu</p>
-                      <p className="text-sm text-gray-600">Jan 25-26, 2024</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="font-medium">2 days</p>
-                      <Badge className="bg-green-100 text-green-800">Approved</Badge>
-                    </div>
-                  </div>
+                  {leaveRequests.filter(r => r.status === "approved").length === 0 ? (
+                    <p className="text-center text-gray-500 py-4">No approved leave requests this year</p>
+                  ) : (
+                    leaveRequests
+                      .filter(r => r.status === "approved")
+                      .map((request) => (
+                        <div key={request.id} className="flex justify-between items-center p-3 bg-gray-50 rounded">
+                          <div>
+                            <p className="font-medium">
+                              {(request.leave_type || request.type || "Leave").charAt(0).toUpperCase() + (request.leave_type || request.type || "leave").slice(1)}
+                              {request.reason && ` - ${request.reason.substring(0, 30)}${request.reason.length > 30 ? '...' : ''}`}
+                            </p>
+                            <p className="text-sm text-gray-600">
+                              {request.start_date || request.startDate} to {request.end_date || request.endDate}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="font-medium">{request.total_days || request.totalDays} days</p>
+                            <Badge className="bg-green-100 text-green-800">Approved</Badge>
+                          </div>
+                        </div>
+                      ))
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -747,11 +899,11 @@ export default function LeaveRequests() {
             <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle className="flex items-center justify-between">
-                  <span>Leave Request Details - {selectedRequest.id}</span>
+                  <span>Leave Request Details - {selectedRequest.id?.substring(0, 8) || selectedRequest.id}</span>
                   <div className="flex space-x-2">{getStatusBadge(selectedRequest.status)}</div>
                 </DialogTitle>
                 <DialogDescription>
-                  {selectedRequest.type} - {selectedRequest.totalDays} day{selectedRequest.totalDays !== 1 ? "s" : ""}
+                  {(selectedRequest.leave_type || selectedRequest.type || "Leave").charAt(0).toUpperCase() + (selectedRequest.leave_type || selectedRequest.type || "leave").slice(1)} - {selectedRequest.total_days || selectedRequest.totalDays} day{(selectedRequest.total_days || selectedRequest.totalDays) !== 1 ? "s" : ""}
                 </DialogDescription>
               </DialogHeader>
 
@@ -760,35 +912,35 @@ export default function LeaveRequests() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
                   <div>
                     <Label className="text-sm font-medium">Leave Type</Label>
-                    <p className="text-sm">{selectedRequest.type}</p>
+                    <p className="text-sm capitalize">{selectedRequest.leave_type || selectedRequest.type}</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Total Days</Label>
-                    <p className="text-sm">{selectedRequest.totalDays}</p>
+                    <p className="text-sm">{selectedRequest.total_days || selectedRequest.totalDays}</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Start Date</Label>
-                    <p className="text-sm">{selectedRequest.startDate}</p>
+                    <p className="text-sm">{selectedRequest.start_date || selectedRequest.startDate}</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">End Date</Label>
-                    <p className="text-sm">{selectedRequest.endDate}</p>
+                    <p className="text-sm">{selectedRequest.end_date || selectedRequest.endDate}</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Return Date</Label>
-                    <p className="text-sm">{selectedRequest.returnDate}</p>
+                    <p className="text-sm">{selectedRequest.return_date || selectedRequest.returnDate || "Not specified"}</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Submitted Date</Label>
-                    <p className="text-sm">{selectedRequest.submittedDate}</p>
+                    <p className="text-sm">{(selectedRequest.created_at || selectedRequest.submittedDate)?.split("T")[0]}</p>
                   </div>
                 </div>
 
                 {/* Performance Impact */}
-                {selectedRequest.performanceImpact && (
+                {(selectedRequest.performance_impact || selectedRequest.performanceImpact) && (
                   <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                     <h4 className="font-medium text-blue-900 mb-2">Performance Impact Assessment</h4>
-                    <p className="text-sm text-blue-800">{selectedRequest.performanceImpact}</p>
+                    <p className="text-sm text-blue-800">{selectedRequest.performance_impact || selectedRequest.performanceImpact}</p>
                   </div>
                 )}
 
@@ -798,15 +950,15 @@ export default function LeaveRequests() {
                   <div className="space-y-4">
                     <div>
                       <Label className="text-sm font-medium">Reason</Label>
-                      <p className="text-sm mt-1">{selectedRequest.reason}</p>
+                      <p className="text-sm mt-1">{selectedRequest.reason || "Not provided"}</p>
                     </div>
                     <div>
                       <Label className="text-sm font-medium">Emergency Contact</Label>
-                      <p className="text-sm mt-1">{selectedRequest.emergencyContact}</p>
+                      <p className="text-sm mt-1">{selectedRequest.emergency_contact || selectedRequest.emergencyContact || "Not provided"}</p>
                     </div>
                     <div>
                       <Label className="text-sm font-medium">Work Coverage Plan</Label>
-                      <p className="text-sm mt-1">{selectedRequest.workCoverage}</p>
+                      <p className="text-sm mt-1">{selectedRequest.work_coverage || selectedRequest.workCoverage || "Not provided"}</p>
                     </div>
                   </div>
                 </div>
@@ -818,11 +970,11 @@ export default function LeaveRequests() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label className="text-sm font-medium">Approved By</Label>
-                        <p className="text-sm text-green-800">{selectedRequest.approvedBy}</p>
+                        <p className="text-sm text-green-800">{selectedRequest.reviewed_by || selectedRequest.approvedBy || "HR Manager"}</p>
                       </div>
                       <div>
                         <Label className="text-sm font-medium">Approved Date</Label>
-                        <p className="text-sm text-green-800">{selectedRequest.approvedDate}</p>
+                        <p className="text-sm text-green-800">{(selectedRequest.reviewed_at || selectedRequest.approvedDate)?.split("T")[0]}</p>
                       </div>
                     </div>
                   </div>
@@ -835,13 +987,21 @@ export default function LeaveRequests() {
                     <div className="space-y-2">
                       <div>
                         <Label className="text-sm font-medium">Denied By</Label>
-                        <p className="text-sm text-red-800">{selectedRequest.deniedBy}</p>
+                        <p className="text-sm text-red-800">{selectedRequest.reviewed_by || selectedRequest.deniedBy || "HR Manager"}</p>
                       </div>
                       <div>
                         <Label className="text-sm font-medium">Denial Reason</Label>
-                        <p className="text-sm text-red-800">{selectedRequest.denialReason}</p>
+                        <p className="text-sm text-red-800">{selectedRequest.denial_reason || selectedRequest.denialReason || "Not specified"}</p>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* Cancelled Information */}
+                {selectedRequest.status === "cancelled" && (
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <h4 className="font-medium text-gray-900 mb-2">Cancellation Details</h4>
+                    <p className="text-sm text-gray-600">This request was cancelled on {(selectedRequest.reviewed_at || selectedRequest.updated_at)?.split("T")[0]}</p>
                   </div>
                 )}
 
@@ -857,18 +1017,75 @@ export default function LeaveRequests() {
                 <div className="flex justify-between pt-4 border-t">
                   <div className="flex space-x-2">
                     {selectedRequest.status === "pending" && (
-                      <Button variant="outline" size="sm">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => handleCancelRequest(selectedRequest.id)}
+                      >
                         Cancel Request
                       </Button>
                     )}
                   </div>
                   <div className="flex space-x-2">
-                    <Button variant="outline" size="sm">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => {
+                        const printContent = `
+                          <html>
+                            <head>
+                              <title>Leave Request - ${selectedRequest.id?.substring(0, 8) || selectedRequest.id}</title>
+                              <style>
+                                body { font-family: Arial, sans-serif; padding: 20px; }
+                                h1 { color: #333; }
+                                .section { margin-bottom: 20px; }
+                                .label { font-weight: bold; color: #666; }
+                                .value { margin-top: 5px; }
+                              </style>
+                            </head>
+                            <body>
+                              <h1>Leave Request Details</h1>
+                              <div class="section">
+                                <div class="label">Request ID</div>
+                                <div class="value">${selectedRequest.id}</div>
+                              </div>
+                              <div class="section">
+                                <div class="label">Leave Type</div>
+                                <div class="value">${selectedRequest.leave_type || selectedRequest.type}</div>
+                              </div>
+                              <div class="section">
+                                <div class="label">Dates</div>
+                                <div class="value">${selectedRequest.start_date || selectedRequest.startDate} to ${selectedRequest.end_date || selectedRequest.endDate}</div>
+                              </div>
+                              <div class="section">
+                                <div class="label">Total Days</div>
+                                <div class="value">${selectedRequest.total_days || selectedRequest.totalDays}</div>
+                              </div>
+                              <div class="section">
+                                <div class="label">Status</div>
+                                <div class="value">${selectedRequest.status.toUpperCase()}</div>
+                              </div>
+                              <div class="section">
+                                <div class="label">Reason</div>
+                                <div class="value">${selectedRequest.reason || "Not provided"}</div>
+                              </div>
+                            </body>
+                          </html>
+                        `
+                        const printWindow = window.open('', '_blank')
+                        if (printWindow) {
+                          printWindow.document.write(printContent)
+                          printWindow.document.close()
+                          printWindow.print()
+                        }
+                      }}
+                    >
                       <FileText className="h-4 w-4 mr-2" />
                       Print Request
                     </Button>
-                    <Button variant="outline" size="sm">
-                      Export Details
+                    <Button variant="outline" size="sm" onClick={() => setSelectedRequest(null)}>
+                      Close
                     </Button>
                   </div>
                 </div>

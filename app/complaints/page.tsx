@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -13,14 +13,54 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { ArrowLeft, Shield, AlertTriangle, Eye, Plus, FileText, Lock, Users, MessageSquare, Phone } from "lucide-react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { ArrowLeft, Shield, AlertTriangle, Eye, Plus, FileText, Lock, Users, MessageSquare, Phone, Loader2, RefreshCw, CheckCircle } from "lucide-react"
 import Link from "next/link"
 
+interface Complaint {
+  id: string
+  dbId: number
+  type: string
+  subject: string
+  description: string
+  location?: string
+  dateOfIncident?: string
+  urgency: string
+  anonymous: boolean
+  submittedBy: string
+  submittedByRole?: string
+  status: string
+  assignedTo: string
+  assignedToRole?: string
+  submittedDate: string
+  lastUpdated: string
+  resolution?: string
+  resolutionDate?: string
+  trackingNumber: string
+  witnessesPresent?: boolean
+  witnessDetails?: string
+  actionsTaken?: string
+  desiredOutcome?: string
+  investigationNotes: Array<{
+    date: string
+    note: string
+    investigator: string
+    actionType?: string
+  }>
+}
+
 export default function HRComplaints() {
-  const [selectedComplaint, setSelectedComplaint] = useState<any>(null)
+  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null)
   const [showNewComplaintForm, setShowNewComplaintForm] = useState(false)
   const [activeTab, setActiveTab] = useState("my-complaints")
   const [isAnonymous, setIsAnonymous] = useState(false)
+  const [complaints, setComplaints] = useState<Complaint[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [submitSuccess, setSubmitSuccess] = useState<{ trackingNumber: string; complaintId: string } | null>(null)
+  const [trackingInput, setTrackingInput] = useState("")
+  const [trackingResult, setTrackingResult] = useState<Complaint | null>(null)
+  const [trackingError, setTrackingError] = useState("")
   const [formData, setFormData] = useState({
     type: "",
     subject: "",
@@ -35,72 +75,6 @@ export default function HRComplaints() {
     anonymous: false,
   })
 
-  // Mock data for complaints
-  const complaints = [
-    {
-      id: "HR-001",
-      type: "Harassment",
-      subject: "Inappropriate workplace behavior",
-      status: "under-investigation",
-      submittedDate: "2024-01-15",
-      lastUpdated: "2024-01-20",
-      assignedTo: "HR Manager",
-      urgency: "high",
-      anonymous: false,
-      description: "Experiencing inappropriate comments and behavior from supervisor during team meetings.",
-      location: "Conference Room B",
-      dateOfIncident: "2024-01-10",
-      actionsTaken: "Documented incidents and spoke with colleague witness",
-      investigationNotes: [
-        {
-          date: "2024-01-16",
-          note: "Initial complaint received and case opened",
-          investigator: "HR Manager",
-        },
-        {
-          date: "2024-01-18",
-          note: "Interviewed complainant and gathered initial evidence",
-          investigator: "HR Manager",
-        },
-        {
-          date: "2024-01-20",
-          note: "Scheduled interviews with witnesses",
-          investigator: "HR Manager",
-        },
-      ],
-    },
-    {
-      id: "HR-002",
-      type: "Safety Concern",
-      subject: "Inadequate PPE supplies",
-      status: "resolved",
-      submittedDate: "2024-01-08",
-      lastUpdated: "2024-01-12",
-      assignedTo: "Safety Officer",
-      urgency: "medium",
-      anonymous: true,
-      description: "Consistent shortage of N95 masks and gloves in patient care areas.",
-      location: "Medical/Surgical Unit",
-      dateOfIncident: "2024-01-05",
-      resolution: "Additional PPE supplies ordered and distribution system improved",
-      resolutionDate: "2024-01-12",
-    },
-    {
-      id: "HR-003",
-      type: "Discrimination",
-      subject: "Unfair scheduling practices",
-      status: "pending",
-      submittedDate: "2024-01-22",
-      lastUpdated: "2024-01-22",
-      assignedTo: "Pending Assignment",
-      urgency: "medium",
-      anonymous: false,
-      description: "Believe I'm being given unfavorable shifts due to my age compared to younger staff members.",
-      location: "Nursing Department",
-      dateOfIncident: "2024-01-15",
-    },
-  ]
-
   const complaintTypes = [
     { value: "harassment", label: "Harassment", description: "Sexual, verbal, or physical harassment" },
     { value: "discrimination", label: "Discrimination", description: "Based on protected characteristics" },
@@ -111,27 +85,110 @@ export default function HRComplaints() {
     { value: "other", label: "Other", description: "Other workplace concerns" },
   ]
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Fetch complaints on mount
+  useEffect(() => {
+    fetchComplaints()
+  }, [])
+
+  const fetchComplaints = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch("/api/complaints")
+      const data = await response.json()
+      
+      if (data.success) {
+        setComplaints(data.complaints || [])
+      } else {
+        console.error("Failed to fetch complaints:", data.message)
+      }
+    } catch (error) {
+      console.error("Error fetching complaints:", error)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log("Submitting complaint:", formData)
-    // In real app, this would submit to API
-    const trackingNumber = `HR-${Math.random().toString(36).substr(2, 9).toUpperCase()}`
-    alert(`Complaint submitted successfully. Your tracking number is: ${trackingNumber}`)
-    // Reset form and close modal
-    setFormData({
-      type: "",
-      subject: "",
-      description: "",
-      location: "",
-      dateOfIncident: "",
-      witnessesPresent: false,
-      witnessDetails: "",
-      actionsTaken: "",
-      desiredOutcome: "",
-      urgency: "medium",
-      anonymous: false,
-    })
-    setShowNewComplaintForm(false)
+    setIsSubmitting(true)
+    setSubmitSuccess(null)
+    
+    try {
+      const response = await fetch("/api/complaints", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: formData.type,
+          subject: formData.subject,
+          description: formData.description,
+          location: formData.location || undefined,
+          dateOfIncident: formData.dateOfIncident || undefined,
+          urgency: formData.urgency,
+          anonymous: formData.anonymous,
+          witnessesPresent: formData.witnessesPresent,
+          witnessDetails: formData.witnessDetails || undefined,
+          actionsTaken: formData.actionsTaken || undefined,
+          desiredOutcome: formData.desiredOutcome || undefined,
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        setSubmitSuccess({
+          trackingNumber: data.trackingNumber,
+          complaintId: data.complaintId,
+        })
+        // Reset form
+        setFormData({
+          type: "",
+          subject: "",
+          description: "",
+          location: "",
+          dateOfIncident: "",
+          witnessesPresent: false,
+          witnessDetails: "",
+          actionsTaken: "",
+          desiredOutcome: "",
+          urgency: "medium",
+          anonymous: false,
+        })
+        setIsAnonymous(false)
+        // Refresh complaints list
+        fetchComplaints()
+      } else {
+        alert(`Failed to submit complaint: ${data.message}`)
+      }
+    } catch (error) {
+      console.error("Error submitting complaint:", error)
+      alert("Failed to submit complaint. Please try again.")
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const trackComplaint = async () => {
+    if (!trackingInput.trim()) {
+      setTrackingError("Please enter a tracking number")
+      return
+    }
+    
+    setTrackingError("")
+    setTrackingResult(null)
+    
+    try {
+      const response = await fetch(`/api/complaints?trackingNumber=${encodeURIComponent(trackingInput.trim())}`)
+      const data = await response.json()
+      
+      if (data.success && data.complaints && data.complaints.length > 0) {
+        setTrackingResult(data.complaints[0])
+      } else {
+        setTrackingError("No complaint found with this tracking number")
+      }
+    } catch (error) {
+      console.error("Error tracking complaint:", error)
+      setTrackingError("Failed to track complaint. Please try again.")
+    }
   }
 
   const getStatusBadge = (status: string) => {
@@ -219,6 +276,22 @@ export default function HRComplaints() {
           </TabsList>
 
           <TabsContent value="file-complaint" className="space-y-6">
+            {/* Success Message */}
+            {submitSuccess && (
+              <Alert className="bg-green-50 border-green-200">
+                <CheckCircle className="h-4 w-4 text-green-600" />
+                <AlertDescription className="text-green-800">
+                  <strong>Complaint submitted successfully!</strong>
+                  <br />
+                  Your complaint ID: <strong>{submitSuccess.complaintId}</strong>
+                  <br />
+                  Tracking Number: <strong>{submitSuccess.trackingNumber}</strong>
+                  <br />
+                  <span className="text-sm">Save this tracking number to check the status of your complaint.</span>
+                </AlertDescription>
+              </Alert>
+            )}
+
             {/* Complaint Types Overview */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {complaintTypes.map((type) => (
@@ -391,10 +464,34 @@ export default function HRComplaints() {
                   </div>
 
                   <div className="flex justify-end space-x-3">
-                    <Button type="button" variant="outline">
-                      Save Draft
+                    <Button type="button" variant="outline" onClick={() => {
+                      setFormData({
+                        type: "",
+                        subject: "",
+                        description: "",
+                        location: "",
+                        dateOfIncident: "",
+                        witnessesPresent: false,
+                        witnessDetails: "",
+                        actionsTaken: "",
+                        desiredOutcome: "",
+                        urgency: "medium",
+                        anonymous: false,
+                      })
+                      setSubmitSuccess(null)
+                    }}>
+                      Clear Form
                     </Button>
-                    <Button type="submit">Submit Complaint</Button>
+                    <Button type="submit" disabled={isSubmitting || !formData.type || !formData.subject || !formData.description}>
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          Submitting...
+                        </>
+                      ) : (
+                        "Submit Complaint"
+                      )}
+                    </Button>
                   </div>
                 </form>
               </CardContent>
@@ -402,41 +499,71 @@ export default function HRComplaints() {
           </TabsContent>
 
           <TabsContent value="my-complaints" className="space-y-6">
+            {/* Refresh Button */}
+            <div className="flex justify-end">
+              <Button variant="outline" size="sm" onClick={fetchComplaints} disabled={isLoading}>
+                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
+            </div>
+
             {/* My Complaints */}
-            <div className="space-y-4">
-              {complaints
-                .filter((c) => !c.anonymous)
-                .map((complaint) => (
-                  <Card key={complaint.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
-                            <AlertTriangle className="h-6 w-6 text-red-600" />
-                          </div>
-                          <div>
-                            <h3 className="font-medium">{complaint.subject}</h3>
-                            <p className="text-sm text-gray-600">{complaint.type}</p>
-                            <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
-                              <span>Case #{complaint.id}</span>
-                              <span>Filed: {complaint.submittedDate}</span>
-                              <span>Updated: {complaint.lastUpdated}</span>
+            {isLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+                <span className="ml-2 text-gray-500">Loading complaints...</span>
+              </div>
+            ) : complaints.filter((c) => !c.anonymous).length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <FileText className="h-12 w-12 mx-auto text-gray-300 mb-4" />
+                  <h3 className="text-lg font-medium text-gray-600">No Complaints Found</h3>
+                  <p className="text-gray-500 mt-2">You haven't filed any complaints yet.</p>
+                  <Button 
+                    className="mt-4" 
+                    onClick={() => setActiveTab("file-complaint")}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    File a Complaint
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="space-y-4">
+                {complaints
+                  .filter((c) => !c.anonymous)
+                  .map((complaint) => (
+                    <Card key={complaint.id} className="hover:shadow-md transition-shadow">
+                      <CardContent className="p-6">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center space-x-4">
+                            <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                              <AlertTriangle className="h-6 w-6 text-red-600" />
+                            </div>
+                            <div>
+                              <h3 className="font-medium">{complaint.subject}</h3>
+                              <p className="text-sm text-gray-600 capitalize">{complaint.type}</p>
+                              <div className="flex items-center space-x-4 text-xs text-gray-500 mt-1">
+                                <span>Case #{complaint.id}</span>
+                                <span>Filed: {new Date(complaint.submittedDate).toLocaleDateString()}</span>
+                                <span>Updated: {new Date(complaint.lastUpdated).toLocaleDateString()}</span>
+                              </div>
                             </div>
                           </div>
+                          <div className="flex items-center space-x-3">
+                            {getStatusBadge(complaint.status)}
+                            {getUrgencyBadge(complaint.urgency)}
+                            <Button variant="outline" size="sm" onClick={() => setSelectedComplaint(complaint)}>
+                              <Eye className="h-4 w-4 mr-2" />
+                              View Details
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex items-center space-x-3">
-                          {getStatusBadge(complaint.status)}
-                          {getUrgencyBadge(complaint.urgency)}
-                          <Button variant="outline" size="sm" onClick={() => setSelectedComplaint(complaint)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View Details
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-            </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="anonymous-portal" className="space-y-6">
@@ -479,9 +606,53 @@ export default function HRComplaints() {
                 <div className="border-t pt-6">
                   <h4 className="font-medium mb-3">Track Anonymous Complaint</h4>
                   <div className="flex space-x-3">
-                    <Input placeholder="Enter your tracking number" />
-                    <Button variant="outline">Check Status</Button>
+                    <Input 
+                      placeholder="Enter your tracking number (e.g., TRK-XXXXXXXX)" 
+                      value={trackingInput}
+                      onChange={(e) => setTrackingInput(e.target.value)}
+                    />
+                    <Button variant="outline" onClick={trackComplaint}>
+                      Check Status
+                    </Button>
                   </div>
+                  
+                  {trackingError && (
+                    <p className="text-red-600 text-sm mt-2">{trackingError}</p>
+                  )}
+                  
+                  {trackingResult && (
+                    <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <h5 className="font-medium text-blue-900 mb-2">Complaint Status</h5>
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-600">Case ID:</span>
+                          <span className="ml-2 font-medium">{trackingResult.id}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Status:</span>
+                          <span className="ml-2">{getStatusBadge(trackingResult.status)}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Type:</span>
+                          <span className="ml-2 capitalize">{trackingResult.type}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Assigned To:</span>
+                          <span className="ml-2">{trackingResult.assignedTo}</span>
+                        </div>
+                        <div className="col-span-2">
+                          <span className="text-gray-600">Last Updated:</span>
+                          <span className="ml-2">{new Date(trackingResult.lastUpdated).toLocaleString()}</span>
+                        </div>
+                        {trackingResult.resolution && (
+                          <div className="col-span-2 mt-2 p-2 bg-green-50 rounded">
+                            <span className="text-green-800 font-medium">Resolution:</span>
+                            <p className="text-green-700 mt-1">{trackingResult.resolution}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -659,7 +830,7 @@ export default function HRComplaints() {
                   </div>
                 </DialogTitle>
                 <DialogDescription>
-                  {selectedComplaint.type} - Filed on {selectedComplaint.submittedDate}
+                  <span className="capitalize">{selectedComplaint.type}</span> - Filed on {new Date(selectedComplaint.submittedDate).toLocaleDateString()}
                 </DialogDescription>
               </DialogHeader>
 
@@ -668,7 +839,7 @@ export default function HRComplaints() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
                   <div>
                     <Label className="text-sm font-medium">Complaint Type</Label>
-                    <p className="text-sm">{selectedComplaint.type}</p>
+                    <p className="text-sm capitalize">{selectedComplaint.type}</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Assigned To</Label>
@@ -676,12 +847,18 @@ export default function HRComplaints() {
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Date of Incident</Label>
-                    <p className="text-sm">{selectedComplaint.dateOfIncident || "Not specified"}</p>
+                    <p className="text-sm">{selectedComplaint.dateOfIncident ? new Date(selectedComplaint.dateOfIncident).toLocaleDateString() : "Not specified"}</p>
                   </div>
                   <div>
                     <Label className="text-sm font-medium">Location</Label>
                     <p className="text-sm">{selectedComplaint.location || "Not specified"}</p>
                   </div>
+                  {selectedComplaint.trackingNumber && (
+                    <div className="col-span-2">
+                      <Label className="text-sm font-medium">Tracking Number</Label>
+                      <p className="text-sm font-mono bg-gray-100 px-2 py-1 rounded inline-block">{selectedComplaint.trackingNumber}</p>
+                    </div>
+                  )}
                 </div>
 
                 {/* Complaint Details */}
@@ -692,12 +869,32 @@ export default function HRComplaints() {
                   </div>
                 </div>
 
+                {/* Actions Taken */}
+                {selectedComplaint.actionsTaken && (
+                  <div>
+                    <h4 className="font-medium mb-3">Actions Already Taken</h4>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <p className="text-sm">{selectedComplaint.actionsTaken}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Desired Outcome */}
+                {selectedComplaint.desiredOutcome && (
+                  <div>
+                    <h4 className="font-medium mb-3">Desired Outcome</h4>
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <p className="text-sm">{selectedComplaint.desiredOutcome}</p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Investigation Timeline */}
-                {selectedComplaint.investigationNotes && (
+                {selectedComplaint.investigationNotes && selectedComplaint.investigationNotes.length > 0 && (
                   <div>
                     <h4 className="font-medium mb-3">Investigation Timeline</h4>
                     <div className="space-y-3">
-                      {selectedComplaint.investigationNotes.map((note: any, index: number) => (
+                      {selectedComplaint.investigationNotes.map((note, index: number) => (
                         <div key={index} className="flex space-x-3 p-3 bg-blue-50 rounded border border-blue-200">
                           <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
                           <div className="flex-1">
@@ -718,7 +915,7 @@ export default function HRComplaints() {
                   <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
                     <h4 className="font-medium text-green-900 mb-2">Resolution</h4>
                     <p className="text-sm text-green-800">{selectedComplaint.resolution}</p>
-                    <p className="text-xs text-green-700 mt-2">Resolved on: {selectedComplaint.resolutionDate}</p>
+                    <p className="text-xs text-green-700 mt-2">Resolved on: {selectedComplaint.resolutionDate ? new Date(selectedComplaint.resolutionDate).toLocaleDateString() : "N/A"}</p>
                   </div>
                 )}
 
@@ -733,12 +930,9 @@ export default function HRComplaints() {
                     )}
                   </div>
                   <div className="flex space-x-2">
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" onClick={() => window.print()}>
                       <FileText className="h-4 w-4 mr-2" />
                       Print Details
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      Export Case
                     </Button>
                   </div>
                 </div>

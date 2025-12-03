@@ -4,7 +4,7 @@ import { signatureService } from "@/lib/signature-services"
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { documentName, recipients, templateId } = body
+    const { documentName, recipients, templateId, orderId } = body
 
     // Validate required fields
     if (!documentName || !recipients || !Array.isArray(recipients)) {
@@ -18,11 +18,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Create signature request
-    const signatureRequest = await signatureService.createSignatureRequest(documentName, recipients, templateId)
+    // Create signature request with optional orderId
+    const signatureRequest = await signatureService.createSignatureRequest(
+      documentName, 
+      recipients, 
+      templateId,
+      orderId
+    )
 
     // Send for signature
-    await signatureService.sendForSignature(signatureRequest.id)
+    await signatureService.sendForSignature(signatureRequest.requestId)
 
     return NextResponse.json({
       success: true,
@@ -30,7 +35,9 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error creating signature request:", error)
-    return NextResponse.json({ error: "Failed to create signature request" }, { status: 500 })
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : "Failed to create signature request" 
+    }, { status: 500 })
   }
 }
 
@@ -69,7 +76,7 @@ export async function GET(request: NextRequest) {
 export async function PUT(request: NextRequest) {
   try {
     const body = await request.json()
-    const { requestId, recipientEmail, status } = body
+    const { requestId, recipientEmail, status, signatureData, signerName } = body
 
     if (!requestId || !recipientEmail || !status) {
       return NextResponse.json(
@@ -78,8 +85,14 @@ export async function PUT(request: NextRequest) {
       )
     }
 
-    // Update recipient status
-    await signatureService.updateRecipientStatus(requestId, recipientEmail, status)
+    // Update recipient status with optional signature data
+    await signatureService.updateRecipientStatus(
+      requestId, 
+      recipientEmail, 
+      status,
+      signatureData, // Base64 signature image
+      signerName     // Name entered when signing
+    )
 
     // Get updated request
     const updatedRequest = await signatureService.getSignatureRequest(requestId)
@@ -90,7 +103,9 @@ export async function PUT(request: NextRequest) {
     })
   } catch (error) {
     console.error("Error updating signature request:", error)
-    return NextResponse.json({ error: "Failed to update signature request" }, { status: 500 })
+    return NextResponse.json({ 
+      error: error instanceof Error ? error.message : "Failed to update signature request" 
+    }, { status: 500 })
   }
 }
 

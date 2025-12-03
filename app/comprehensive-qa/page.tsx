@@ -100,6 +100,9 @@ export default function ComprehensiveChartQA() {
   const [isLoading, setIsLoading] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [lastAxxessSync, setLastAxxessSync] = useState<string | null>(null)
+  const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, patientName: "" })
+  const [analysisResults, setAnalysisResults] = useState<any[]>([])
+  const [showAnalysisResults, setShowAnalysisResults] = useState(false)
 
   // Patient QA records from database
   const [patientQARecords, setPatientQARecords] = useState<PatientQARecord[]>([])
@@ -254,13 +257,25 @@ export default function ComprehensiveChartQA() {
     }
   }
 
-  // Run comprehensive QA analysis
-  const runQAAnalysis = async (patientId: string) => {
-    setIsLoading(true)
+  // Run comprehensive QA analysis (always re-extracts from PDF)
+  const runQAAnalysis = async (patientId: string, patientName?: string) => {
     try {
       // Find the patient record to get chartId
       const patient = patientQARecords.find((p) => p.id === patientId)
+      if (!patient) {
+        console.error("Patient not found:", patientId)
+        return { success: false, error: "Patient not found" }
+      }
+
       const chartId = (patient as any)?.chartId || patient?.axxessId || `CHART-${patientId}`
+
+      setAnalysisProgress((prev) => ({
+        ...prev,
+        patientName: patientName || patient.patientName,
+      }))
+
+      console.log("[Comprehensive QA] Starting AI-powered analysis for:", patientName || patient.patientName)
+      console.log("[Comprehensive QA] Will re-extract from PDF and do complete analysis")
 
       const response = await fetch("/api/comprehensive-qa/analyze", {
         method: "POST",
@@ -268,6 +283,7 @@ export default function ComprehensiveChartQA() {
         body: JSON.stringify({
           patientId,
           chartId,
+          includeAIAnalysis: true, // ✅ Enable AI analysis
           documentTypes: [
             "oasis",
             "clinicalNotes",
@@ -289,6 +305,12 @@ export default function ComprehensiveChartQA() {
       if (response.ok) {
         const data = await response.json()
         if (data.success) {
+          console.log("[Comprehensive QA] ✅ AI Analysis completed:", {
+            aiDocumentsAnalyzed: data.aiAnalysis?.documentsAnalyzed || 0,
+            overallScore: data.overallQAScore,
+            totalIssues: (data.flaggedIssues || []).length,
+          })
+
           // Update patient record with new QA results
           setPatientQARecords((prev) =>
             prev.map((p) =>
@@ -308,15 +330,67 @@ export default function ComprehensiveChartQA() {
             ),
           )
           
-          // Refresh patient records to get updated data
-          await fetchPatientRecords()
+          // Get detailed analysis from AI results
+          const aiResults = data.aiAnalysis?.results || []
+          const firstResult = aiResults[0] || {}
+          
+          return {
+            success: true,
+            patientId,
+            patientName: patient.patientName,
+            overallScore: data.overallQAScore || 0,
+            complianceScore: data.complianceScore || 0,
+            completenessScore: firstResult.completenessScore || data.overallQAScore || 0,
+            totalIssues: (data.flaggedIssues || []).length,
+            criticalIssues: (data.flaggedIssues || []).filter((i: any) => i?.severity === "critical").length,
+            aiAnalyzed: data.aiAnalysis?.documentsAnalyzed || 0,
+            // Include all the complete analysis features
+            recommendations: data.recommendations || firstResult.recommendations || [],
+            flaggedIssues: data.flaggedIssues || firstResult.flaggedIssues || [],
+            financialImpact: firstResult.financialImpact || data.financialImpact || 0,
+            complianceChecks: firstResult.complianceChecks || null,
+            documentAnalysis: firstResult.documentAnalysis || null,
+          }
+        } else {
+          return { success: false, error: data.error || "Analysis failed", patientId, patientName: patient.patientName }
+        }
+      } else {
+        return {
+          success: false,
+          error: `API error: ${response.status}`,
+          patientId,
+          patientName: patient.patientName,
         }
       }
     } catch (error) {
       console.error("QA analysis error:", error)
-    } finally {
-      setIsLoading(false)
+      return { success: false, error: String(error), patientId, patientName: patientName || "Unknown" }
     }
+  }
+
+  // Run batch analysis
+  const runBatchAnalysis = async (patients: PatientQARecord[]) => {
+    setIsLoading(true)
+    setAnalysisProgress({ current: 0, total: patients.length, patientName: "" })
+    setAnalysisResults([])
+    setShowAnalysisResults(true)
+
+    const results: any[] = []
+
+    for (let i = 0; i < patients.length; i++) {
+      const patient = patients[i]
+      setAnalysisProgress({ current: i + 1, total: patients.length, patientName: patient.patientName })
+
+      const result = await runQAAnalysis(patient.id, patient.patientName)
+      results.push(result)
+      setAnalysisResults([...results])
+
+      // Add a small delay to avoid overwhelming the API
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+
+    setIsLoading(false)
+    await fetchPatientRecords()
   }
 
   // Filter patients based on search and filters
@@ -610,8 +684,8 @@ export default function ComprehensiveChartQA() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {(patientQARecords || []).slice(0, 5).map((patient) => (
-                    <div key={patient?.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  {(patientQARecords || []).slice(0, 5).map((patient, index) => (
+                    <div key={`${patient?.id}-${index}`} className="flex items-center justify-between p-3 border rounded-lg">
                       <div className="flex items-center space-x-3">
                         <div className="p-2 bg-blue-100 rounded">
                           <FileText className="h-4 w-4 text-blue-600" />
@@ -751,8 +825,8 @@ export default function ComprehensiveChartQA() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredPatients.map((patient) => (
-                        <TableRow key={patient.id}>
+                      {filteredPatients.map((patient, index) => (
+                        <TableRow key={`${patient.id}-${patient.chartId || ''}-${index}`}>
                           <TableCell>
                             <div>
                               <div className="font-medium">{patient.patientName}</div>
@@ -848,74 +922,98 @@ export default function ComprehensiveChartQA() {
                 <div className="space-y-6">
                   <Alert className="border-blue-200 bg-blue-50">
                     <Info className="h-4 w-4 text-blue-600" />
-                    <AlertTitle className="text-blue-800">Axxess Integration</AlertTitle>
+                    <AlertTitle className="text-blue-800">AI-Powered Analysis with Axxess Integration</AlertTitle>
                     <AlertDescription className="text-blue-700">
-                      Analysis includes complete chart data from Axxess: OASIS assessments, clinical notes, medication
-                      records, care plans, physician orders, and visit notes from all disciplines (RN, PT, OT, ST, MSW,
-                      HHA).
+                      <div className="space-y-2">
+                        <p>
+                          Analysis uses advanced AI (GPT-4o) to analyze complete chart data from Axxess: OASIS assessments, 
+                          clinical notes, medication records, care plans, physician orders, and visit notes from all disciplines 
+                          (RN, PT, OT, ST, MSW, HHA).
+                        </p>
+                        <div className="flex items-center space-x-2 mt-2 p-2 bg-blue-100 rounded">
+                          <Brain className="h-4 w-4 text-blue-800" />
+                          <span className="text-sm font-medium text-blue-800">
+                            Real AI Analysis Active: Each analysis uses OpenAI GPT-4o to review documents
+                          </span>
+                        </div>
+                      </div>
                     </AlertDescription>
                   </Alert>
+
+                  {/* Info about PDF Analysis */}
+                  <div className="flex items-center space-x-3 p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
+                    <FileText className="h-5 w-5 text-green-600" />
+                    <div className="flex-1">
+                      <span className="font-medium text-green-800">Complete PDF Re-Analysis</span>
+                      <p className="text-sm text-green-600">
+                        Analysis will extract fresh data from original PDF files and run complete AI analysis.
+                        This ensures the most accurate and up-to-date results.
+                      </p>
+                    </div>
+                  </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <h3 className="font-semibold mb-3">Analysis Options</h3>
                       <div className="space-y-3">
                         <Button
-                          onClick={() => {
-                            ;(patientQARecords || []).forEach((patient) => {
-                              if (patient?.id) {
-                                runQAAnalysis(patient.id)
-                              }
-                            })
-                          }}
-                          disabled={isLoading}
+                          onClick={() => runBatchAnalysis(patientQARecords)}
+                          disabled={isLoading || patientQARecords.length === 0}
                           className="w-full justify-start"
                         >
                           <Users className="h-4 w-4 mr-2" />
-                          Analyze All Patients
+                          Analyze All Patients ({patientQARecords.length})
                         </Button>
                         <Button
                           onClick={() => {
                             const highRiskPatients = (patientQARecords || []).filter(
                               (p) => p?.riskLevel === "high" || p?.riskLevel === "critical",
                             )
-                            highRiskPatients.forEach((patient) => {
-                              if (patient?.id) {
-                                runQAAnalysis(patient.id)
-                              }
-                            })
+                            if (highRiskPatients.length > 0) {
+                              runBatchAnalysis(highRiskPatients)
+                            }
                           }}
-                          disabled={isLoading}
+                          disabled={
+                            isLoading ||
+                            (patientQARecords || []).filter((p) => p?.riskLevel === "high" || p?.riskLevel === "critical")
+                              .length === 0
+                          }
                           variant="outline"
                           className="w-full justify-start"
                         >
                           <AlertTriangle className="h-4 w-4 mr-2" />
-                          Analyze High Risk Only
+                          Analyze High Risk Only (
+                          {(patientQARecords || []).filter((p) => p?.riskLevel === "high" || p?.riskLevel === "critical").length}
+                          )
                         </Button>
                         <Button
                           onClick={() => {
-                            const reviewPatients = (patientQARecords || []).filter(
-                              (p) => p?.status === "requires_review",
-                            )
-                            reviewPatients.forEach((patient) => {
-                              if (patient?.id) {
-                                runQAAnalysis(patient.id)
-                              }
-                            })
+                            const reviewPatients = (patientQARecords || []).filter((p) => p?.status === "requires_review")
+                            if (reviewPatients.length > 0) {
+                              runBatchAnalysis(reviewPatients)
+                            }
                           }}
-                          disabled={isLoading}
+                          disabled={
+                            isLoading ||
+                            (patientQARecords || []).filter((p) => p?.status === "requires_review").length === 0
+                          }
                           variant="outline"
                           className="w-full justify-start"
                         >
                           <Eye className="h-4 w-4 mr-2" />
-                          Re-analyze Review Required
+                          Re-analyze Review Required (
+                          {(patientQARecords || []).filter((p) => p?.status === "requires_review").length})
                         </Button>
                       </div>
                     </div>
 
                     <div>
-                      <h3 className="font-semibold mb-3">Analysis Features</h3>
+                      <h3 className="font-semibold mb-3">AI Analysis Features</h3>
                       <div className="space-y-2 text-sm">
+                        <div className="flex items-center space-x-2">
+                          <Brain className="h-4 w-4 text-purple-600" />
+                          <span className="font-medium text-purple-700">OpenAI GPT-4o powered analysis</span>
+                        </div>
                         <div className="flex items-center space-x-2">
                           <CheckCircle className="h-4 w-4 text-green-600" />
                           <span>Complete document type analysis</span>
@@ -941,9 +1039,295 @@ export default function ComprehensiveChartQA() {
                   </div>
 
                   {isLoading && (
-                    <div className="text-center py-8">
+                    <div className="space-y-4">
+                      <div className="text-center py-4">
                       <RefreshCw className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
-                      <p className="text-gray-600">Running comprehensive QA analysis...</p>
+                        <p className="text-gray-600 font-medium">Running comprehensive QA analysis...</p>
+                        <p className="text-sm text-gray-500 mt-2">
+                          Processing {analysisProgress.current} of {analysisProgress.total}
+                        </p>
+                        {analysisProgress.patientName && (
+                          <p className="text-sm text-blue-600 mt-1">Analyzing: {analysisProgress.patientName}</p>
+                        )}
+                      </div>
+                      <Progress
+                        value={(analysisProgress.current / analysisProgress.total) * 100}
+                        className="h-3"
+                      />
+                    </div>
+                  )}
+
+                  {!isLoading && showAnalysisResults && analysisResults.length > 0 && (
+                    <Card className="border-2">
+                      <CardHeader>
+                        <CardTitle className="flex items-center justify-between">
+                          <span className="flex items-center">
+                            <CheckCircle className="h-5 w-5 mr-2 text-green-600" />
+                            Analysis Results
+                          </span>
+                          <Button variant="ghost" size="sm" onClick={() => setShowAnalysisResults(false)}>
+                            ✕
+                          </Button>
+                        </CardTitle>
+                        <CardDescription>
+                          Completed analysis for {analysisResults.length} patient(s)
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4 max-h-[600px] overflow-y-auto">
+                          {analysisResults.map((result, idx) => (
+                            <div
+                              key={idx}
+                              className={`p-4 border rounded-lg ${
+                                result.success ? "bg-green-50 border-green-200" : "bg-red-50 border-red-200"
+                              }`}
+                            >
+                              {/* Header */}
+                              <div className="flex items-center justify-between mb-3">
+                                <div className="flex items-center space-x-3">
+                                  {result.success ? (
+                                    <CheckCircle className="h-5 w-5 text-green-600" />
+                                  ) : (
+                                    <AlertTriangle className="h-5 w-5 text-red-600" />
+                                  )}
+                                  <div>
+                                    <p className="font-medium">{result.patientName}</p>
+                                    {result.success ? (
+                                      <>
+                                        <p className="text-sm text-gray-600">
+                                          Score: {result.overallScore}% • {result.totalIssues} issues •{" "}
+                                          {result.criticalIssues} critical
+                                        </p>
+                                        {result.aiAnalyzed > 0 && (
+                                          <p className="text-xs text-blue-600 flex items-center mt-1">
+                                            <Brain className="h-3 w-3 mr-1" />
+                                            AI analyzed {result.aiAnalyzed} document(s)
+                                          </p>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <p className="text-sm text-red-600">Error: {result.error}</p>
+                                    )}
+                                  </div>
+                                </div>
+                                {result.success && (
+                                  <Badge
+                                    className={
+                                      result.overallScore >= 90
+                                        ? "bg-green-100 text-green-800"
+                                        : result.overallScore >= 80
+                                          ? "bg-yellow-100 text-yellow-800"
+                                          : "bg-red-100 text-red-800"
+                                    }
+                                  >
+                                    {result.overallScore}%
+                                  </Badge>
+                                )}
+                              </div>
+
+                              {/* Detailed Analysis - Show when successful */}
+                              {result.success && (
+                                <div className="mt-3 pt-3 border-t border-green-200 space-y-3">
+                                  {/* Score Breakdown */}
+                                  <div className="grid grid-cols-4 gap-2 text-center">
+                                    <div className="bg-white p-2 rounded border">
+                                      <p className="text-lg font-bold text-blue-600">{result.complianceScore || result.overallScore}%</p>
+                                      <p className="text-xs text-gray-500">Compliance</p>
+                                    </div>
+                                    <div className="bg-white p-2 rounded border">
+                                      <p className="text-lg font-bold text-green-600">{result.completenessScore || result.overallScore}%</p>
+                                      <p className="text-xs text-gray-500">Completeness</p>
+                                    </div>
+                                    <div className="bg-white p-2 rounded border">
+                                      <p className="text-lg font-bold text-purple-600">
+                                        ${typeof result.financialImpact === 'object' 
+                                          ? (result.financialImpact?.potentialIncrease || 0) 
+                                          : (result.financialImpact || 0)}
+                                      </p>
+                                      <p className="text-xs text-gray-500">Revenue Impact</p>
+                                    </div>
+                                    <div className="bg-white p-2 rounded border">
+                                      <p className="text-lg font-bold text-amber-600">{result.totalIssues || 0}</p>
+                                      <p className="text-xs text-gray-500">Issues</p>
+                                    </div>
+                                  </div>
+
+                                  {/* AI Recommendations */}
+                                  {result.recommendations && result.recommendations.length > 0 && (
+                                    <div className="bg-blue-50 p-3 rounded-lg">
+                                      <p className="text-sm font-semibold text-blue-800 mb-2 flex items-center">
+                                        <Brain className="h-4 w-4 mr-1" />
+                                        AI Recommendations
+                                      </p>
+                                      <ul className="text-xs text-blue-700 space-y-1">
+                                        {result.recommendations.slice(0, 5).map((rec: any, i: number) => (
+                                          <li key={i} className="flex items-start">
+                                            <span className="mr-1">•</span>
+                                            <span>{typeof rec === 'string' ? rec : (rec.recommendation || rec.category || 'Review recommended')}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+
+                                  {/* Compliance Checks */}
+                                  {result.complianceChecks && (
+                                    <div className="bg-green-50 p-3 rounded-lg">
+                                      <p className="text-sm font-semibold text-green-800 mb-2">Regulatory Compliance</p>
+                                      <div className="flex flex-wrap gap-2">
+                                        <Badge className={result.complianceChecks.hipaaCompliant ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
+                                          HIPAA: {result.complianceChecks.hipaaCompliant ? "✓" : "✗"}
+                                        </Badge>
+                                        <Badge className={result.complianceChecks.oasisCompliant ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
+                                          OASIS: {result.complianceChecks.oasisCompliant ? "✓" : "✗"}
+                                        </Badge>
+                                        <Badge className={result.complianceChecks.medicareCompliant ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}>
+                                          Medicare: {result.complianceChecks.medicareCompliant ? "✓" : "✗"}
+                                        </Badge>
+                                      </div>
+                                      {result.complianceChecks.issues && result.complianceChecks.issues.length > 0 && (
+                                        <ul className="text-xs text-amber-700 mt-2 space-y-1">
+                                          {result.complianceChecks.issues.slice(0, 3).map((issue: string, i: number) => (
+                                            <li key={i}>⚠️ {issue}</li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Financial Impact */}
+                                  {result.financialImpact && typeof result.financialImpact === 'object' && (
+                                    <div className="bg-purple-50 p-3 rounded-lg">
+                                      <p className="text-sm font-semibold text-purple-800 mb-2">Financial Impact Assessment</p>
+                                      <div className="grid grid-cols-3 gap-2 text-center mb-2">
+                                        <div>
+                                          <p className="text-sm font-bold text-gray-700">${result.financialImpact.currentRevenue || 0}</p>
+                                          <p className="text-xs text-gray-500">Current</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-bold text-green-600">${result.financialImpact.optimizedRevenue || 0}</p>
+                                          <p className="text-xs text-gray-500">Optimized</p>
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-bold text-purple-600">+${result.financialImpact.potentialIncrease || 0}</p>
+                                          <p className="text-xs text-gray-500">Increase</p>
+                                        </div>
+                                      </div>
+                                      {result.financialImpact.revenueOpportunities && result.financialImpact.revenueOpportunities.length > 0 && (
+                                        <ul className="text-xs text-purple-700 space-y-1">
+                                          {result.financialImpact.revenueOpportunities.slice(0, 3).map((opp: string, i: number) => (
+                                            <li key={i}>💰 {opp}</li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {/* Flagged Issues */}
+                                  {result.flaggedIssues && result.flaggedIssues.length > 0 && (
+                                    <div className="bg-amber-50 p-3 rounded-lg">
+                                      <p className="text-sm font-semibold text-amber-800 mb-2">Flagged Issues ({result.flaggedIssues.length})</p>
+                                      <ul className="text-xs text-amber-700 space-y-1">
+                                        {result.flaggedIssues.slice(0, 5).map((issue: any, i: number) => (
+                                          <li key={i} className="flex items-start">
+                                            <AlertTriangle className="h-3 w-3 mr-1 mt-0.5 flex-shrink-0" />
+                                            <span>{typeof issue === 'string' ? issue : (issue.issue || issue.element || JSON.stringify(issue))}</span>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-4 pt-4 border-t">
+                          <div className="grid grid-cols-3 gap-4 text-center">
+                            <div>
+                              <p className="text-2xl font-bold text-green-600">
+                                {analysisResults.filter((r) => r.success).length}
+                              </p>
+                              <p className="text-sm text-gray-600">Successful</p>
+                            </div>
+                            <div>
+                              <p className="text-2xl font-bold text-red-600">
+                                {analysisResults.filter((r) => !r.success).length}
+                              </p>
+                              <p className="text-sm text-gray-600">Failed</p>
+                            </div>
+                            <div>
+                              <p className="text-2xl font-bold text-blue-600">
+                                {analysisResults.filter((r) => r.success).length > 0
+                                  ? Math.round(
+                                      analysisResults
+                                        .filter((r) => r.success)
+                                        .reduce((sum, r) => sum + (r.overallScore || 0), 0) /
+                                        analysisResults.filter((r) => r.success).length,
+                                    )
+                                  : 0}
+                                %
+                              </p>
+                              <p className="text-sm text-gray-600">Avg Score</p>
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Individual Patient Analysis */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <FileText className="h-5 w-5 mr-2 text-purple-600" />
+                  Analyze Individual Patients
+                </CardTitle>
+                <CardDescription>Select specific patients for QA analysis</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {patientQARecords.slice(0, 10).map((patient, index) => (
+                    <div key={`${patient.id}-${patient.chartId || ''}-${index}`} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <div className="p-2 bg-blue-100 rounded">
+                          <FileText className="h-4 w-4 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium">{patient.patientName}</p>
+                          <p className="text-sm text-gray-600">
+                            MRN: {patient.mrn} • Last QA: {patient.lastQADate}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Badge className={getRiskColor(patient.riskLevel)}>{patient.riskLevel}</Badge>
+                        <Button
+                          size="sm"
+                          onClick={async () => {
+                            setIsLoading(true)
+                            setAnalysisProgress({ current: 1, total: 1, patientName: patient.patientName })
+                            setAnalysisResults([])
+                            setShowAnalysisResults(true)
+                            const result = await runQAAnalysis(patient.id, patient.patientName)
+                            setAnalysisResults([result])
+                            setIsLoading(false)
+                            await fetchPatientRecords()
+                          }}
+                          disabled={isLoading}
+                        >
+                          <Brain className="h-3 w-3 mr-1" />
+                          Analyze
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                  {patientQARecords.length > 10 && (
+                    <div className="text-center py-2 text-sm text-gray-500">
+                      Showing 10 of {patientQARecords.length} patients. Use the Patient Records tab to view all.
                     </div>
                   )}
                 </div>

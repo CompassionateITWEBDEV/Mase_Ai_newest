@@ -1,5 +1,10 @@
 import { generateText } from "ai"
 import { openai } from "@ai-sdk/openai"
+import { google } from "@ai-sdk/google"
+
+// ✅ Use Gemini as primary AI (faster, more reliable for long documents)
+// ✅ Use OpenAI as primary (more accurate for medical documents), Gemini as fallback
+const useGemini = false // OpenAI is more accurate for OASIS analysis
 
 export interface OasisAnalysisResult {
   patientInfo: {
@@ -74,6 +79,69 @@ export interface OasisAnalysisResult {
     suggestedDescription?: string
     clinicalRationale?: string
   }>
+  // ✅ NEW: Medication Management
+  medications?: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  // ✅ NEW: Pain Status
+  painStatus?: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  // ✅ NEW: Integumentary Status
+  integumentaryStatus?: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  // ✅ NEW: Respiratory Status
+  respiratoryStatus?: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  // ✅ NEW: Cardiac Status
+  cardiacStatus?: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  // ✅ NEW: Elimination Status
+  eliminationStatus?: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
+  // ✅ NEW: Neuro/Emotional/Behavioral Status
+  neuroEmotionalBehavioralStatus?: Array<{
+    item: string
+    currentValue: string
+    currentDescription: string
+    suggestedValue?: string
+    suggestedDescription?: string
+    clinicalRationale?: string
+  }>
   missingInformation?: Array<{
     field: string
     location: string
@@ -125,7 +193,20 @@ EXTRACT FROM THESE SECTIONS:
    
    For each: Find checked box (✓/☑/●/■), extract number + full description
 
-4. REVENUE: Base $2000-$2500, High impairment $3000-$4000, Improvements +$100-$200 each
+4. MEDICATION MANAGEMENT (M2001-M2030):
+   - M2001 Drug Regimen Review, M2003 Medication Follow-up, M2010 High-Risk Drug Classes
+   - M2020 Management of Oral Medications, M2030 Management of Injectable Medications
+   - List ALL medications with: name, dosage, frequency, route, indication
+
+5. CLINICAL STATUS SECTIONS (extract ALL present):
+   - Pain Status (M1242): Location, intensity (0-10), frequency, impact on function
+   - Integumentary Status: Wounds, pressure ulcers (stage I-IV), skin integrity
+   - Respiratory Status: Dyspnea, oxygen use, respiratory conditions
+   - Cardiac Status: Edema (grade 1-4), heart failure symptoms, palpitations
+   - Elimination Status: Bowel/bladder incontinence (M1610-M1620), catheter, ostomy
+   - Neuro/Emotional/Behavioral Status (M1700-M1750): Cognition, confusion, anxiety, depression (PHQ-2/9), behavioral symptoms
+
+6. REVENUE: Base $2000-$2500, High impairment $3000-$4000, Improvements +$100-$200 each
 
 RETURN ONLY THIS JSON (no markdown, no text before/after):
 {
@@ -142,6 +223,37 @@ RETURN ONLY THIS JSON (no markdown, no text before/after):
     {"item": "M1850 - Transferring", "currentValue": "...", "currentDescription": "...", "suggestedValue": "...", "suggestedDescription": "...", "clinicalRationale": "..."},
     {"item": "M1860 - Ambulation/Locomotion", "currentValue": "...", "currentDescription": "...", "suggestedValue": "...", "suggestedDescription": "...", "clinicalRationale": "..."},
     {"item": "M1870 - Feeding/Eating", "currentValue": "...", "currentDescription": "...", "suggestedValue": "...", "suggestedDescription": "...", "clinicalRationale": "..."}
+  ],
+  "medications": [
+    {"item": "M2001 - Drug Regimen Review", "currentValue": "0/1/NA", "currentDescription": "...", "clinicalRationale": "..."},
+    {"item": "M2020 - Oral Medication Management", "currentValue": "0/1/2/NA", "currentDescription": "...", "clinicalRationale": "..."},
+    {"item": "Medication Name", "currentValue": "Dosage", "currentDescription": "Frequency, Route, Indication"}
+  ],
+  "painStatus": [
+    {"item": "M1242 - Pain Frequency", "currentValue": "0-4", "currentDescription": "...", "clinicalRationale": "..."},
+    {"item": "Pain Location", "currentValue": "...", "currentDescription": "Location and intensity 0-10"}
+  ],
+  "integumentaryStatus": [
+    {"item": "Pressure Ulcer Stage", "currentValue": "Stage I-IV or None", "currentDescription": "Location and healing status"},
+    {"item": "Wound Description", "currentValue": "...", "currentDescription": "Size, depth, drainage"}
+  ],
+  "respiratoryStatus": [
+    {"item": "M1400 - Dyspnea", "currentValue": "0-4", "currentDescription": "At rest or with exertion"},
+    {"item": "Oxygen Use", "currentValue": "L/min or None", "currentDescription": "Continuous, PRN, or none"}
+  ],
+  "cardiacStatus": [
+    {"item": "Edema", "currentValue": "Grade 0-4", "currentDescription": "Location and severity"},
+    {"item": "Heart Failure Symptoms", "currentValue": "Present/Absent", "currentDescription": "Symptoms description"}
+  ],
+  "eliminationStatus": [
+    {"item": "M1610 - Urinary Incontinence", "currentValue": "0-2", "currentDescription": "..."},
+    {"item": "M1620 - Bowel Incontinence", "currentValue": "0-5", "currentDescription": "..."},
+    {"item": "Catheter/Ostomy", "currentValue": "Type or None", "currentDescription": "Description if present"}
+  ],
+  "neuroEmotionalBehavioralStatus": [
+    {"item": "M1700 - Cognitive Functioning", "currentValue": "0-4", "currentDescription": "..."},
+    {"item": "M1730 - Depression Screening (PHQ-2)", "currentValue": "Score 0-6", "currentDescription": "..."},
+    {"item": "M1740 - Cognitive/Behavioral Symptoms", "currentValue": "Checked items", "currentDescription": "..."}
   ],
   "suggestedCodes": [{"code": "...", "description": "...", "reason": "...", "revenueImpact": 150, "confidence": 85}],
   "corrections": [{"field": "...", "current": "...", "suggested": "...", "reason": "...", "impact": "...", "revenueChange": 100}],
@@ -170,13 +282,18 @@ export async function analyzeOasisDocumentComprehensive(
     console.log("[OASIS] Calling OpenAI for comprehensive OASIS analysis...")
     console.log("[OASIS] Text length:", extractedText.length)
     console.log("[OASIS] Prompt length:", prompt.length)
-    console.log("[OASIS] Using model: gpt-4o")
+    // ✅ Use Gemini (faster, 1M context) with OpenAI fallback
+    const aiModel = useGemini 
+      ? google("gemini-2.0-flash")
+      : openai("gpt-4o")
+    
+    console.log(`[OASIS] Using model: ${useGemini ? 'Gemini 1.5 Flash' : 'GPT-4o'}`)
 
     const { text } = await generateText({
-      model: openai("gpt-4o"),  // Using gpt-4o for better extraction
+      model: aiModel,
       prompt,
       temperature: 0.1,
-      maxTokens: 8000,  // Increased for comprehensive response
+      maxTokens: 8000,
     })
     
     console.log("[OASIS] OpenAI call completed successfully")
@@ -230,7 +347,7 @@ export async function analyzeOasisDocumentComprehensive(
       console.log("[OASIS] JSON parsed after cleanup")
     }
 
-    // Validate and return comprehensive analysis
+    // Validate and return comprehensive analysis with ALL status fields
     const validatedAnalysis: OasisAnalysisResult = {
       patientInfo: analysis.patientInfo || {
         name: "Unknown Patient",
@@ -268,6 +385,14 @@ export async function analyzeOasisDocumentComprehensive(
         ],
       },
       functionalStatus: Array.isArray(analysis.functionalStatus) ? analysis.functionalStatus : [],
+      // ✅ NEW: Include all clinical status sections
+      medications: Array.isArray(analysis.medications) ? analysis.medications : [],
+      painStatus: Array.isArray(analysis.painStatus) ? analysis.painStatus : [],
+      integumentaryStatus: Array.isArray(analysis.integumentaryStatus) ? analysis.integumentaryStatus : [],
+      respiratoryStatus: Array.isArray(analysis.respiratoryStatus) ? analysis.respiratoryStatus : [],
+      cardiacStatus: Array.isArray(analysis.cardiacStatus) ? analysis.cardiacStatus : [],
+      eliminationStatus: Array.isArray(analysis.eliminationStatus) ? analysis.eliminationStatus : [],
+      neuroEmotionalBehavioralStatus: Array.isArray(analysis.neuroEmotionalBehavioralStatus) ? analysis.neuroEmotionalBehavioralStatus : [],
       missingInformation: Array.isArray(analysis.missingInformation) ? analysis.missingInformation : [],
       inconsistencies: Array.isArray(analysis.inconsistencies) ? analysis.inconsistencies : [],
       debugInfo: analysis.debugInfo || {},

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -323,6 +323,11 @@ interface CompactNavigationProps {
 export function CompactNavigation({ userRole = "Neural Director", userName = "AI Admin" }: CompactNavigationProps) {
   const pathname = usePathname()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   return (
     <>
@@ -344,11 +349,12 @@ export function CompactNavigation({ userRole = "Neural Director", userName = "AI
         />
       )}
 
-      <div
-        className={`fixed left-0 top-0 z-40 h-full w-56 transform glass-morphism border-r border-white/10 transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:z-auto ${
-          isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
+      {mounted && (
+        <div
+          className={`fixed left-0 top-0 z-40 h-full w-56 transform glass-morphism border-r border-white/10 transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:z-auto ${
+            isMobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
         <div className="flex flex-col h-full">
           <div className="flex-shrink-0 p-3 border-b border-white/10">
             <div className="flex items-center space-x-2">
@@ -488,7 +494,8 @@ export function CompactNavigation({ userRole = "Neural Director", userName = "AI
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      )}
     </>
   )
 }

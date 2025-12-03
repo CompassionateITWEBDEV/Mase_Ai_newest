@@ -80,17 +80,49 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         accuracyScore: qaAnalysis.accuracy_score,
         confidenceScore: qaAnalysis.confidence_score,
         // Extract all findings data - this contains the full comprehensive analysis
-        findings: qaAnalysis.findings?.flaggedIssues || (Array.isArray(qaAnalysis.findings) ? qaAnalysis.findings : []),
+        findings:
+          qaAnalysis.findings?.flaggedIssues ||
+          (Array.isArray(qaAnalysis.findings)
+            ? qaAnalysis.findings.map((f: any) => (typeof f === "string" ? f : f?.issue || f?.element || "Finding"))
+            : []),
         // All comprehensive analysis sections
-        diagnoses: qaAnalysis.findings?.diagnoses || [],
-        suggestedCodes: qaAnalysis.coding_suggestions || qaAnalysis.findings?.suggestedCodes || [],
-        corrections: qaAnalysis.findings?.corrections || [],
-        flaggedIssues: qaAnalysis.findings?.flaggedIssues || [],
-        riskFactors: qaAnalysis.findings?.riskFactors || [],
-        recommendations: qaAnalysis.recommendations || qaAnalysis.findings?.recommendations || [],
-        missingElements: qaAnalysis.missing_elements || qaAnalysis.findings?.missingElements || [],
-        regulatoryIssues: qaAnalysis.regulatory_issues || qaAnalysis.findings?.regulatoryIssues || [],
-        documentationGaps: qaAnalysis.documentation_gaps || qaAnalysis.findings?.documentationGaps || [],
+        diagnoses: (qaAnalysis.findings?.diagnoses || []).map((d: any) =>
+          typeof d === 'string' ? { code: d, description: 'Review document', confidence: 50, source: 'document' } : d
+        ),
+        suggestedCodes: (qaAnalysis.coding_suggestions || qaAnalysis.findings?.suggestedCodes || []).map((c: any) =>
+          typeof c === 'string' ? { code: c, description: 'Review document', reason: 'Coding review needed', revenueImpact: 0, confidence: 50 } : c
+        ),
+        corrections: (qaAnalysis.findings?.corrections || []).map((c: any) =>
+          typeof c === 'string' ? { field: c, current: 'N/A', suggested: 'N/A', reason: 'Review needed', impact: 'Documentation', revenueChange: 0 } : c
+        ),
+        flaggedIssues: (qaAnalysis.findings?.flaggedIssues || []).map((f: any) =>
+          typeof f === 'string' ? { issue: f, severity: 'medium', location: 'document', suggestion: 'Review needed', category: 'documentation' } : f
+        ),
+        riskFactors: (qaAnalysis.findings?.riskFactors || []).map((r: any) =>
+          typeof r === 'string' ? { factor: r, severity: 'medium', recommendation: 'Review needed', mitigation: 'Manual review' } : r
+        ),
+        recommendations: (qaAnalysis.recommendations || qaAnalysis.findings?.recommendations || []).map((r: any) => 
+          typeof r === 'string' ? { recommendation: r, category: 'documentation', priority: 'medium', expectedImpact: 'Improved documentation' } : r
+        ),
+        missingElements: (qaAnalysis.missing_elements || qaAnalysis.findings?.missingElements || []).map((e: any) => 
+          typeof e === 'string' ? e : (e?.element || e?.gap || 'Missing element')
+        ),
+        missingElementDetails: (qaAnalysis.missing_elements || qaAnalysis.findings?.missingElements || []).map((e: any) => 
+          typeof e === 'string'
+            ? { element: e, category: 'documentation', severity: 'medium', recommendation: 'Review required' }
+            : {
+                element: e?.element || e?.gap || 'Missing element',
+                category: e?.category || 'documentation',
+                severity: e?.severity || 'medium',
+                recommendation: e?.recommendation || 'Review required'
+              }
+        ),
+        regulatoryIssues: (qaAnalysis.regulatory_issues || qaAnalysis.findings?.regulatoryIssues || []).map((r: any) =>
+          typeof r === 'string' ? { regulation: r, issue: 'Review needed', severity: 'medium', remediation: 'Manual review' } : r
+        ),
+        documentationGaps: (qaAnalysis.documentation_gaps || qaAnalysis.findings?.documentationGaps || []).map((d: any) =>
+          typeof d === 'string' ? { gap: d, impact: 'Documentation incomplete', recommendation: 'Complete documentation' } : d
+        ),
         financialImpact: qaAnalysis.revenue_impact || qaAnalysis.findings?.financialImpact || null,
         // PT-specific extracted data
         extractedPTData: qaAnalysis.findings?.extractedPTData || null,
