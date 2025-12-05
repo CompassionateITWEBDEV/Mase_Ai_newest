@@ -8,14 +8,19 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const role = searchParams.get("role") // e.g., "RN", "PT", "nurse"
     const credentials = searchParams.get("credentials") // e.g., "RN"
+    const includeInactive = searchParams.get("all") === "true" // Get all staff including inactive
 
     const supabase = createServiceClient()
 
-    // Build query for active staff members
+    // Build query for staff members
     let query = supabase
       .from("staff")
       .select("id, name, email, role_id, department, credentials, phone_number, is_active")
-      .eq("is_active", true)
+
+    // Only filter by active status if not requesting all
+    if (!includeInactive) {
+      query = query.eq("is_active", true)
+    }
 
     // Filter by credentials (e.g., RN, PT, MD) if provided
     if (credentials) {
@@ -43,6 +48,24 @@ export async function GET(request: NextRequest) {
         },
         { status: 500 }
       )
+    }
+
+    // If no active staff found, try getting all staff
+    if ((!staffData || staffData.length === 0) && !includeInactive) {
+      console.log("No active staff found, fetching all staff...")
+      const { data: allStaff, error: allError } = await supabase
+        .from("staff")
+        .select("id, name, email, role_id, department, credentials, phone_number, is_active")
+        .order("name", { ascending: true })
+
+      if (!allError && allStaff && allStaff.length > 0) {
+        return NextResponse.json({
+          success: true,
+          staff: allStaff,
+          count: allStaff.length,
+          note: "Showing all staff (no active filter)"
+        })
+      }
     }
 
     return NextResponse.json({

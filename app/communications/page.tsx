@@ -1,3 +1,4 @@
+
 "use client"
 
 import React, { useState, useEffect, useCallback } from "react"
@@ -46,9 +47,18 @@ import {
   Check,
   UserCircle,
   LogIn,
+  ClipboardList,
+  Timer,
+  XCircle,
+  Trash2,
+  Bell,
+  Mail,
+  Shield,
+  Volume2,
 } from "lucide-react"
 import NextLink from "next/link"
 import { PeerJSVideoCall } from "@/components/telehealth/PeerJSVideoCall"
+import { GroupVideoCall } from "@/components/telehealth/GroupVideoCall"
 
 export default function Communications() {
   const { toast } = useToast()
@@ -99,6 +109,14 @@ export default function Communications() {
   const [isCalleeAccepted, setIsCalleeAccepted] = useState(false) // Track if this user accepted an incoming call
   const incomingRingtoneRef = React.useRef<NodeJS.Timeout | null>(null)
   const incomingAudioContextRef = React.useRef<AudioContext | null>(null)
+
+  // Meeting management state
+  const [activeMeeting, setActiveMeeting] = useState<{
+    id?: string
+    title?: string
+    duration?: number // in minutes
+    isHost?: boolean
+  } | null>(null)
 
   // Set mounted after hydration
   useEffect(() => {
@@ -765,22 +783,96 @@ export default function Communications() {
     setShowVideoCall(true)
   }
 
-  const handleJoinMeeting = (meetingLink: string) => {
-    // Open meeting link in new tab or show video call interface
-    if (meetingLink.startsWith("http")) {
-      window.open(meetingLink, "_blank")
-    } else {
-      setCallInfo({
-        type: "group",
-        participants: [],
-        conversationName: "Meeting",
-      })
-      setShowVideoCall(true)
+  const handleJoinMeeting = (meetingLink: string, meeting?: any) => {
+    console.log('🎥 [MEETING] Joining meeting:', meeting, 'Link:', meetingLink)
+    
+    // If it's a relative URL to the meeting page, navigate there
+    if (meetingLink.startsWith("/meeting/")) {
+      window.location.href = meetingLink
+      return
     }
+    
+    // If it's an external URL (not our app), open in new tab
+    if (meetingLink.startsWith("http") && !meetingLink.includes(window.location.host)) {
+      window.open(meetingLink, "_blank")
+      return
+    }
+    
+    // For legacy meeting links or direct join, show video call interface
+    // Parse duration from meeting data
+    let durationMinutes = meeting?.durationMinutes || 30 // default 30 minutes
+    if (!meeting?.durationMinutes && meeting?.duration) {
+      const match = meeting.duration.match(/(\d+)/)
+      if (match) durationMinutes = parseInt(match[1])
+    }
+    
+    // Determine if current user is the host (organizer)
+    const isHost = meeting?.organizer === currentUser?.name || 
+                   meeting?.organizerId === currentUser?.id ||
+                   meeting?.organizerId === currentUser?.staffId
+    
+    console.log('📋 [MEETING] Duration:', durationMinutes, 'minutes, isHost:', isHost)
+    
+    // Set active meeting info
+    setActiveMeeting({
+      id: meeting?.id,
+      title: meeting?.title || "Meeting",
+      duration: durationMinutes,
+      isHost: isHost
+    })
+    
+    // Get participants for the meeting - handle both array of objects and array of strings
+    let participantList: any[] = []
+    if (meeting?.participants && Array.isArray(meeting.participants)) {
+      participantList = meeting.participants.map((p: any) => {
+        if (typeof p === 'string') {
+          return { id: p, name: p }
+        }
+        return {
+          id: p.id || p,
+          name: p.name || p,
+          email: p.email
+        }
+      }).filter((p: any) => p.id && p.id !== currentUser?.id) // Exclude self
+    }
+    
+    console.log('👥 [MEETING] Participants:', participantList)
+    
+    // Use meeting ID as session ID so ALL participants join the SAME room
+    // This ensures everyone joining the same scheduled meeting connects together
+    const meetingSessionId = meeting?.id 
+      ? `meeting-${meeting.id}`
+      : `meeting-${meetingLink.replace(/[^a-zA-Z0-9]/g, '')}-${Date.now()}`
+    
+    console.log('🔗 [MEETING] Session ID:', meetingSessionId)
+    
+    // Set the session ID so we can join directly
+    setActivePeerSessionId(meetingSessionId)
+    
+    // Mark as callee accepted to SKIP RINGING and go directly to call
+    setIsCalleeAccepted(true)
+    
+    setCallInfo({
+      type: "group",
+      participants: participantList,
+      conversationName: meeting?.title || "Meeting",
+    })
+    setShowVideoCall(true)
   }
 
-  const copyMeetingLink = (link: string) => {
-    navigator.clipboard.writeText(link)
+  const copyMeetingLink = (link: string, meetingId?: string) => {
+    // Generate proper meeting URL
+    let meetingUrl = link
+    if (link.startsWith("/meeting/")) {
+      // Already a relative path, make it absolute
+      meetingUrl = `${window.location.origin}${link}`
+    } else if (!link.startsWith("http")) {
+      // Generate meeting page URL from meeting ID
+      const id = meetingId || link.replace("meeting-", "")
+      meetingUrl = `${window.location.origin}/meeting/${id}`
+    }
+    
+    navigator.clipboard.writeText(meetingUrl)
     toast({
       title: "Link Copied",
       description: "Meeting link copied to clipboard",
@@ -1141,12 +1233,22 @@ export default function Communications() {
                     Schedule Meeting
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
-                    <DialogTitle>Schedule New Meeting</DialogTitle>
-                    <DialogDescription>Create a video meeting and send invites to participants</DialogDescription>
+                    <DialogTitle className="flex items-center gap-2 text-xl">
+                      <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
+                        <Calendar className="h-5 w-5 text-white" />
+                      </div>
+                      Schedule New Meeting
+                    </DialogTitle>
+                    <DialogDescription>
+                      Create a video meeting and send invites to participants
+                    </DialogDescription>
                   </DialogHeader>
-                  <ScheduleMeetingForm onSchedule={handleScheduleMeeting} />
+                  <ScheduleMeetingForm 
+                    onSchedule={handleScheduleMeeting} 
+                    onCancel={() => setShowScheduleDialog(false)}
+                  />
                 </DialogContent>
               </Dialog>
             </div>
@@ -1154,13 +1256,37 @@ export default function Communications() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 md:py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="messages">Messages</TabsTrigger>
-            <TabsTrigger value="meetings">Meetings</TabsTrigger>
-            <TabsTrigger value="assignments">Task Assignments</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-4 h-auto p-1 bg-gray-100/80 rounded-xl">
+            <TabsTrigger 
+              value="messages" 
+              className="flex items-center justify-center gap-2 py-2.5 px-2 md:px-4 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm transition-all"
+            >
+              <MessageSquare className="h-4 w-4" />
+              <span className="hidden sm:inline">Messages</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="meetings"
+              className="flex items-center justify-center gap-2 py-2.5 px-2 md:px-4 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm transition-all"
+            >
+              <Video className="h-4 w-4" />
+              <span className="hidden sm:inline">Meetings</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="assignments"
+              className="flex items-center justify-center gap-2 py-2.5 px-2 md:px-4 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm transition-all"
+            >
+              <ClipboardList className="h-4 w-4" />
+              <span className="hidden sm:inline">Tasks</span>
+            </TabsTrigger>
+            <TabsTrigger 
+              value="settings"
+              className="flex items-center justify-center gap-2 py-2.5 px-2 md:px-4 rounded-lg data-[state=active]:bg-white data-[state=active]:shadow-sm transition-all"
+            >
+              <Settings className="h-4 w-4" />
+              <span className="hidden sm:inline">Settings</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="messages" className="space-y-6">
@@ -1422,84 +1548,183 @@ export default function Communications() {
           </TabsContent>
 
           <TabsContent value="meetings" className="space-y-6">
-            {/* Upcoming Meetings */}
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Upcoming Meetings</CardTitle>
-                    <CardDescription>Scheduled video conferences and team meetings</CardDescription>
+            {/* Quick Actions - Top Section */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+              <Card className="bg-gradient-to-br from-blue-500 to-blue-600 text-white border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
+                <CardContent className="p-6 text-center">
+                  <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Video className="h-7 w-7 text-white" />
                   </div>
-                  <Button size="sm" variant="ghost" onClick={fetchMeetings}>
-                    <RefreshCw className={`h-4 w-4 ${isLoadingMeetings ? 'animate-spin' : ''}`} />
+                  <h3 className="font-bold text-lg mb-2">Start Instant Meeting</h3>
+                  <p className="text-sm text-blue-100 mb-4">Begin a video call immediately</p>
+                  <Button 
+                    onClick={() => handleStartVideoCall("group")} 
+                    className="w-full bg-white text-blue-600 hover:bg-blue-50 font-semibold"
+                  >
+                    Start Now
                   </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-green-500 to-emerald-600 text-white border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02]">
+                <CardContent className="p-6 text-center">
+                  <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Calendar className="h-7 w-7 text-white" />
+                  </div>
+                  <h3 className="font-bold text-lg mb-2">Schedule Meeting</h3>
+                  <p className="text-sm text-green-100 mb-4">Plan a future video conference</p>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setShowScheduleDialog(true)} 
+                    className="w-full bg-white text-green-600 hover:bg-green-50 border-0 font-semibold"
+                  >
+                    Schedule
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-gradient-to-br from-purple-500 to-purple-600 text-white border-0 shadow-xl hover:shadow-2xl transition-all duration-300 hover:scale-[1.02] sm:col-span-2 lg:col-span-1">
+                <CardContent className="p-6 text-center">
+                  <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <Share2 className="h-7 w-7 text-white" />
+                  </div>
+                  <h3 className="font-bold text-lg mb-2">Join by Link</h3>
+                  <p className="text-sm text-purple-100 mb-4">Enter a meeting ID or link</p>
+                  <Button 
+                    variant="outline" 
+                    className="w-full bg-white text-purple-600 hover:bg-purple-50 border-0 font-semibold"
+                  >
+                    Join Meeting
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Upcoming Meetings */}
+            <Card className="shadow-lg border-0">
+              <CardHeader className="bg-gradient-to-r from-gray-50 to-white border-b">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="text-xl flex items-center gap-2">
+                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <Video className="h-4 w-4 text-blue-600" />
+                      </div>
+                      Upcoming Meetings
+                    </CardTitle>
+                    <CardDescription className="mt-1">Scheduled video conferences and team meetings</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="outline" onClick={fetchMeetings} className="gap-2">
+                      <RefreshCw className={`h-4 w-4 ${isLoadingMeetings ? 'animate-spin' : ''}`} />
+                      <span className="hidden sm:inline">Refresh</span>
+                    </Button>
+                    <Button size="sm" onClick={() => setShowScheduleDialog(true)} className="gap-2">
+                      <Plus className="h-4 w-4" />
+                      <span className="hidden sm:inline">New Meeting</span>
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="p-4 md:p-6">
                 {isLoadingMeetings ? (
-                  <div className="p-8 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" />
-                    <p className="text-sm text-gray-500 mt-2">Loading meetings...</p>
+                  <div className="p-12 text-center">
+                    <div className="w-16 h-16 bg-blue-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                    </div>
+                    <p className="text-sm text-gray-500">Loading meetings...</p>
                   </div>
                 ) : scheduledMeetings.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                    <h3 className="font-medium text-gray-900 mb-2">No Upcoming Meetings</h3>
-                    <p className="text-gray-600 mb-4">Schedule a meeting to see it here.</p>
-                    <Button onClick={() => setShowScheduleDialog(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
+                  <div className="p-12 text-center">
+                    <div className="w-20 h-20 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <Calendar className="h-10 w-10 text-gray-400" />
+                    </div>
+                    <h3 className="font-semibold text-gray-900 text-lg mb-2">No Upcoming Meetings</h3>
+                    <p className="text-gray-600 mb-6 max-w-sm mx-auto">Schedule a meeting to collaborate with your team members.</p>
+                    <Button onClick={() => setShowScheduleDialog(true)} className="gap-2">
+                      <Plus className="h-4 w-4" />
                       Schedule Meeting
                     </Button>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {scheduledMeetings.map((meeting) => (
-                      <div key={meeting.id} className="p-4 border rounded-lg hover:shadow-md transition-shadow">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                              <Video className="h-6 w-6 text-blue-600" />
+                    {scheduledMeetings.map((meeting, index) => (
+                      <div 
+                        key={meeting.id} 
+                        className="p-4 md:p-5 bg-gradient-to-r from-white to-gray-50 border rounded-xl hover:shadow-lg transition-all duration-300 hover:border-blue-200"
+                      >
+                        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                          <div className="flex items-start sm:items-center gap-4">
+                            <div className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                              meeting.type === "training"
+                                ? "bg-gradient-to-br from-green-400 to-green-600"
+                                : meeting.type === "evaluation"
+                                  ? "bg-gradient-to-br from-purple-400 to-purple-600"
+                                  : "bg-gradient-to-br from-blue-400 to-blue-600"
+                            }`}>
+                              <Video className="h-7 w-7 text-white" />
                             </div>
-                            <div>
-                              <h3 className="font-medium">{meeting.title}</h3>
-                              <div className="flex items-center space-x-4 text-sm text-gray-600 mt-1">
-                                <span className="flex items-center">
-                                  <Calendar className="h-4 w-4 mr-1" />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="font-semibold text-gray-900 text-lg truncate">{meeting.title}</h3>
+                                {(meeting.organizerId === currentUser?.id || meeting.organizerId === currentUser?.staffId || meeting.organizer === currentUser?.name) && (
+                                  <Badge className="bg-purple-100 text-purple-700 text-xs px-2 py-0.5">Host</Badge>
+                                )}
+                              </div>
+                              <div className="flex flex-wrap items-center gap-3 text-sm text-gray-600 mt-2">
+                                <span className="flex items-center gap-1.5 bg-gray-100 px-2.5 py-1 rounded-lg">
+                                  <Calendar className="h-4 w-4 text-gray-500" />
                                   {meeting.date}
                                 </span>
-                                <span className="flex items-center">
-                                  <Clock className="h-4 w-4 mr-1" />
-                                  {meeting.time} ({meeting.duration})
+                                <span className="flex items-center gap-1.5 bg-gray-100 px-2.5 py-1 rounded-lg">
+                                  <Clock className="h-4 w-4 text-gray-500" />
+                                  {meeting.time}
                                 </span>
-                                <span className="flex items-center">
-                                  <Users className="h-4 w-4 mr-1" />
+                                <span className="flex items-center gap-1.5 bg-orange-100 px-2.5 py-1 rounded-lg text-orange-700">
+                                  <Timer className="h-4 w-4" />
+                                  {meeting.duration || `${meeting.durationMinutes || 30} min`}
+                                </span>
+                                <span className="flex items-center gap-1.5 bg-gray-100 px-2.5 py-1 rounded-lg">
+                                  <Users className="h-4 w-4 text-gray-500" />
                                   {Array.isArray(meeting.participants)
                                     ? meeting.participants.length
-                                    : meeting.participants}{" "}
-                                  participants
+                                    : meeting.participants} attendees
                                 </span>
                               </div>
-                              {meeting.agenda && <p className="text-sm text-gray-600 mt-2">{meeting.agenda}</p>}
+                              {meeting.organizer && (
+                                <p className="text-xs text-gray-400 mt-1.5">Organized by {meeting.organizer}</p>
+                              )}
+                              {meeting.agenda && (
+                                <p className="text-sm text-gray-500 mt-2 line-clamp-2">{meeting.agenda}</p>
+                              )}
                             </div>
                           </div>
-                          <div className="flex items-center space-x-2">
+                          <div className="flex items-center gap-2 flex-shrink-0">
                             <Badge
-                              className={
+                              className={`font-medium px-3 py-1 ${
                                 meeting.type === "training"
-                                  ? "bg-green-100 text-green-800"
+                                  ? "bg-green-100 text-green-700 border-green-200"
                                   : meeting.type === "evaluation"
-                                    ? "bg-purple-100 text-purple-800"
-                                    : "bg-blue-100 text-blue-800"
-                              }
+                                    ? "bg-purple-100 text-purple-700 border-purple-200"
+                                    : "bg-blue-100 text-blue-700 border-blue-200"
+                              }`}
                             >
                               {meeting.type}
                             </Badge>
-                            <Button size="sm" variant="outline" onClick={() => copyMeetingLink(meeting.meetingLink)}>
-                              <Copy className="h-4 w-4 mr-2" />
-                              Copy Link
+                            <Button 
+                              size="sm" 
+                              variant="outline" 
+                              onClick={() => copyMeetingLink(meeting.meetingLink, meeting.id)}
+                              className="gap-2 hidden sm:flex"
+                            >
+                              <Copy className="h-4 w-4" />
+                              Copy
                             </Button>
-                            <Button size="sm" onClick={() => handleJoinMeeting(meeting.meetingLink)}>
-                              <Video className="h-4 w-4 mr-2" />
+                            <Button 
+                              size="sm" 
+                              onClick={() => handleJoinMeeting(meeting.meetingLink, meeting)}
+                              className="gap-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
+                            >
+                              <Video className="h-4 w-4" />
                               Join
                             </Button>
                           </div>
@@ -1510,42 +1735,6 @@ export default function Communications() {
                 )}
               </CardContent>
             </Card>
-
-            {/* Quick Actions */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <Card>
-                <CardContent className="p-6 text-center">
-                  <Video className="h-8 w-8 text-blue-500 mx-auto mb-3" />
-                  <h3 className="font-medium mb-2">Start Instant Meeting</h3>
-                  <p className="text-sm text-gray-600 mb-4">Begin a video call immediately</p>
-                  <Button onClick={() => handleStartVideoCall("group")} className="w-full">
-                    Start Now
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6 text-center">
-                  <Calendar className="h-8 w-8 text-green-500 mx-auto mb-3" />
-                  <h3 className="font-medium mb-2">Schedule Meeting</h3>
-                  <p className="text-sm text-gray-600 mb-4">Plan a future video conference</p>
-                  <Button variant="outline" onClick={() => setShowScheduleDialog(true)} className="w-full">
-                    Schedule
-                  </Button>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-6 text-center">
-                  <Share2 className="h-8 w-8 text-purple-500 mx-auto mb-3" />
-                  <h3 className="font-medium mb-2">Join by Link</h3>
-                  <p className="text-sm text-gray-600 mb-4">Enter a meeting ID or link</p>
-                  <Button variant="outline" className="w-full bg-transparent">
-                    Join Meeting
-                  </Button>
-                </CardContent>
-              </Card>
-            </div>
           </TabsContent>
 
           <TabsContent value="assignments" className="space-y-6">
@@ -1565,6 +1754,7 @@ export default function Communications() {
               setShowVideoCall(false)
               setCallInfo(null)
               setIsCalleeAccepted(false)
+              setActiveMeeting(null)
             }}
             isVideoEnabled={isVideoEnabled}
             setIsVideoEnabled={setIsVideoEnabled}
@@ -1578,11 +1768,17 @@ export default function Communications() {
             activePeerSessionId={activePeerSessionId}
             incomingCall={incomingCall}
             isCalleeAccepted={isCalleeAccepted}
+            // Meeting management props
+            activeMeeting={activeMeeting}
+            onMeetingEnd={() => {
+              setActiveMeeting(null)
+            }}
             onCallEnded={() => {
               setActiveCallId(null)
               setActivePeerSessionId(null)
               setIncomingCall(null)
               setIsCalleeAccepted(false)
+              setActiveMeeting(null)
             }}
           />
         )}
@@ -1592,77 +1788,209 @@ export default function Communications() {
 }
 
 // Schedule Meeting Form Component
-function ScheduleMeetingForm({ onSchedule }: { onSchedule: (data: any) => void }) {
+function ScheduleMeetingForm({ onSchedule, onCancel }: { onSchedule: (data: any) => void; onCancel?: () => void }) {
   const [formData, setFormData] = useState({
     title: "",
+    description: "",
     date: "",
     time: "",
     duration: "30",
+    meetingType: "general",
     participants: [] as string[],
     agenda: "",
     recurring: false,
     sendInvites: true,
   })
+  const [staffMembers, setStaffMembers] = useState<any[]>([])
+  const [isLoadingStaff, setIsLoadingStaff] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
 
-  const staffMembers = [
-    "Dr. Wilson",
-    "Sarah Johnson",
-    "Michael Chen",
-    "Emily Davis",
-    "Lisa Garcia",
-    "HR Manager",
-    "Quality Director",
-  ]
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const meetingData = {
-      ...formData,
-      meetingLink: `https://meet.irishtriplets.com/${Date.now()}`,
+  // Fetch staff members from database
+  useEffect(() => {
+    const fetchStaff = async () => {
+      try {
+        setIsLoadingStaff(true)
+        
+        // Try fetching from staff list API
+        let staffData: any[] = []
+        
+        try {
+          const res = await fetch("/api/staff/list")
+          const data = await res.json()
+          console.log("Staff list response:", data)
+          
+          if (data.staff && data.staff.length > 0) {
+            staffData = data.staff
+          }
+        } catch (err) {
+          console.log("Staff list API failed, trying alternative...")
+        }
+        
+        // If no staff from list, try the care-team endpoint
+        if (staffData.length === 0) {
+          try {
+            const res2 = await fetch("/api/staff/care-team")
+            const data2 = await res2.json()
+            console.log("Care team response:", data2)
+            
+            if (data2.staff && data2.staff.length > 0) {
+              staffData = data2.staff
+            }
+          } catch (err) {
+            console.log("Care team API failed")
+          }
+        }
+        
+        if (staffData.length > 0) {
+          const formattedStaff = staffData.map((s: any) => ({
+            id: s.id,
+            name: s.name || s.full_name || "Unknown",
+            role: s.role_id || s.role || s.credentials || s.department || "Staff",
+            email: s.email,
+          }))
+          console.log("Formatted staff:", formattedStaff)
+          setStaffMembers(formattedStaff)
+        } else {
+          console.log("No staff found from API, using fallback")
+          // Fallback to sample staff if APIs return empty
+          setStaffMembers([
+            { id: "sample-1", name: "Dr. Wilson", role: "Doctor" },
+            { id: "sample-2", name: "Sarah Johnson", role: "Nurse" },
+            { id: "sample-3", name: "Michael Chen", role: "Caregiver" },
+            { id: "sample-4", name: "Emily Davis", role: "Admin" },
+            { id: "sample-5", name: "Lisa Garcia", role: "Nurse" },
+          ])
+        }
+      } catch (error) {
+        console.error("Error fetching staff:", error)
+        // Fallback to sample staff if all APIs fail
+        setStaffMembers([
+          { id: "sample-1", name: "Dr. Wilson", role: "Doctor" },
+          { id: "sample-2", name: "Sarah Johnson", role: "Nurse" },
+          { id: "sample-3", name: "Michael Chen", role: "Caregiver" },
+          { id: "sample-4", name: "Emily Davis", role: "Admin" },
+          { id: "sample-5", name: "Lisa Garcia", role: "Nurse" },
+        ])
+      } finally {
+        setIsLoadingStaff(false)
+      }
     }
-    onSchedule(meetingData)
+    fetchStaff()
+  }, [])
+
+  // Set minimum date to today
+  const today = new Date().toISOString().split("T")[0]
+
+  // Filter staff based on search
+  const filteredStaff = staffMembers.filter(
+    (staff) =>
+      staff.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      staff.role?.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    
+    if (!formData.title || !formData.date || !formData.time) {
+      return
+    }
+
+    setIsSubmitting(true)
+    
+    try {
+      // Map form data to API expected format
+      const meetingData = {
+        title: formData.title,
+        description: formData.description,
+        agenda: formData.agenda,
+        date: formData.date,
+        time: formData.time,
+        durationMinutes: parseInt(formData.duration),
+        meetingType: formData.meetingType,
+        isRecurring: formData.recurring,
+        participantIds: formData.participants,
+        meetingLink: `https://meet.irishtriplets.com/${Date.now()}`,
+      }
+      
+      await onSchedule(meetingData)
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const toggleParticipant = (staffId: string) => {
+    if (formData.participants.includes(staffId)) {
+      setFormData({
+        ...formData,
+        participants: formData.participants.filter((p) => p !== staffId),
+      })
+    } else {
+      setFormData({
+        ...formData,
+        participants: [...formData.participants, staffId],
+      })
+    }
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="md:col-span-2">
-          <Label htmlFor="title">Meeting Title *</Label>
-          <Input
-            id="title"
-            value={formData.title}
-            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-            placeholder="Enter meeting title"
-            required
-          />
-        </div>
+      {/* Meeting Title */}
+      <div className="space-y-2">
+        <Label htmlFor="title" className="text-sm font-medium flex items-center gap-1">
+          Meeting Title <span className="text-red-500">*</span>
+        </Label>
+        <Input
+          id="title"
+          value={formData.title}
+          onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+          placeholder="Enter meeting title"
+          className="h-11"
+          required
+        />
+      </div>
 
-        <div>
-          <Label htmlFor="date">Date *</Label>
+      {/* Date and Time Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="date" className="text-sm font-medium flex items-center gap-1">
+            Date <span className="text-red-500">*</span>
+          </Label>
           <Input
             id="date"
             type="date"
+            min={today}
             value={formData.date}
             onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+            className="h-11"
             required
           />
         </div>
 
-        <div>
-          <Label htmlFor="time">Time *</Label>
+        <div className="space-y-2">
+          <Label htmlFor="time" className="text-sm font-medium flex items-center gap-1">
+            Time <span className="text-red-500">*</span>
+          </Label>
           <Input
             id="time"
             type="time"
             value={formData.time}
             onChange={(e) => setFormData({ ...formData, time: e.target.value })}
+            className="h-11"
             required
           />
         </div>
+      </div>
 
-        <div>
-          <Label htmlFor="duration">Duration</Label>
-          <Select value={formData.duration} onValueChange={(value) => setFormData({ ...formData, duration: value })}>
-            <SelectTrigger>
+      {/* Duration and Type Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="duration" className="text-sm font-medium">Duration</Label>
+          <Select 
+            value={formData.duration} 
+            onValueChange={(value) => setFormData({ ...formData, duration: value })}
+          >
+            <SelectTrigger className="h-11">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1676,77 +2004,193 @@ function ScheduleMeetingForm({ onSchedule }: { onSchedule: (data: any) => void }
           </Select>
         </div>
 
-        <div>
-          <Label>Participants</Label>
-          <div className="mt-2 space-y-2 max-h-32 overflow-y-auto">
-            {staffMembers.map((member) => (
-              <div key={member} className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id={member}
-                  checked={formData.participants.includes(member)}
-                  onChange={(e) => {
-                    if (e.target.checked) {
-                      setFormData({
-                        ...formData,
-                        participants: [...formData.participants, member],
-                      })
-                    } else {
-                      setFormData({
-                        ...formData,
-                        participants: formData.participants.filter((p) => p !== member),
-                      })
-                    }
-                  }}
-                  className="rounded"
-                />
-                <Label htmlFor={member} className="text-sm">
-                  {member}
-                </Label>
-              </div>
-            ))}
-          </div>
+        <div className="space-y-2">
+          <Label htmlFor="meetingType" className="text-sm font-medium">Meeting Type</Label>
+          <Select 
+            value={formData.meetingType} 
+            onValueChange={(value) => setFormData({ ...formData, meetingType: value })}
+          >
+            <SelectTrigger className="h-11">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="general">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-blue-500" />
+                  General Meeting
+                </div>
+              </SelectItem>
+              <SelectItem value="training">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  Training Session
+                </div>
+              </SelectItem>
+              <SelectItem value="evaluation">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-purple-500" />
+                  Performance Evaluation
+                </div>
+              </SelectItem>
+              <SelectItem value="urgent">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  Urgent Meeting
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
+      </div>
 
-        <div className="md:col-span-2">
-          <Label htmlFor="agenda">Agenda</Label>
-          <Textarea
-            id="agenda"
-            value={formData.agenda}
-            onChange={(e) => setFormData({ ...formData, agenda: e.target.value })}
-            placeholder="Meeting agenda and topics to discuss..."
-            rows={3}
+      {/* Participants */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">
+          Participants ({formData.participants.length} selected)
+        </Label>
+        <div className="border rounded-lg p-3 bg-gray-50/50">
+          <Input
+            placeholder="Search staff members..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="mb-3 h-9"
           />
-        </div>
-
-        <div className="md:col-span-2 space-y-4">
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="recurring"
-              checked={formData.recurring}
-              onCheckedChange={(checked) => setFormData({ ...formData, recurring: checked })}
-            />
-            <Label htmlFor="recurring">Recurring meeting</Label>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="sendInvites"
-              checked={formData.sendInvites}
-              onCheckedChange={(checked) => setFormData({ ...formData, sendInvites: checked })}
-            />
-            <Label htmlFor="sendInvites">Send calendar invites to participants</Label>
+          <div className="max-h-40 overflow-y-auto space-y-1">
+            {isLoadingStaff ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+                <span className="ml-2 text-sm text-gray-500">Loading staff...</span>
+              </div>
+            ) : filteredStaff.length === 0 ? (
+              <div className="text-center py-4 text-sm text-gray-500">
+                No staff members found
+              </div>
+            ) : (
+              filteredStaff.map((staff) => (
+                <div
+                  key={staff.id}
+                  onClick={() => toggleParticipant(staff.id)}
+                  className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
+                    formData.participants.includes(staff.id)
+                      ? "bg-blue-50 border border-blue-200"
+                      : "hover:bg-gray-100 border border-transparent"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-sm font-medium ${
+                      formData.participants.includes(staff.id) ? "bg-blue-500" : "bg-gray-400"
+                    }`}>
+                      {staff.name?.charAt(0)?.toUpperCase() || "S"}
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium">{staff.name}</p>
+                      {staff.role && (
+                        <p className="text-xs text-gray-500">{staff.role}</p>
+                      )}
+                    </div>
+                  </div>
+                  {formData.participants.includes(staff.id) && (
+                    <Check className="h-4 w-4 text-blue-500" />
+                  )}
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
 
-      <div className="flex justify-end space-x-3">
-        <Button type="button" variant="outline">
+      {/* Description */}
+      <div className="space-y-2">
+        <Label htmlFor="description" className="text-sm font-medium">Description</Label>
+        <Input
+          id="description"
+          value={formData.description}
+          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          placeholder="Brief meeting description"
+          className="h-11"
+        />
+      </div>
+
+      {/* Agenda */}
+      <div className="space-y-2">
+        <Label htmlFor="agenda" className="text-sm font-medium">Agenda</Label>
+        <Textarea
+          id="agenda"
+          value={formData.agenda}
+          onChange={(e) => setFormData({ ...formData, agenda: e.target.value })}
+          placeholder="Meeting agenda and topics to discuss..."
+          rows={3}
+          className="resize-none"
+        />
+      </div>
+
+      {/* Options */}
+      <div className="space-y-4 p-4 bg-gray-50 rounded-lg">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+              <RefreshCw className="h-4 w-4 text-blue-600" />
+            </div>
+            <div>
+              <Label htmlFor="recurring" className="text-sm font-medium cursor-pointer">
+                Recurring meeting
+              </Label>
+              <p className="text-xs text-gray-500">Repeat this meeting weekly</p>
+            </div>
+          </div>
+          <Switch
+            id="recurring"
+            checked={formData.recurring}
+            onCheckedChange={(checked) => setFormData({ ...formData, recurring: checked })}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+              <Send className="h-4 w-4 text-green-600" />
+            </div>
+            <div>
+              <Label htmlFor="sendInvites" className="text-sm font-medium cursor-pointer">
+                Send calendar invites
+              </Label>
+              <p className="text-xs text-gray-500">Notify participants by email</p>
+            </div>
+          </div>
+          <Switch
+            id="sendInvites"
+            checked={formData.sendInvites}
+            onCheckedChange={(checked) => setFormData({ ...formData, sendInvites: checked })}
+          />
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t">
+        <Button 
+          type="button" 
+          variant="outline" 
+          onClick={onCancel}
+          className="w-full sm:w-auto"
+        >
           Cancel
         </Button>
-        <Button type="submit">
-          <Calendar className="h-4 w-4 mr-2" />
-          Schedule Meeting
+        <Button 
+          type="submit" 
+          disabled={isSubmitting || !formData.title || !formData.date || !formData.time}
+          className="w-full sm:w-auto gap-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700"
+        >
+          {isSubmitting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Scheduling...
+            </>
+          ) : (
+            <>
+              <Calendar className="h-4 w-4" />
+              Schedule Meeting
+            </>
+          )}
         </Button>
       </div>
     </form>
@@ -1770,6 +2214,9 @@ function VideoCallInterface({
   incomingCall,
   onCallEnded,
   isCalleeAccepted, // True when callee accepted an incoming call - skip ringing
+  // Meeting management props
+  activeMeeting,
+  onMeetingEnd,
 }: {
   isOpen: boolean
   onClose: () => void
@@ -1790,6 +2237,14 @@ function VideoCallInterface({
   incomingCall?: any
   onCallEnded?: () => void
   isCalleeAccepted?: boolean
+  // Meeting management props
+  activeMeeting?: {
+    id?: string
+    title?: string
+    duration?: number
+    isHost?: boolean
+  } | null
+  onMeetingEnd?: () => void
 }) {
   const { toast } = useToast()
   const videoRef = React.useRef<HTMLVideoElement>(null)
@@ -1879,14 +2334,20 @@ function VideoCallInterface({
   // Initialize media stream when component opens
   React.useEffect(() => {
     if (isOpen) {
+      // Use latest values of isCalleeAccepted and activePeerSessionId
       initializeCall()
     }
     return () => {
       cleanupMedia()
     }
-  }, [isOpen])
+  }, [isOpen, isCalleeAccepted, activePeerSessionId])
 
   const initializeCall = async () => {
+    console.log('🚀 [INIT] Starting call initialization...')
+    console.log('  - isCalleeAccepted:', isCalleeAccepted)
+    console.log('  - activePeerSessionId:', activePeerSessionId)
+    console.log('  - callInfo:', callInfo)
+    
     setIsInitializing(true)
     setMediaError(null)
     setCallState("calling")
@@ -1907,9 +2368,11 @@ function VideoCallInterface({
 
       setIsInitializing(false)
 
-      // If callee accepted an incoming call, go DIRECTLY to PeerJS (no ringing)
+      // If joining a scheduled meeting OR callee accepted an incoming call
+      // Go DIRECTLY to PeerJS (no ringing)
       if (isCalleeAccepted && activePeerSessionId) {
-        console.log('✅ [CALLEE] Skipping ringing, going directly to PeerJS...')
+        console.log('✅ [JOIN] Joining meeting directly, no ringing...')
+        console.log('  - Session ID:', activePeerSessionId)
         playConnectedSound()
         setCallSessionId(activePeerSessionId)
         setUsePeerJSCall(true)
@@ -1920,7 +2383,7 @@ function VideoCallInterface({
       // CALLER: Start PeerJS IMMEDIATELY so peer ID is in database
       // This works for BOTH direct and group calls!
       const usingPeerJS = activePeerSessionId ? true : false
-      if (usingPeerJS) {
+      if (usingPeerJS && activePeerSessionId) {
         console.log(`📞 [CALLER] Starting PeerJS for ${isDirectCall ? 'direct' : 'group'} call...`)
         setCallSessionId(activePeerSessionId)
         setUsePeerJSCall(true) // Start PeerJS right away!
@@ -2393,7 +2856,7 @@ function VideoCallInterface({
                   <p className="text-sm text-gray-500 mb-4">
                     Please ensure you have granted camera and microphone permissions in your browser settings.
                   </p>
-                  <Button onClick={initializeMedia} variant="outline">
+                  <Button onClick={initializeCall} variant="outline">
                     <RefreshCw className="h-4 w-4 mr-2" />
                     Retry Connection
                   </Button>
@@ -2442,43 +2905,86 @@ function VideoCallInterface({
             ) : usePeerJSCall ? (
               /* REAL VIDEO CALL with PeerJS - Shows during ringing (caller) and connected (both) */
               <div className="h-full w-full relative">
-                <PeerJSVideoCall
-                  consultationId={activePeerSessionId || callSessionId}
-                  participantName={currentUser?.name || "User"}
-                  participantRole={isCalleeAccepted ? "callee" : "caller"}
-                  remoteName={isCalleeAccepted ? (incomingCall?.caller?.name || callInfo?.conversationName) : (callInfo?.participants?.[0]?.name || callInfo?.conversationName || "Unknown")}
-                  callId={activeCallId || undefined}
-                  callerId={!isCalleeAccepted ? currentUser?.id : undefined}
-                  isGroupCall={callInfo?.type === "group"}
-                  participants={callInfo?.participants || []}
-                  onConnected={() => {
-                    // Video connected! Stop ringing and update state
-                    console.log('✅ [VIDEO] PeerJS video connected!')
-                    stopRingtone()
-                    setCallState("connected")
-                  }}
-                  onCallEnd={async () => {
-                    // End call in database
-                    if (activeCallId) {
-                      try {
-                        await fetch('/api/communications/calls', {
-                          method: 'PUT',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            callId: activeCallId,
-                            action: 'end'
+                {callInfo?.type === "group" ? (
+                  /* GROUP VIDEO CALL - Multi-party mesh network */
+                  <GroupVideoCall
+                    consultationId={activePeerSessionId || callSessionId}
+                    currentUserId={currentUser?.id || ""}
+                    currentUserName={currentUser?.name || "User"}
+                    participants={callInfo?.participants || []}
+                    callId={activeCallId || undefined}
+                    // Meeting management props
+                    meetingDuration={activeMeeting?.duration || 0}
+                    isHost={activeMeeting?.isHost || false}
+                    meetingId={activeMeeting?.id}
+                    meetingTitle={activeMeeting?.title || callInfo?.conversationName}
+                    onConnected={() => {
+                      console.log('✅ [VIDEO] Group video connected!')
+                      stopRingtone()
+                      setCallState("connected")
+                    }}
+                    onCallEnd={async () => {
+                      // End call in database
+                      if (activeCallId) {
+                        try {
+                          await fetch('/api/communications/calls', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              callId: activeCallId,
+                              action: 'end'
+                            })
                           })
-                        })
-                      } catch (error) {
-                        console.error('Error ending call:', error)
+                        } catch (error) {
+                          console.error('Error ending call:', error)
+                        }
                       }
-                    }
-                    setUsePeerJSCall(false)
-                    handleEndCall()
-                  }}
-                />
-                {/* Ringing overlay for caller */}
-                {callState === "ringing" && !incomingCall && (
+                      // Call the meeting end callback
+                      onMeetingEnd?.()
+                      setUsePeerJSCall(false)
+                      handleEndCall()
+                    }}
+                  />
+                ) : (
+                  /* DIRECT CALL - 1-on-1 PeerJS */
+                  <PeerJSVideoCall
+                    consultationId={activePeerSessionId || callSessionId}
+                    participantName={currentUser?.name || "User"}
+                    participantRole={isCalleeAccepted ? "callee" : "caller"}
+                    remoteName={isCalleeAccepted ? (incomingCall?.caller?.name || callInfo?.conversationName) : (callInfo?.participants?.[0]?.name || callInfo?.conversationName || "Unknown")}
+                    callId={activeCallId || undefined}
+                    callerId={!isCalleeAccepted ? currentUser?.id : undefined}
+                    isGroupCall={false}
+                    participants={[]}
+                    onConnected={() => {
+                      // Video connected! Stop ringing and update state
+                      console.log('✅ [VIDEO] PeerJS video connected!')
+                      stopRingtone()
+                      setCallState("connected")
+                    }}
+                    onCallEnd={async () => {
+                      // End call in database
+                      if (activeCallId) {
+                        try {
+                          await fetch('/api/communications/calls', {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              callId: activeCallId,
+                              action: 'end'
+                            })
+                          })
+                        } catch (error) {
+                          console.error('Error ending call:', error)
+                        }
+                      }
+                      setUsePeerJSCall(false)
+                      handleEndCall()
+                    }}
+                  />
+                )}
+                {/* Ringing overlay for caller in direct calls */}
+                {(callState as string) === "ringing" && !incomingCall && callInfo?.type === "direct" && (
                   <div className="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center z-10">
                     <div className="animate-pulse mb-4">
                       <Phone className="h-16 w-16 text-green-400" />
@@ -2496,6 +3002,40 @@ function VideoCallInterface({
                     >
                       <PhoneCall className="h-5 w-5 mr-2 rotate-[135deg]" />
                       Cancel
+                    </Button>
+                  </div>
+                )}
+                {/* Ringing overlay for caller in group calls */}
+                {(callState as string) === "ringing" && !incomingCall && callInfo?.type === "group" && (
+                  <div className="absolute inset-0 bg-black bg-opacity-70 flex flex-col items-center justify-center z-10">
+                    <div className="animate-pulse mb-4">
+                      <Users className="h-16 w-16 text-blue-400" />
+                    </div>
+                    <p className="text-white text-xl mb-2">Calling {callInfo?.participants?.length || 0} member{callInfo?.participants?.length !== 1 ? 's' : ''}...</p>
+                    <div className="flex flex-wrap justify-center gap-2 mb-4 max-w-md">
+                      {callInfo?.participants?.slice(0, 5).map((p: any, i: number) => (
+                        <div key={i} className="bg-gray-800/60 px-3 py-1 rounded-full text-sm text-white">
+                          {p.name}
+                        </div>
+                      ))}
+                      {(callInfo?.participants?.length || 0) > 5 && (
+                        <div className="bg-gray-800/60 px-3 py-1 rounded-full text-sm text-white">
+                          +{(callInfo?.participants?.length || 0) - 5} more
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-gray-400 text-sm mb-6">Waiting for them to answer...</p>
+                    <Button
+                      variant="destructive"
+                      size="lg"
+                      className="rounded-full"
+                      onClick={() => {
+                        stopRingtone()
+                        handleEndCall()
+                      }}
+                    >
+                      <PhoneCall className="h-5 w-5 mr-2 rotate-[135deg]" />
+                      Cancel Call
                     </Button>
                   </div>
                 )}
@@ -2994,14 +3534,92 @@ function VideoCallInterface({
 
 // Task Assignments Component
 function TaskAssignments() {
+  const { toast } = useToast()
   const [assignments, setAssignments] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [showNewTaskDialog, setShowNewTaskDialog] = useState(false)
+  const [filterStatus, setFilterStatus] = useState("all")
+  const [staffMembers, setStaffMembers] = useState<any[]>([])
+  const [isLoadingStaff, setIsLoadingStaff] = useState(true)
+  const [isCreatingTask, setIsCreatingTask] = useState(false)
+  const [currentUser, setCurrentUser] = useState<any>(null)
+  
+  // New task form state
+  const [newTask, setNewTask] = useState({
+    title: "",
+    description: "",
+    assignedTo: "",
+    priority: "medium",
+    dueDate: "",
+  })
+
+  // Fetch current user
+  useEffect(() => {
+    const userData = localStorage.getItem('currentStaff')
+    if (userData) {
+      setCurrentUser(JSON.parse(userData))
+    }
+  }, [])
+
+  // Fetch staff members for assignment
+  useEffect(() => {
+    const fetchStaff = async () => {
+      try {
+        setIsLoadingStaff(true)
+        let staffData: any[] = []
+        
+        try {
+          const res = await fetch("/api/staff/list")
+          const data = await res.json()
+          if (data.staff && data.staff.length > 0) {
+            staffData = data.staff
+          }
+        } catch (err) {
+          console.log("Staff list API failed")
+        }
+        
+        if (staffData.length === 0) {
+          try {
+            const res2 = await fetch("/api/staff/care-team")
+            const data2 = await res2.json()
+            if (data2.staff && data2.staff.length > 0) {
+              staffData = data2.staff
+            }
+          } catch (err) {
+            console.log("Care team API failed")
+          }
+        }
+        
+        if (staffData.length > 0) {
+          const formattedStaff = staffData.map((s: any) => ({
+            id: s.id,
+            name: s.name || s.full_name || "Unknown",
+            role: s.role_id || s.role || s.department || "Staff",
+          }))
+          setStaffMembers(formattedStaff)
+        } else {
+          // Fallback sample staff
+          setStaffMembers([
+            { id: "sample-1", name: "Dr. Wilson", role: "Doctor" },
+            { id: "sample-2", name: "Sarah Johnson", role: "Nurse" },
+            { id: "sample-3", name: "Michael Chen", role: "Caregiver" },
+            { id: "sample-4", name: "Emily Davis", role: "Admin" },
+          ])
+        }
+      } catch (error) {
+        console.error("Error fetching staff:", error)
+      } finally {
+        setIsLoadingStaff(false)
+      }
+    }
+    fetchStaff()
+  }, [])
 
   const fetchTasks = async () => {
     try {
       setIsLoading(true)
-      const res = await fetch("/api/communications/tasks", { cache: "no-store" })
+      const statusParam = filterStatus !== "all" ? `?status=${filterStatus}` : ""
+      const res = await fetch(`/api/communications/tasks${statusParam}`, { cache: "no-store" })
       const data = await res.json()
       
       if (data.success) {
@@ -3014,6 +3632,59 @@ function TaskAssignments() {
     }
   }
 
+  useEffect(() => {
+    fetchTasks()
+  }, [filterStatus])
+
+  const createTask = async () => {
+    if (!newTask.title || !newTask.assignedTo) {
+      toast({
+        title: "Missing Fields",
+        description: "Please fill in the title and assignee",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsCreatingTask(true)
+    try {
+      const res = await fetch("/api/communications/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: newTask.title,
+          description: newTask.description,
+          assignedTo: newTask.assignedTo,
+          assignedBy: currentUser?.id || null,
+          dueDate: newTask.dueDate || null,
+          priority: newTask.priority,
+        }),
+      })
+      
+      const data = await res.json()
+      
+      if (data.success) {
+        toast({
+          title: "Task Created",
+          description: `"${newTask.title}" has been assigned`,
+        })
+        setShowNewTaskDialog(false)
+        setNewTask({ title: "", description: "", assignedTo: "", priority: "medium", dueDate: "" })
+        await fetchTasks()
+      } else {
+        throw new Error(data.error)
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create task",
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreatingTask(false)
+    }
+  }
+
   const updateTaskStatus = async (taskId: string, newStatus: string) => {
     try {
       await fetch("/api/communications/tasks", {
@@ -3021,48 +3692,127 @@ function TaskAssignments() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: taskId, status: newStatus }),
       })
+      toast({
+        title: "Task Updated",
+        description: `Status changed to ${newStatus.replace("_", " ")}`,
+      })
       await fetchTasks()
     } catch (error) {
       console.error("Error updating task:", error)
+      toast({
+        title: "Error",
+        description: "Failed to update task",
+        variant: "destructive",
+      })
     }
   }
 
-  useEffect(() => {
-    fetchTasks()
-  }, [])
+  const deleteTask = async (taskId: string, taskTitle: string) => {
+    if (!confirm(`Delete task "${taskTitle}"?`)) return
+    
+    try {
+      await fetch(`/api/communications/tasks?id=${taskId}`, {
+        method: "DELETE",
+      })
+      toast({
+        title: "Task Deleted",
+        description: `"${taskTitle}" has been removed`,
+      })
+      await fetchTasks()
+    } catch (error) {
+      console.error("Error deleting task:", error)
+      toast({
+        title: "Error",
+        description: "Failed to delete task",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "completed": return "bg-green-100 text-green-800 border-green-200"
+      case "in_progress": 
+      case "in-progress": return "bg-blue-100 text-blue-800 border-blue-200"
+      case "pending": return "bg-gray-100 text-gray-800 border-gray-200"
+      default: return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "high":
+      case "urgent": return "bg-red-100 text-red-800 border-red-200"
+      case "medium": return "bg-yellow-100 text-yellow-800 border-yellow-200"
+      case "low": return "bg-green-100 text-green-800 border-green-200"
+      default: return "bg-gray-100 text-gray-800 border-gray-200"
+    }
+  }
+
+  const getInitials = (name: string) => {
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
+  }
+
+  // Get today's date for min date validation
+  const today = new Date().toISOString().split("T")[0]
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <CardTitle>Task Assignments</CardTitle>
-              <CardDescription>Manage and track team assignments</CardDescription>
+              <CardTitle className="text-xl flex items-center gap-2">
+                <ClipboardList className="h-5 w-5 text-blue-600" />
+                Task Assignments
+              </CardTitle>
+              <CardDescription className="mt-1">Manage and track team assignments</CardDescription>
             </div>
-            <div className="flex space-x-2">
-              <Button size="sm" variant="ghost" onClick={fetchTasks}>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Status Filter */}
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="px-3 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">All Tasks</option>
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="completed">Completed</option>
+              </select>
+              <Button size="sm" variant="outline" onClick={fetchTasks}>
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
-              <Button onClick={() => setShowNewTaskDialog(true)}>
+              <Button onClick={() => setShowNewTaskDialog(true)} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="h-4 w-4 mr-2" />
-                New Assignment
+                New Task
               </Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-6">
           {isLoading ? (
-            <div className="p-8 text-center">
-              <Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600" />
-              <p className="text-sm text-gray-500 mt-2">Loading tasks...</p>
+            <div className="p-12 text-center">
+              <Loader2 className="h-10 w-10 animate-spin mx-auto text-blue-600" />
+              <p className="text-sm text-gray-500 mt-3">Loading tasks...</p>
             </div>
           ) : assignments.length === 0 ? (
-            <div className="p-8 text-center">
-              <MessageSquare className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="font-medium text-gray-900 mb-2">No Tasks Assigned</h3>
-              <p className="text-gray-600 mb-4">Create a new task to assign to team members.</p>
-              <Button onClick={() => setShowNewTaskDialog(true)}>
+            <div className="p-12 text-center">
+              <div className="w-16 h-16 bg-gray-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <ClipboardList className="h-8 w-8 text-gray-400" />
+              </div>
+              <h3 className="font-semibold text-gray-900 text-lg mb-2">No Tasks Found</h3>
+              <p className="text-gray-600 mb-6 max-w-sm mx-auto">
+                {filterStatus !== "all" 
+                  ? `No ${filterStatus.replace("_", " ")} tasks. Try a different filter.`
+                  : "Create a new task to assign to team members."}
+              </p>
+              <Button onClick={() => setShowNewTaskDialog(true)} className="bg-blue-600 hover:bg-blue-700">
                 <Plus className="h-4 w-4 mr-2" />
                 Create Task
               </Button>
@@ -3070,61 +3820,96 @@ function TaskAssignments() {
           ) : (
             <div className="space-y-4">
               {assignments.map((assignment) => (
-                <div key={assignment.id} className="p-4 border rounded-lg hover:shadow-md transition-shadow">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <h3 className="font-medium">{assignment.title}</h3>
-                      <p className="text-sm text-gray-600">
-                        Assigned to: <span className="font-medium">{assignment.assignedTo}</span> by{" "}
-                        {assignment.assignedBy}
-                      </p>
+                <div 
+                  key={assignment.id} 
+                  className={`p-5 border rounded-xl transition-all duration-200 hover:shadow-lg ${
+                    assignment.status === "completed" 
+                      ? "bg-green-50/50 border-green-200" 
+                      : "bg-white hover:border-blue-200"
+                  }`}
+                >
+                  <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-start gap-3">
+                        <Avatar className="h-10 w-10 flex-shrink-0">
+                          <AvatarFallback className="bg-blue-100 text-blue-600 text-sm">
+                            {getInitials(assignment.assignedTo || "?")}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className={`font-semibold ${assignment.status === "completed" ? "line-through text-gray-500" : "text-gray-900"}`}>
+                              {assignment.title}
+                            </h3>
+                            <Badge className={`${getPriorityColor(assignment.priority)} text-xs px-2 py-0.5`}>
+                              {assignment.priority}
+                            </Badge>
+                            <Badge className={`${getStatusColor(assignment.status)} text-xs px-2 py-0.5`}>
+                              {assignment.status?.replace("_", " ")}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-600 mt-1">
+                            Assigned to <span className="font-medium text-gray-900">{assignment.assignedTo}</span>
+                            {assignment.assignedBy && (
+                              <span className="text-gray-500"> • by {assignment.assignedBy}</span>
+                            )}
+                          </p>
+                          {assignment.description && (
+                            <p className="text-sm text-gray-500 mt-2 line-clamp-2">{assignment.description}</p>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Badge
-                        className={
-                          assignment.priority === "high" || assignment.priority === "urgent"
-                            ? "bg-red-100 text-red-800"
-                            : assignment.priority === "medium"
-                              ? "bg-yellow-100 text-yellow-800"
-                              : "bg-green-100 text-green-800"
-                        }
-                      >
-                        {assignment.priority}
-                      </Badge>
-                      <Badge
-                        className={
-                          assignment.status === "completed"
-                            ? "bg-green-100 text-green-800"
-                            : assignment.status === "in_progress" || assignment.status === "in-progress"
-                              ? "bg-blue-100 text-blue-800"
-                              : "bg-gray-100 text-gray-800"
-                        }
-                      >
-                        {assignment.status?.replace("_", " ")}
-                      </Badge>
-                    </div>
-                  </div>
-                  {assignment.description && (
-                    <p className="text-sm text-gray-600 mb-3">{assignment.description}</p>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">
-                      Due: {assignment.dueDate || "Not set"}
-                    </span>
-                    <div className="flex space-x-2">
-                      {assignment.status !== "completed" && (
+                    
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                      {assignment.dueDate && (
+                        <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm ${
+                          new Date(assignment.dueDate) < new Date() && assignment.status !== "completed"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-gray-100 text-gray-600"
+                        }`}>
+                          <Calendar className="h-4 w-4" />
+                          <span>{new Date(assignment.dueDate).toLocaleDateString()}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        {assignment.status === "pending" && (
+                          <Button 
+                            size="sm" 
+                            className="bg-blue-600 hover:bg-blue-700"
+                            onClick={() => updateTaskStatus(assignment.id, "in_progress")}
+                          >
+                            Start
+                          </Button>
+                        )}
+                        {(assignment.status === "in_progress" || assignment.status === "in-progress") && (
+                          <Button 
+                            size="sm" 
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => updateTaskStatus(assignment.id, "completed")}
+                          >
+                            <Check className="h-4 w-4 mr-1" />
+                            Complete
+                          </Button>
+                        )}
+                        {assignment.status === "completed" && (
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => updateTaskStatus(assignment.id, "pending")}
+                          >
+                            Reopen
+                          </Button>
+                        )}
                         <Button 
                           size="sm" 
-                          variant="outline"
-                          onClick={() => updateTaskStatus(assignment.id, assignment.status === "pending" ? "in_progress" : "completed")}
+                          variant="ghost"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => deleteTask(assignment.id, assignment.title)}
                         >
-                          {assignment.status === "pending" ? "Start" : "Complete"}
+                          <XCircle className="h-4 w-4" />
                         </Button>
-                      )}
-                      <Button size="sm" variant="outline">
-                        <MessageSquare className="h-4 w-4 mr-2" />
-                        Comment
-                      </Button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -3133,136 +3918,781 @@ function TaskAssignments() {
           )}
         </CardContent>
       </Card>
+
+      {/* New Task Dialog */}
+      <Dialog open={showNewTaskDialog} onOpenChange={setShowNewTaskDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-blue-600" />
+              Create New Task
+            </DialogTitle>
+            <DialogDescription>
+              Assign a task to a team member
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Title */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                Task Title <span className="text-red-500">*</span>
+              </label>
+              <Input
+                placeholder="Enter task title..."
+                value={newTask.title}
+                onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+              />
+            </div>
+
+            {/* Description */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">Description</label>
+              <textarea
+                placeholder="Enter task description..."
+                value={newTask.description}
+                onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[80px] resize-none"
+              />
+            </div>
+
+            {/* Assignee */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-700">
+                Assign To <span className="text-red-500">*</span>
+              </label>
+              {isLoadingStaff ? (
+                <div className="p-4 text-center">
+                  <Loader2 className="h-5 w-5 animate-spin mx-auto text-blue-600" />
+                </div>
+              ) : (
+                <select
+                  value={newTask.assignedTo}
+                  onChange={(e) => setNewTask({ ...newTask, assignedTo: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select a team member...</option>
+                  {staffMembers.map((staff) => (
+                    <option key={staff.id} value={staff.id}>
+                      {staff.name} ({staff.role})
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* Priority & Due Date Row */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Priority</label>
+                <select
+                  value={newTask.priority}
+                  onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
+                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="low">🟢 Low</option>
+                  <option value="medium">🟡 Medium</option>
+                  <option value="high">🔴 High</option>
+                  <option value="urgent">🚨 Urgent</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-700">Due Date</label>
+                <Input
+                  type="date"
+                  min={today}
+                  value={newTask.dueDate}
+                  onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3 pt-4 border-t">
+            <Button variant="outline" onClick={() => setShowNewTaskDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={createTask} 
+              disabled={isCreatingTask || !newTask.title || !newTask.assignedTo}
+              className="bg-blue-600 hover:bg-blue-700"
+            >
+              {isCreatingTask ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Task
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
 // Communication Settings Component
 function CommunicationSettings() {
+  const { toast } = useToast()
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [hasChanges, setHasChanges] = useState(false)
+  
   const [settings, setSettings] = useState({
+    // Notification Settings
     emailNotifications: true,
     pushNotifications: true,
     smsNotifications: false,
     meetingReminders: true,
     taskAssignments: true,
+    reminderTime: "15", // minutes before meeting
+    
+    // Privacy Settings
     messagePreview: true,
     onlineStatus: true,
+    readReceipts: true,
+    typingIndicator: true,
+    
+    // Meeting Settings
     autoJoinMeetings: false,
+    muteOnJoin: false,
+    cameraOffOnJoin: false,
+    enableVirtualBackground: false,
+    
+    // Audio/Video Settings
+    preferredMicrophone: "default",
+    preferredCamera: "default",
+    preferredSpeaker: "default",
+    echoCancellation: true,
+    noiseSuppression: true,
+    
+    // Do Not Disturb
+    doNotDisturb: false,
+    dndStartTime: "22:00",
+    dndEndTime: "07:00",
+    allowUrgentCalls: true,
   })
+
+  const [devices, setDevices] = useState<{
+    microphones: MediaDeviceInfo[]
+    cameras: MediaDeviceInfo[]
+    speakers: MediaDeviceInfo[]
+  }>({
+    microphones: [],
+    cameras: [],
+    speakers: [],
+  })
+
+  // Load settings from localStorage on mount
+  useEffect(() => {
+    const loadSettings = () => {
+      try {
+        const saved = localStorage.getItem('communicationSettings')
+        if (saved) {
+          const parsed = JSON.parse(saved)
+          setSettings(prev => ({ ...prev, ...parsed }))
+        }
+      } catch (error) {
+        console.error('Error loading settings:', error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    loadSettings()
+  }, [])
+
+  // Load available media devices
+  useEffect(() => {
+    const loadDevices = async () => {
+      try {
+        // Request permission first
+        await navigator.mediaDevices.getUserMedia({ audio: true, video: true })
+          .then(stream => stream.getTracks().forEach(track => track.stop()))
+          .catch(() => {})
+        
+        const deviceList = await navigator.mediaDevices.enumerateDevices()
+        setDevices({
+          microphones: deviceList.filter(d => d.kind === 'audioinput'),
+          cameras: deviceList.filter(d => d.kind === 'videoinput'),
+          speakers: deviceList.filter(d => d.kind === 'audiooutput'),
+        })
+      } catch (error) {
+        console.error('Error loading devices:', error)
+      }
+    }
+    loadDevices()
+  }, [])
+
+  // Update setting and mark as changed
+  const updateSetting = (key: string, value: any) => {
+    setSettings(prev => ({ ...prev, [key]: value }))
+    setHasChanges(true)
+  }
+
+  // Save settings
+  const saveSettings = async () => {
+    setIsSaving(true)
+    try {
+      // Save to localStorage
+      localStorage.setItem('communicationSettings', JSON.stringify(settings))
+      
+      // Optionally save to database via API
+      try {
+        const currentStaff = localStorage.getItem('currentStaff')
+        if (currentStaff) {
+          const staffData = JSON.parse(currentStaff)
+          await fetch('/api/communications/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              staffId: staffData.id,
+              settings: settings
+            })
+          })
+        }
+      } catch (apiError) {
+        // Continue even if API fails - localStorage is the primary store
+        console.log('API save skipped - using localStorage')
+      }
+      
+      setHasChanges(false)
+      toast({
+        title: "Settings Saved",
+        description: "Your communication preferences have been updated",
+      })
+    } catch (error) {
+      console.error('Error saving settings:', error)
+      toast({
+        title: "Error",
+        description: "Failed to save settings",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  // Reset to defaults
+  const resetToDefaults = () => {
+    if (!confirm('Reset all settings to default values?')) return
+    
+    setSettings({
+      emailNotifications: true,
+      pushNotifications: true,
+      smsNotifications: false,
+      meetingReminders: true,
+      taskAssignments: true,
+      reminderTime: "15",
+      messagePreview: true,
+      onlineStatus: true,
+      readReceipts: true,
+      typingIndicator: true,
+      autoJoinMeetings: false,
+      muteOnJoin: false,
+      cameraOffOnJoin: false,
+      enableVirtualBackground: false,
+      preferredMicrophone: "default",
+      preferredCamera: "default",
+      preferredSpeaker: "default",
+      echoCancellation: true,
+      noiseSuppression: true,
+      doNotDisturb: false,
+      dndStartTime: "22:00",
+      dndEndTime: "07:00",
+      allowUrgentCalls: true,
+    })
+    setHasChanges(true)
+    toast({
+      title: "Settings Reset",
+      description: "All settings have been reset to defaults. Click Save to apply.",
+    })
+  }
+
+  // Test notification
+  const testNotification = () => {
+    if ('Notification' in window) {
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          new Notification('Test Notification', {
+            body: 'Your notifications are working correctly!',
+            icon: '/favicon.ico'
+          })
+          toast({
+            title: "Notification Sent",
+            description: "Check if you received the test notification",
+          })
+        } else {
+          toast({
+            title: "Permission Denied",
+            description: "Please enable notifications in your browser settings",
+            variant: "destructive",
+          })
+        }
+      })
+    } else {
+      toast({
+        title: "Not Supported",
+        description: "Your browser doesn't support notifications",
+        variant: "destructive",
+      })
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+        <span className="ml-3 text-gray-600">Loading settings...</span>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Notification Settings</CardTitle>
+      {/* Header with Save Button */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Communication Settings</h2>
+          <p className="text-sm text-gray-600">Manage your notification, privacy, and meeting preferences</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {hasChanges && (
+            <span className="text-sm text-amber-600 flex items-center gap-1">
+              <div className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+              Unsaved changes
+            </span>
+          )}
+          <Button variant="outline" size="sm" onClick={resetToDefaults}>
+            Reset to Defaults
+          </Button>
+          <Button 
+            onClick={saveSettings} 
+            disabled={isSaving || !hasChanges}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            {isSaving ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Check className="h-4 w-4 mr-2" />
+                Save Settings
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Notification Settings */}
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-t-lg">
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="h-5 w-5 text-blue-600" />
+            Notification Settings
+          </CardTitle>
           <CardDescription>Configure how you receive communications</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">Email Notifications</Label>
-                <p className="text-sm text-gray-600">Receive notifications via email</p>
+        <CardContent className="p-6 space-y-5">
+          <div className="grid gap-5">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-blue-100 rounded-lg">
+                  <Mail className="h-5 w-5 text-blue-600" />
+                </div>
+                <div>
+                  <Label className="text-base font-medium">Email Notifications</Label>
+                  <p className="text-sm text-gray-500">Receive notifications via email</p>
+                </div>
               </div>
               <Switch
                 checked={settings.emailNotifications}
-                onCheckedChange={(checked) => setSettings({ ...settings, emailNotifications: checked })}
+                onCheckedChange={(checked) => updateSetting('emailNotifications', checked)}
               />
             </div>
 
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">Push Notifications</Label>
-                <p className="text-sm text-gray-600">Browser push notifications</p>
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-100 rounded-lg">
+                  <Bell className="h-5 w-5 text-purple-600" />
+                </div>
+                <div>
+                  <Label className="text-base font-medium">Push Notifications</Label>
+                  <p className="text-sm text-gray-500">Browser push notifications</p>
+                </div>
               </div>
-              <Switch
-                checked={settings.pushNotifications}
-                onCheckedChange={(checked) => setSettings({ ...settings, pushNotifications: checked })}
-              />
+              <div className="flex items-center gap-3">
+                <Button size="sm" variant="outline" onClick={testNotification}>
+                  Test
+                </Button>
+                <Switch
+                  checked={settings.pushNotifications}
+                  onCheckedChange={(checked) => updateSetting('pushNotifications', checked)}
+                />
+              </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">SMS Notifications</Label>
-                <p className="text-sm text-gray-600">Text message alerts</p>
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <MessageSquare className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <Label className="text-base font-medium">SMS Notifications</Label>
+                  <p className="text-sm text-gray-500">Text message alerts for urgent items</p>
+                </div>
               </div>
               <Switch
                 checked={settings.smsNotifications}
-                onCheckedChange={(checked) => setSettings({ ...settings, smsNotifications: checked })}
+                onCheckedChange={(checked) => updateSetting('smsNotifications', checked)}
               />
             </div>
 
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">Meeting Reminders</Label>
-                <p className="text-sm text-gray-600">Reminders for scheduled meetings</p>
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-orange-100 rounded-lg">
+                  <Calendar className="h-5 w-5 text-orange-600" />
+                </div>
+                <div>
+                  <Label className="text-base font-medium">Meeting Reminders</Label>
+                  <p className="text-sm text-gray-500">Get reminded before scheduled meetings</p>
+                </div>
               </div>
-              <Switch
-                checked={settings.meetingReminders}
-                onCheckedChange={(checked) => setSettings({ ...settings, meetingReminders: checked })}
-              />
+              <div className="flex items-center gap-3">
+                <select
+                  value={settings.reminderTime}
+                  onChange={(e) => updateSetting('reminderTime', e.target.value)}
+                  className="px-3 py-1.5 text-sm border rounded-lg bg-white"
+                  disabled={!settings.meetingReminders}
+                >
+                  <option value="5">5 min</option>
+                  <option value="10">10 min</option>
+                  <option value="15">15 min</option>
+                  <option value="30">30 min</option>
+                  <option value="60">1 hour</option>
+                </select>
+                <Switch
+                  checked={settings.meetingReminders}
+                  onCheckedChange={(checked) => updateSetting('meetingReminders', checked)}
+                />
+              </div>
             </div>
 
-            <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base">Task Assignments</Label>
-                <p className="text-sm text-gray-600">Notifications for new task assignments</p>
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-100 rounded-lg">
+                  <ClipboardList className="h-5 w-5 text-indigo-600" />
+                </div>
+                <div>
+                  <Label className="text-base font-medium">Task Assignments</Label>
+                  <p className="text-sm text-gray-500">Notifications for new task assignments</p>
+                </div>
               </div>
               <Switch
                 checked={settings.taskAssignments}
-                onCheckedChange={(checked) => setSettings({ ...settings, taskAssignments: checked })}
+                onCheckedChange={(checked) => updateSetting('taskAssignments', checked)}
               />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Privacy Settings</CardTitle>
+      {/* Privacy Settings */}
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-t-lg">
+          <CardTitle className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-green-600" />
+            Privacy Settings
+          </CardTitle>
           <CardDescription>Control your privacy and availability</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
+        <CardContent className="p-6 space-y-5">
+          <div className="grid gap-5">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
               <div>
-                <Label className="text-base">Message Preview</Label>
-                <p className="text-sm text-gray-600">Show message content in notifications</p>
+                <Label className="text-base font-medium">Message Preview</Label>
+                <p className="text-sm text-gray-500">Show message content in notifications</p>
               </div>
               <Switch
                 checked={settings.messagePreview}
-                onCheckedChange={(checked) => setSettings({ ...settings, messagePreview: checked })}
+                onCheckedChange={(checked) => updateSetting('messagePreview', checked)}
               />
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
               <div>
-                <Label className="text-base">Online Status</Label>
-                <p className="text-sm text-gray-600">Show when you're online to others</p>
+                <Label className="text-base font-medium">Online Status</Label>
+                <p className="text-sm text-gray-500">Show when you're online to others</p>
               </div>
               <Switch
                 checked={settings.onlineStatus}
-                onCheckedChange={(checked) => setSettings({ ...settings, onlineStatus: checked })}
+                onCheckedChange={(checked) => updateSetting('onlineStatus', checked)}
               />
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
               <div>
-                <Label className="text-base">Auto-join Meetings</Label>
-                <p className="text-sm text-gray-600">Automatically join scheduled meetings</p>
+                <Label className="text-base font-medium">Read Receipts</Label>
+                <p className="text-sm text-gray-500">Let others know when you've read their messages</p>
               </div>
               <Switch
-                checked={settings.autoJoinMeetings}
-                onCheckedChange={(checked) => setSettings({ ...settings, autoJoinMeetings: checked })}
+                checked={settings.readReceipts}
+                onCheckedChange={(checked) => updateSetting('readReceipts', checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div>
+                <Label className="text-base font-medium">Typing Indicator</Label>
+                <p className="text-sm text-gray-500">Show when you're typing a message</p>
+              </div>
+              <Switch
+                checked={settings.typingIndicator}
+                onCheckedChange={(checked) => updateSetting('typingIndicator', checked)}
               />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
-        <Button>Save Settings</Button>
+      {/* Do Not Disturb */}
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-red-50 to-orange-50 rounded-t-lg">
+          <CardTitle className="flex items-center gap-2">
+            <MoonIcon className="h-5 w-5 text-red-600" />
+            Do Not Disturb
+          </CardTitle>
+          <CardDescription>Set quiet hours when you don't want to be disturbed</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6 space-y-5">
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            <div>
+              <Label className="text-base font-medium">Enable Do Not Disturb</Label>
+              <p className="text-sm text-gray-500">Silence all notifications during set hours</p>
+            </div>
+            <Switch
+              checked={settings.doNotDisturb}
+              onCheckedChange={(checked) => updateSetting('doNotDisturb', checked)}
+            />
+          </div>
+
+          {settings.doNotDisturb && (
+            <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Start Time</Label>
+                <Input
+                  type="time"
+                  value={settings.dndStartTime}
+                  onChange={(e) => updateSetting('dndStartTime', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">End Time</Label>
+                <Input
+                  type="time"
+                  value={settings.dndEndTime}
+                  onChange={(e) => updateSetting('dndEndTime', e.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+            <div>
+              <Label className="text-base font-medium">Allow Urgent Calls</Label>
+              <p className="text-sm text-gray-500">Still receive urgent/emergency calls during DND</p>
+            </div>
+            <Switch
+              checked={settings.allowUrgentCalls}
+              onCheckedChange={(checked) => updateSetting('allowUrgentCalls', checked)}
+              disabled={!settings.doNotDisturb}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Meeting Settings */}
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-t-lg">
+          <CardTitle className="flex items-center gap-2">
+            <Video className="h-5 w-5 text-purple-600" />
+            Meeting Settings
+          </CardTitle>
+          <CardDescription>Configure default meeting behavior</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6 space-y-5">
+          <div className="grid gap-5">
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div>
+                <Label className="text-base font-medium">Auto-join Meetings</Label>
+                <p className="text-sm text-gray-500">Automatically join when meeting starts</p>
+              </div>
+              <Switch
+                checked={settings.autoJoinMeetings}
+                onCheckedChange={(checked) => updateSetting('autoJoinMeetings', checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div>
+                <Label className="text-base font-medium">Mute on Join</Label>
+                <p className="text-sm text-gray-500">Start meetings with microphone muted</p>
+              </div>
+              <Switch
+                checked={settings.muteOnJoin}
+                onCheckedChange={(checked) => updateSetting('muteOnJoin', checked)}
+              />
+            </div>
+
+            <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div>
+                <Label className="text-base font-medium">Camera Off on Join</Label>
+                <p className="text-sm text-gray-500">Start meetings with camera off</p>
+              </div>
+              <Switch
+                checked={settings.cameraOffOnJoin}
+                onCheckedChange={(checked) => updateSetting('cameraOffOnJoin', checked)}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Audio/Video Device Settings */}
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="bg-gradient-to-r from-cyan-50 to-blue-50 rounded-t-lg">
+          <CardTitle className="flex items-center gap-2">
+            <Mic className="h-5 w-5 text-cyan-600" />
+            Audio & Video Devices
+          </CardTitle>
+          <CardDescription>Select your preferred input/output devices</CardDescription>
+        </CardHeader>
+        <CardContent className="p-6 space-y-5">
+          <div className="grid gap-5">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <Mic className="h-4 w-4" />
+                Microphone
+              </Label>
+              <select
+                value={settings.preferredMicrophone}
+                onChange={(e) => updateSetting('preferredMicrophone', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="default">System Default</option>
+                {devices.microphones.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Microphone ${device.deviceId.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <Video className="h-4 w-4" />
+                Camera
+              </Label>
+              <select
+                value={settings.preferredCamera}
+                onChange={(e) => updateSetting('preferredCamera', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="default">System Default</option>
+                {devices.cameras.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Camera ${device.deviceId.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium flex items-center gap-2">
+                <Volume2 className="h-4 w-4" />
+                Speaker
+              </Label>
+              <select
+                value={settings.preferredSpeaker}
+                onChange={(e) => updateSetting('preferredSpeaker', e.target.value)}
+                className="w-full px-3 py-2 border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="default">System Default</option>
+                {devices.speakers.map((device) => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Speaker ${device.deviceId.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="border-t pt-4 mt-2">
+              <h4 className="text-sm font-medium mb-3">Audio Processing</h4>
+              <div className="grid gap-3">
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium">Echo Cancellation</Label>
+                    <p className="text-xs text-gray-500">Reduce echo during calls</p>
+                  </div>
+                  <Switch
+                    checked={settings.echoCancellation}
+                    onCheckedChange={(checked) => updateSetting('echoCancellation', checked)}
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div>
+                    <Label className="text-sm font-medium">Noise Suppression</Label>
+                    <p className="text-xs text-gray-500">Filter background noise</p>
+                  </div>
+                  <Switch
+                    checked={settings.noiseSuppression}
+                    onCheckedChange={(checked) => updateSetting('noiseSuppression', checked)}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Bottom Save Button */}
+      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg sticky bottom-4">
+        <p className="text-sm text-gray-600">
+          {hasChanges ? "You have unsaved changes" : "All changes saved"}
+        </p>
+        <Button 
+          onClick={saveSettings} 
+          disabled={isSaving || !hasChanges}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          {isSaving ? (
+            <>
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Check className="h-4 w-4 mr-2" />
+              Save All Settings
+            </>
+          )}
+        </Button>
       </div>
     </div>
+  )
+}
+
+// Moon icon component
+function MoonIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+    </svg>
   )
 }

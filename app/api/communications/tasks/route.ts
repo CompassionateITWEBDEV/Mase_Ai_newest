@@ -102,24 +102,40 @@ export async function POST(request: NextRequest) {
 
     const { title, description, assignedTo, assignedBy, dueDate, priority } = body
 
-    if (!title || !assignedTo || !assignedBy) {
+    if (!title || !assignedTo) {
       return NextResponse.json(
-        { success: false, error: "Title, assignee, and assigner are required" },
+        { success: false, error: "Title and assignee are required" },
         { status: 400 }
       )
     }
 
+    // Validate assignedTo is a valid UUID
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!uuidRegex.test(assignedTo)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid assignee ID format" },
+        { status: 400 }
+      )
+    }
+
+    // Prepare insert data - assignedBy is optional
+    const insertData: any = {
+      title,
+      description,
+      assigned_to: assignedTo,
+      due_date: dueDate || null,
+      priority: priority || "medium",
+      status: "pending",
+    }
+
+    // Only add assigned_by if it's a valid UUID
+    if (assignedBy && uuidRegex.test(assignedBy)) {
+      insertData.assigned_by = assignedBy
+    }
+
     const { data, error } = await supabase
       .from("task_assignments")
-      .insert({
-        title,
-        description,
-        assigned_to: assignedTo,
-        assigned_by: assignedBy,
-        due_date: dueDate,
-        priority: priority || "medium",
-        status: "pending",
-      })
+      .insert(insertData)
       .select(`
         *,
         assignee:staff!assigned_to(id, name, email),
